@@ -1,0 +1,94 @@
+/* LexNote — design tokens.
+   Direction : papier chaud + encre bleu nuit + laiton. Universitaire, calme, lisible des heures. */
+:root {
+  --font-ui: 'Inter Variable', ui-sans-serif, -apple-system, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+  --font-note: 'Newsreader Variable', 'Iowan Old Style', Charter, Georgia, 'Times New Roman', serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  --r-xs: 4px; --r-sm: 6px; --r-md: 10px; --r-lg: 14px; --r-xl: 20px;
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px; --sp-7: 48px;
+
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --t-fast: 120ms; --t-med: 200ms;
+
+  --sidebar-w: 248px;
+  --panel-w: 340px;
+  --topbar-h: 52px;
+  --measure: 46rem; /* largeur de lecture des notes */
+}
+
+:root, :root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f6f3ec;
+  --bg-sunken: #efebe1;
+  --surface: #fffdf8;
+  --surface-2: #faf7ef;
+  --line: #e4ded0;
+  --line-strong: #d3cbb8;
+  --ink: #1d2236;
+  --ink-2: #4b5168;
+  --ink-3: #7b8095;
+  --accent: #26345f;
+  --accent-ink: #ffffff;
+  --accent-soft: #e6e9f4;
+  --brass: #a07a1c;
+  --brass-soft: #f3e9cc;
+  --danger: #b3342b;
+  --danger-soft: #f8e2df;
+  --ok: #2f7a55;
+  --focus-ring: 0 0 0 3px rgb(38 52 95 / 0.28);
+  --shadow-1: 0 1px 2px rgb(40 30 10 / 0.06), 0 1px 1px rgb(40 30 10 / 0.04);
+  --shadow-2: 0 8px 28px rgb(40 30 10 / 0.12), 0 2px 6px rgb(40 30 10 / 0.06);
+  --scrim: rgb(29 34 54 / 0.38);
+
+  /* blocs juridiques : fond, trait, étiquette */
+  --b-article: #3b5aa8;     --b-article-bg: #eef1fa;
+  --b-caselaw: #7a4a98;     --b-caselaw-bg: #f4eef8;
+  --b-definition: #2d7d78;  --b-definition-bg: #e9f5f3;
+  --b-important: #b07d12;   --b-important-bg: #fbf3dc;
+  --b-example: #4f7a3a;     --b-example-bg: #eff5e9;
+  --b-question: #b4475f;    --b-question-bg: #faebee;
+
+  /* couleurs de matières */
+  --c-indigo: #3d52a1; --c-brass: #a07a1c; --c-teal: #2d7d78; --c-plum: #8a4a98;
+  --c-rust: #b4572f; --c-moss: #5a7a2f; --c-slate: #5a6580; --c-rose: #b4475f;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #12151f;
+  --bg-sunken: #0e1119;
+  --surface: #181c2a;
+  --surface-2: #1d2233;
+  --line: #2a3047;
+  --line-strong: #394060;
+  --ink: #e8e6df;
+  --ink-2: #aeb2c3;
+  --ink-3: #7f859c;
+  --accent: #9fb2ff;
+  --accent-ink: #12151f;
+  --accent-soft: #232b4a;
+  --brass: #d9b558;
+  --brass-soft: #34301f;
+  --danger: #f08a80;
+  --danger-soft: #3a2220;
+  --ok: #6cc596;
+  --focus-ring: 0 0 0 3px rgb(159 178 255 / 0.35);
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-2: 0 10px 34px rgb(0 0 0 / 0.5), 0 2px 8px rgb(0 0 0 / 0.3);
+  --scrim: rgb(5 7 14 / 0.6);
+
+  --b-article: #8fa8ee;     --b-article-bg: #1c2340;
+  --b-caselaw: #c39be0;     --b-caselaw-bg: #2a2038;
+  --b-definition: #6fcbc4;  --b-definition-bg: #17302f;
+  --b-important: #e6bd5c;   --b-important-bg: #332b15;
+  --b-example: #9fcb84;     --b-example-bg: #1f2c19;
+  --b-question: #ee8fa4;    --b-question-bg: #36202a;
+
+  --c-indigo: #8fa3f0; --c-brass: #d9b558; --c-teal: #6fcbc4; --c-plum: #c39be0;
+  --c-rust: #e8946a; --c-moss: #a3c46c; --c-slate: #9aa6c4; --c-rose: #ee8fa4;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --t-fast: 0ms; --t-med: 0ms; }
+}
