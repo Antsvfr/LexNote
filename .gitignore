@@ -147,3 +147,17 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# --- LexNote ---
+node_modules/
+dev-dist/
+test-results/
+playwright-report/
+.vite/
+.DS_Store
+.vscode/
+.idea/
+*.tmp
+*.temp
+.env*
+!.env.example
