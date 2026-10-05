@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Search, FolderTree, Layers, FileText } from 'lucide-react';
+import { Search, FolderTree, Layers, FileText, Mic } from 'lucide-react';
+import { captureManager } from '@/services/capture/manager';
+import type { TranscriptHit } from '@/services/search/transcriptSearch';
+import { formatHMS } from '@/domain/capture';
+import { sessionLabel } from '@/domain/session';
 import { useLibrary } from '@/store/library';
 import { searchService, type SearchHit } from '@/services/search';
 
@@ -31,6 +35,15 @@ export function SearchPage() {
     return () => clearTimeout(t);
   }, [q, setParams]);
 
+  // Transcriptions : index construit à la demande (asynchrone, jamais pendant la frappe d'une note).
+  const [tHits, setTHits] = useState<TranscriptHit[]>([]);
+  useEffect(() => {
+    let live = true;
+    if (!debounced.trim()) { setTHits([]); return; }
+    captureManager.searchTranscripts(debounced).then((h) => live && setTHits(h)).catch(() => live && setTHits([]));
+    return () => { live = false; };
+  }, [debounced]);
+
   const hits: SearchHit[] = useMemo(
     () => searchService.search(debounced, { subjects, modules, sessions }),
     [debounced, subjects, modules, sessions],
@@ -45,11 +58,11 @@ export function SearchPage() {
       </div>
 
       {debounced.trim() && (
-        <p className="muted" style={{ margin: '16px 0 8px' }} aria-live="polite">{hits.length} résultat{hits.length > 1 ? 's' : ''}</p>
+        <p className="muted" style={{ margin: '16px 0 8px' }} aria-live="polite">{hits.length + tHits.length} résultat{hits.length + tHits.length > 1 ? 's' : ''}</p>
       )}
       {!debounced.trim() ? (
         <div className="empty"><strong>Tapez pour rechercher</strong>La recherche porte sur tout le contenu stocké sur cet appareil.</div>
-      ) : hits.length === 0 ? (
+      ) : hits.length === 0 && tHits.length === 0 ? (
         <div className="empty"><strong>Aucun résultat</strong>Essayez avec d’autres mots.</div>
       ) : (
         <ul className="list" data-testid="search-results">
@@ -70,6 +83,32 @@ export function SearchPage() {
             );
           })}
         </ul>
+      )}
+
+      {debounced.trim() && tHits.length > 0 && (
+        <section aria-labelledby="th" style={{ marginTop: 'var(--sp-5)' }}>
+          <h2 id="th" className="section-title"><Mic size={14} aria-hidden /> Dans les transcriptions</h2>
+          <ul className="list" data-testid="transcript-results">
+            {tHits.map((h) => {
+              const cm = sessions.find((x) => x.id === h.sessionId);
+              if (!cm) return null;
+              const subj = subjects.find((x) => x.id === cm.subjectId);
+              const href = `${cm.status === 'completed' ? `/session/${cm.id}/recap` : `/session/${cm.id}`}?t=${Math.round(h.startMs)}`;
+              return (
+                <li key={h.segmentId} className="srow">
+                  <Link to={href} className="srow__main" data-testid="transcript-hit">
+                    <span className="srow__icon"><Mic size={16} /></span>
+                    <span className="srow__text">
+                      <span className="srow__title"><Highlight text={h.snippet} query={debounced} /></span>
+                      <span className="srow__meta">{sessionLabel(cm)}{subj ? ` · ${subj.name}` : ''} · à {formatHMS(h.startMs)}</span>
+                    </span>
+                    <span className="tag">Transcription</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
       )}
     </div>
   );

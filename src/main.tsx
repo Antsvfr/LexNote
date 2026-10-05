@@ -9,6 +9,7 @@ import './styles/ui.css';
 import './styles/layout.css';
 import './styles/pages.css';
 import './styles/editor.css';
+import './styles/capture.css';
 import { App } from './App';
 import { bootstrap } from './bootstrap';
 

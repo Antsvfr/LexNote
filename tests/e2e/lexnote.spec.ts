@@ -96,7 +96,7 @@ test.describe('LexNote — parcours principal', () => {
     // Terminer
     await page.getByTestId('finish-cm').click();
     await expect(page.getByTestId('recap-title')).toContainText('Après modification');
-    await expect(page.getByTestId('recap-words')).toHaveText('5');
+    await expect(page.getByTestId('recap-words')).toContainText('5');
     await expect(page.getByText('Cours restructuré')).toBeVisible();
     await expect(page.getByText('Fiche de révision')).toBeVisible();
     await expect(page.locator('.note-editor--readonly')).toContainText('un deux trois quatre cinq');

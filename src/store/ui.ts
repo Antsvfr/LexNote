@@ -34,11 +34,19 @@ interface UIState {
   assistantOpen: boolean;
   paletteOpen: boolean;
   newCm: NewCmPreset | null;
+  /** Onglet du panneau latéral de l'éditeur. */
+  sideTab: 'transcript' | 'assistant';
+  /** Mode Focus : contrôles de transcription flottants (le panneau est masqué). */
+  recPopover: boolean;
 
   setTheme(t: ThemePref): void;
   setFocus(v: boolean): void;
   toggleAssistant(): void;
   setPalette(v: boolean): void;
+  setSideTab(t: 'transcript' | 'assistant'): void;
+  /** Ouvre le panneau Transcription (ou, en mode Focus, les contrôles flottants). */
+  openTranscript(): void;
+  setRecPopover(v: boolean): void;
   openNewCm(preset?: NewCmPreset): void;
   closeNewCm(): void;
 }
@@ -49,6 +57,8 @@ export const useUI = create<UIState>((set, get) => ({
   assistantOpen: read('lexnote.assistantOpen', true),
   paletteOpen: false,
   newCm: null,
+  sideTab: 'transcript',
+  recPopover: false,
 
   setTheme: (theme) => {
     write('lexnote.theme', theme);
@@ -62,6 +72,13 @@ export const useUI = create<UIState>((set, get) => ({
     set({ assistantOpen });
   },
   setPalette: (paletteOpen) => set({ paletteOpen }),
+  setSideTab: (sideTab) => set({ sideTab }),
+  openTranscript: () => {
+    if (get().focus) return set((s) => ({ recPopover: !s.recPopover }));
+    write('lexnote.assistantOpen', true);
+    set({ assistantOpen: true, sideTab: 'transcript' });
+  },
+  setRecPopover: (recPopover) => set({ recPopover }),
   openNewCm: (preset = {}) => set({ newCm: preset }),
   closeNewCm: () => set({ newCm: null }),
 }));

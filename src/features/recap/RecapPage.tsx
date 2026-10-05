@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { Link, Navigate, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { EditorContent, useEditor } from '@tiptap/react';
 import { BookMarked, FileText, Layers, ListChecks, Pencil, Scale, Sparkles, HelpCircle, Layers3 } from 'lucide-react';
 import { useLibrary } from '@/store/library';
@@ -8,7 +8,12 @@ import { formatDateLong, formatDuration } from '@/lib/dates';
 import { sessionLabel } from '@/domain/session';
 import { buildExtensions } from '@/features/editor/extensions';
 import { SubjectDot } from '@/components/SubjectDot';
-import { useState } from 'react';
+import { useCapture } from '@/store/capture';
+import { captureManager } from '@/services/capture/manager';
+import { formatHMS, segmentsWordCount, type NoteAnchor } from '@/domain/capture';
+import { TranscriptPanel } from '@/features/capture/TranscriptPanel';
+import { LiveTimeline } from '@/features/capture/Timeline';
+import { MiniPlayer } from '@/features/capture/MiniPlayer';
 
 const FUTURE = [
   { icon: Layers, label: 'Cours restructuré', hint: 'Notes, transcription et supports fusionnés en un plan clair' },
@@ -28,6 +33,22 @@ export function RecapPage() {
   const { subjectById, moduleById } = useLookups();
   const [content, setContent] = useState<unknown>(undefined);
   const [loaded, setLoaded] = useState(false);
+  const [params] = useSearchParams();
+  const tParam = params.get('t');
+  const [tab, setTab] = useState<'notes' | 'transcript' | 'timeline'>(tParam !== null ? 'transcript' : 'notes');
+  const segments = useCapture((c) => c.segments);
+  const markers = useCapture((c) => c.markers);
+  const interruptions = useCapture((c) => c.interruptions);
+  const chunks = useCapture((c) => c.chunks);
+  const captureLoaded = useCapture((c) => c.loaded);
+  const [anchors, setAnchors] = useState<NoteAnchor[]>([]);
+  const [seek, setSeek] = useState<{ ms: number | null; nonce: number }>({ ms: null, nonce: 0 });
+
+  useEffect(() => {
+    if (!sessionId) return;
+    const focusMs = tParam !== null && Number.isFinite(Number(tParam)) ? Number(tParam) : null;
+    void captureManager.open(sessionId, focusMs).then(() => captureManager.getStorage().listAnchors(sessionId)).then(setAnchors).catch(() => undefined);
+  }, [sessionId, tParam]);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -38,6 +59,12 @@ export function RecapPage() {
   useEffect(() => {
     if (editor && loaded) editor.commands.setContent((content as object) ?? '', { emitUpdate: false });
   }, [editor, loaded, content]);
+
+  const audioMs = useMemo(() => {
+    const live = chunks.filter((c) => c.status === 'stored').reduce((n, c) => n + c.durationMs, 0);
+    return live || (session?.captureSummary?.audioMs ?? 0);
+  }, [chunks, session?.captureSummary]);
+  const tWords = useMemo(() => (segments.length ? segmentsWordCount(segments) : session?.captureSummary?.transcriptWords ?? 0), [segments, session?.captureSummary]);
 
   if (ready && !session) return <Navigate to="/" replace />;
   if (!session) return null;
@@ -59,19 +86,67 @@ export function RecapPage() {
         </Link>
       </header>
 
+      <p className="recap-meta">
+        {subject && <SubjectDot color={subject.color} />} {subject?.name ?? '—'} · {formatDateLong(session.date)}
+      </p>
+
       <dl className="figures figures--recap" aria-label="Récapitulatif">
-        <div><dt>Matière</dt><dd className="figures__text">{subject && <SubjectDot color={subject.color} />} {subject?.name ?? '—'}</dd></div>
-        <div><dt>Date</dt><dd className="figures__text">{formatDateLong(session.date)}</dd></div>
-        <div><dt>Durée</dt><dd data-testid="recap-duration">{formatDuration(session.durationSec)}</dd></div>
-        <div><dt>Mots</dt><dd data-testid="recap-words">{session.wordCount.toLocaleString('fr-FR')}</dd></div>
+        <div><dt>Durée du CM</dt><dd data-testid="recap-duration">{formatDuration(session.durationSec)}</dd></div>
+        <div><dt>Audio</dt><dd data-testid="recap-audio">{audioMs > 0 ? formatDuration(audioMs / 1000) : '—'}</dd></div>
+        <div><dt>Notes</dt><dd data-testid="recap-words">{session.wordCount.toLocaleString('fr-FR')}<small> mots</small></dd></div>
+        <div><dt>Transcription</dt><dd data-testid="recap-twords">{tWords > 0 ? tWords.toLocaleString('fr-FR') : '—'}{tWords > 0 && <small> mots</small>}</dd></div>
+        <div><dt>Marqueurs</dt><dd data-testid="recap-markers">{markers.length}</dd></div>
+        <div><dt>Interruptions</dt><dd data-testid="recap-interruptions">{interruptions.length}</dd></div>
       </dl>
 
       <div className="recap-grid">
-        <section aria-labelledby="notes-h">
-          <h2 id="notes-h" className="section-title">Notes</h2>
-          <div className="note-editor note-editor--readonly">
-            {session.wordCount === 0 ? <p className="muted">Aucune note pour ce CM.</p> : <EditorContent editor={editor} />}
+        <section aria-label="Contenu du CM">
+          <div className="seg recap-tabs" role="tablist">
+            {([['notes', 'Notes'], ['transcript', 'Transcription'], ['timeline', 'Timeline']] as const).map(([id, label]) => (
+              <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? 'is-on' : ''} onClick={() => setTab(id)} data-testid={`recap-tab-${id}`}>{label}</button>
+            ))}
           </div>
+
+          {tab === 'notes' && (
+            <div className="note-editor note-editor--readonly">
+              {session.wordCount === 0 ? <p className="muted">Aucune note pour ce CM.</p> : <EditorContent editor={editor} />}
+            </div>
+          )}
+
+          {tab === 'transcript' && (
+            <div className="recap-transcript">
+              {captureLoaded && segments.length === 0 && !chunks.length
+                ? <p className="muted">Ce CM n’a pas de transcription.</p>
+                : <TranscriptPanel sessionId={session.id} variant="review" />}
+            </div>
+          )}
+
+          {tab === 'timeline' && (
+            <div className="recap-timeline">
+              <LiveTimeline size="full" withAnchors={anchors} onSeek={(ms) => setSeek((p) => ({ ms, nonce: p.nonce + 1 }))} />
+              {markers.length + interruptions.length === 0 && <p className="muted">Aucun marqueur ni interruption.</p>}
+              {markers.length > 0 && (
+                <>
+                  <h3 className="section-title" style={{ marginTop: 20 }}>Marqueurs</h3>
+                  <ul className="list">{markers.map((m) => (
+                    <li key={m.id} className="srow"><button className="srow__main" onClick={() => { setTab('transcript'); useCapture.setState({ focusMs: m.atMs }); }}>
+                      <span className="srow__icon">⭐</span><span className="srow__text"><span className="srow__title">{formatHMS(m.atMs)}</span>
+                        <span className="srow__meta">{m.reasons.join(' · ') || 'sans motif'}{m.note ? ` — ${m.note}` : ''}</span></span></button></li>
+                  ))}</ul>
+                </>
+              )}
+              {interruptions.length > 0 && (
+                <>
+                  <h3 className="section-title" style={{ marginTop: 20 }}>Interruptions</h3>
+                  <ul className="list">{interruptions.map((i) => (
+                    <li key={i.id} className="srow"><div className="srow__main"><span className="srow__icon">⚠️</span><span className="srow__text">
+                      <span className="srow__title">{formatHMS(i.atMs)} · {i.kind}</span><span className="srow__meta">{i.message}{i.resolvedAtMs !== undefined ? ' — reprise' : ''}</span></span></div></li>
+                  ))}</ul>
+                </>
+              )}
+              {chunks.some((c) => c.status === 'stored') && <MiniPlayer sessionId={session.id} startAtMs={seek.ms} nonce={seek.nonce} chunkCount={chunks.length} />}
+            </div>
+          )}
         </section>
 
         <aside aria-labelledby="next-h">

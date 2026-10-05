@@ -3,6 +3,8 @@ import type { Editor } from '@tiptap/core';
 import { Mic, ShieldCheck, Sparkles, FileUp } from 'lucide-react';
 import { AI_COMMANDS } from '@/services/ai';
 import { PROVENANCE_LABELS, VERIFICATION_LABELS } from '@/domain/legal';
+import { useUI } from '@/store/ui';
+import { TranscriptPanel } from '@/features/capture/TranscriptPanel';
 
 interface Heading { level: number; text: string; pos: number }
 
@@ -30,10 +32,10 @@ function useOutline(editor: Editor): Heading[] {
  * Panneau secondaire. En V1 : plan du CM (fonctionnel) + emplacements honnêtes
  * des fonctions à venir. Rien ici ne simule de résultat.
  */
-export function AssistantPanel({ editor }: { editor: Editor }) {
+function AssistantContent({ editor }: { editor: Editor }) {
   const outline = useOutline(editor);
   return (
-    <aside className="assistant" aria-label="Assistant LexNote">
+    <div className="assistant">
       <section>
         <h2 className="assistant__h">Plan du CM</h2>
         {outline.length === 0 ? (
@@ -62,7 +64,7 @@ export function AssistantPanel({ editor }: { editor: Editor }) {
       <section>
         <h2 className="assistant__h">À venir</h2>
         <ul className="assistant__soon">
-          <li><Mic size={14} aria-hidden /> Transcription du cours <span className="tag tag--soon">Bientôt</span></li>
+          <li><Mic size={14} aria-hidden /> Transcription du cours <span className="tag tag--ok">Disponible</span></li>
           <li><FileUp size={14} aria-hidden /> Supports PDF / PowerPoint <span className="tag tag--soon">Bientôt</span></li>
         </ul>
       </section>
@@ -76,9 +78,26 @@ export function AssistantPanel({ editor }: { editor: Editor }) {
           {Object.values(VERIFICATION_LABELS).map((l) => <span key={l} className="tag">{l}</span>)}
         </p>
         <p className="assistant__legend">
-          {['PROFESSOR', 'USER_NOTE', 'DOCUMENT', 'AI'].map((k) => <span key={k} className="tag">{PROVENANCE_LABELS[k as keyof typeof PROVENANCE_LABELS]}</span>)}
+          {['PROFESSOR', 'USER_NOTE', 'DOCUMENT', 'TRANSCRIPTION', 'AI'].map((k) => <span key={k} className="tag">{PROVENANCE_LABELS[k as keyof typeof PROVENANCE_LABELS]}</span>)}
         </p>
       </section>
+    </div>
+  );
+}
+
+/** Panneau latéral : Transcription (direct) et Assistant (à venir). */
+export function SidePanel({ editor, sessionId }: { editor: Editor; sessionId: string }) {
+  const tab = useUI((s) => s.sideTab);
+  const setTab = useUI((s) => s.setSideTab);
+  return (
+    <aside className="sidepanel" aria-label="Panneau latéral">
+      <div className="sidepanel__tabs" role="tablist">
+        <button role="tab" aria-selected={tab === 'transcript'} className={tab === 'transcript' ? 'is-on' : ''} onClick={() => setTab('transcript')} data-testid="tab-transcript"><Mic size={14} aria-hidden /> Transcription</button>
+        <button role="tab" aria-selected={tab === 'assistant'} className={tab === 'assistant' ? 'is-on' : ''} onClick={() => setTab('assistant')}><Sparkles size={14} aria-hidden /> Assistant</button>
+      </div>
+      <div className="sidepanel__body">
+        {tab === 'transcript' ? <TranscriptPanel sessionId={sessionId} /> : <AssistantContent editor={editor} />}
+      </div>
     </aside>
   );
 }

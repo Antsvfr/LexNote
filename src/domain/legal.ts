@@ -12,6 +12,7 @@ export type Provenance =
   | 'PROFESSOR' // dit par le professeur (cours, transcription)
   | 'USER_NOTE' // écrit par l'étudiant
   | 'DOCUMENT' // extrait d'un support importé (PDF/PPT)
+  | 'TRANSCRIPTION' // entendu par un moteur de transcription (≠ vérifié)
   | 'AI' // produit ou ajouté par une IA
   | 'VERIFIED_SOURCE' // issu d'une source officielle vérifiée (Légifrance, etc.)
   | 'UNKNOWN';
@@ -22,6 +23,7 @@ export const PROVENANCE_LABELS: Record<Provenance, string> = {
   PROFESSOR: 'Professeur',
   USER_NOTE: 'Mes notes',
   DOCUMENT: 'Document',
+  TRANSCRIPTION: 'Transcription',
   AI: 'IA',
   VERIFIED_SOURCE: 'Source vérifiée',
   UNKNOWN: 'Inconnue',
@@ -112,8 +114,11 @@ export type LegalItem =
 
 export type LegalItemKind = LegalItem['kind'];
 
-/** Provenances qui ne peuvent jamais, à elles seules, valider une information. */
-const SELF_ASSERTED: ReadonlySet<Provenance> = new Set(['AI', 'UNKNOWN']);
+/**
+ * Provenances qui ne peuvent jamais, à elles seules, valider une information.
+ * TRANSCRIPTION : le moteur a *entendu* « article 1128 » ; cela ne prouve pas que l'article existe ni qu'il dit cela.
+ */
+const SELF_ASSERTED: ReadonlySet<Provenance> = new Set(['AI', 'UNKNOWN', 'TRANSCRIPTION']);
 
 /**
  * Applique la règle d'or : une information issue de l'IA (ou d'origine

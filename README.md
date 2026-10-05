@@ -59,8 +59,10 @@ Stores (store/)  ── library (matières, modules, CM) · ui · toasts · edit
 Services (services/)
    ├─ storage/        StorageAdapter  → IndexedDbAdapter · MemoryAdapter · (futur CloudAdapter)
    ├─ sync/           SyncEngine      → no-op en V1 (aucune donnée ne quitte l'appareil)
-   ├─ ai/             AIProvider      → NullProvider en V1 (refuse proprement)
-   ├─ transcription/  TranscriptionProvider → NullTranscription
+   ├─ ai/             AIProvider      → NullProvider (refuse proprement)
+   ├─ transcription/  TranscriptionProvider → WebSpeech · Whisper (API compatible OpenAI)
+   ├─ capture/        CaptureController · ChunkedRecorder · CaptureStorage (base séparée) · manager
+   ├─ course/         buildCourseContext() → CourseContext (entrée du futur moteur IA)
    ├─ documents/      DocumentImporter (PDF / PPT, à venir)
    └─ search/         SearchProvider  → TextSearchProvider (futur SemanticSearchProvider)
    ▲
@@ -115,54 +117,114 @@ Dans `src/domain/legal.ts` :
 - **Règle codée et testée** : une information de provenance `AI` ou `UNKNOWN` **ne peut jamais être créée « Verified »** (`resolveInitialVerification`) ni être considérée fiable seule (`isTrusted`). Les blocs de l'éditeur portent déjà `provenance` et `verification` ; tout futur bloc IA sera rendu en pointillés et étiqueté.
 - Toute sortie IA (`AIResult`) est typée `provenance: 'AI'`, `verification: 'UNVERIFIED'`, avec le modèle utilisé.
 
+## Transcription (V2)
+
+Pendant un CM : **🎙 Transcription** → avertissement (première utilisation) → autorisation du micro → `● REC 01:23:42` avec Pause / Reprendre / Arrêter, ⭐ Marquer, panneau de transcription en direct, timeline, réécoute. **Les notes restent prioritaires** : la capture vit hors de l'éditeur (contrôleur indépendant, base IndexedDB séparée `lexnote-capture`), toute panne y devient un état `ERROR` + une interruption consignée, jamais une exception vers les notes.
+
+États : `INACTIVE · REQUESTING_PERMISSION · STARTING · RECORDING · PAUSED · PROCESSING · ERROR · COMPLETED`.
+
+### Architecture audio
+```
+CourseSession ─ AudioSession (origine, runs, mime, débit)
+                 ├─ RecordingRun[]  (portions continues ; pause/interruption = trou visible)
+                 └─ AudioChunk 001…N (id, sessionId, sequence, runId, startMs, endMs, durationMs, mimeType, size, createdAt, status)
+TranscriptSegment (id, sessionId, startMs, endMs, text, confidence?, provider, status, createdAt, source=TRANSCRIPTION)
+TimelineMarker · Interruption · NoteAnchor
+```
+- **Segments de 30 s autonomes** : un `MediaRecorder` neuf démarre *avant* l'arrêt du précédent (aucun trou). Un flux `timeslice` n'aurait pas été relisible/transcriptible par morceaux (seul le premier fragment a l'en-tête). 30 s = fenêtre native de Whisper, perte maximale en cas de crash = 1 segment, ≈ 120 Ko/segment (Opus 32 kbit/s ≈ 14 Mo/heure, ≈ 43 Mo pour 3 h).
+- Format : `audio/webm;codecs=opus` (Chrome/Firefox), repli `audio/mp4` (Safari).
+- **Horloge du CM** : ms depuis le premier démarrage (horloge murale) ; la durée « REC » additionne les runs.
+- Micro **coupé réellement** en pause (pistes arrêtées, ré-acquises à la reprise). Verrou d'écran (`wakeLock`) tenté pendant l'enregistrement.
+
+### Notes ↔ transcription (NoteAnchor)
+Quand l'étudiant écrit pendant un enregistrement, une **ancre** est enregistrée dans les métadonnées à chaque pause d'écriture (1,5 s) ou au plus toutes les 10 s : `{ timestamp, notePosition, textSnippet, nearbyTranscriptSegmentIds }`. Aucun horodatage n'est écrit dans le texte. Les segments « proches » sont recalculés à l'arrêt (le moteur livre ses phrases avec retard). Limite : `notePosition` peut dériver si le texte *avant* est modifié ensuite ; `textSnippet` permet de relocaliser.
+
+### Marqueurs et timeline
+⭐ (`Ctrl/⌘+Alt+S`) crée un marqueur **instantanément** ; « Pourquoi ? » (Examen · Important · À revoir · Exemple · + Note) est facultatif et se ferme seul. La timeline montre runs, pauses (hachuré), interruptions (rouge), marqueurs ; en détail (récap) : densité des notes, clic = réécoute. Raccourcis : `Ctrl/⌘+Alt+R` démarrer/pause/reprise. Ils ont été choisis après examen des conflits connus : `Ctrl/⌘+Maj+R` recharge la page (Chrome/Firefox) ou ouvre le mode Lecture (Safari), `Ctrl/⌘+Maj+M` change de profil (Chrome) / mode responsive (Firefox). Vérification faite de mémoire, pas exhaustive sur tous les navigateurs/OS.
+
+### Transcription Providers
+Interface `TranscriptionProvider` : `initialize · start · processAudioChunk · pause · resume · stop · dispose · getStatus` (+ `mode: live|chunk`, `privacyNote()`, `availability()`). L'UI ne connaît aucun moteur.
+
+| Moteur | Mode | État | Confidentialité |
+|---|---|---|---|
+| **Reconnaissance vocale du navigateur** (Web Speech) | live | ✅ implémenté ; Chrome/Safari, pas Firefox | Chrome : audio envoyé aux serveurs Google (sauf traitement local si le navigateur l'annonce) ; Safari : Apple |
+| **Whisper, API compatible OpenAI** | chunk | ✅ implémenté, **aucune clé fournie** | API OpenAI = cloud (votre clé) ; **serveur Whisper local** (whisper.cpp server, faster-whisper-server…) = rien ne quitte le Mac |
+| Whisper WASM/WebGPU dans le navigateur | chunk | ❌ prévu (même interface) | 100 % local |
+
+**Choix du moteur par défaut (analyse, non benchmarkée ici)** : Web Speech est le seul moteur réellement utilisable sans clé ni téléchargement, en continu, en français, sur Chrome/Safari ; sa transcription est cependant cloud, non garantie en continuité (le navigateur coupe la session, relancée automatiquement) et absente de Firefox. Whisper local dans le navigateur (transformers.js/WebGPU) est la cible idéale (offline, privé) mais impose un modèle de 40–250 Mo, WebGPU encore inégal sur Safari/Firefox et n'a pas pu être validé ici ; il n'est donc pas livré. Le moteur « API compatible » couvre dès maintenant le besoin *local et privé* via un serveur Whisper sur le Mac. Sans moteur disponible : **audio seul**, rien n'est simulé.
+**À connecter pour aller plus loin** : (1) Réglages › Transcription › *API Whisper* : adresse + clé éventuelle (stockée dans le `localStorage` de ce navigateur, jamais dans le code) ; (2) pour l'API OpenAI, le CORS du navigateur doit être autorisé côté serveur/proxy ; (3) pour Whisper local : lancer un serveur compatible avec CORS activé.
+
+### Stockage local
+Base **séparée** `lexnote-capture` : `audioSessions, chunks (métadonnées), chunkData (ArrayBuffer), segments, markers, anchors, interruptions`. Audio en `ArrayBuffer` (et non `Blob`) pour un comportement identique sur Chrome/Firefox/Safari. Une saturation du quota ne peut donc pas faire échouer une écriture de notes.
+- **Contrôle** : `navigator.storage.estimate()` à chaque segment ; `Audio enregistré : 214 Mo · Espace disponible : …` dans le panneau et les Réglages. < 300 Mo libres (ou > 85 %) : avertissement. < 50 Mo ou `QuotaExceededError` : **l'audio cesse d'être conservé** (interruption « Stockage » consignée), la transcription texte et les notes continuent.
+- `navigator.storage.persist()` demandé au démarrage ; Réglages › **Stockage audio** : audio par CM, suppression de l'audio seul (transcription conservée).
+- Eviction : sans stockage persistant, le navigateur peut effacer les données sous pression (Safari purge agressivement après ~7 j sans usage hors PWA installée). Exportez régulièrement. Quotas typiques (non vérifiés ici) : Chrome ≈ 60 % du disque, Safari/Firefox plus restrictifs ; l'estimation est exposée quand l'API existe, sinon « inconnu ».
+- Suppression d'un CM / matière / module / démo / « tout effacer » → suppression de l'audio, de la transcription, des marqueurs et des ancrages. L'export JSON inclut transcriptions, marqueurs, ancrages (pas les fichiers audio).
+
+### Permissions
+Le micro n'est jamais demandé avant un clic. Première utilisation : avertissement (autorisation du professeur, règlement, droit applicable) → *Annuler* / *J'ai l'autorisation — continuer*. Refus : message explicite, notes intactes. Réafficher l'avertissement : Réglages.
+
+### Interruptions et reprise
+Micro refusé/absent/débranché, `MediaRecorder` tombé, moteur HS, réseau perdu, mise en veille (saut d'horloge détecté), stockage plein, segment vide/corrompu, **fermeture accidentelle** : tout ce qui est valide est conservé, l'incident est consigné (visible sur la timeline) et **Reprendre la transcription** ouvre un nouveau run sur la même horloge. À la réouverture après fermeture brutale, le run orphelin est refermé au dernier segment connu (perte ≤ 30 s d'audio ; segments de texte flushés chaque seconde).
+
+### Fonctionnement hors ligne
+Notes, enregistrement audio, marqueurs, timeline, réécoute et recherche fonctionnent hors ligne. La transcription dépend du moteur : Web Speech (cloud) et API distante **ne fonctionnent pas** sans réseau (l'audio continue d'être enregistré ; le moteur par chunks peut retranscrire ensuite : « Réessayer ») ; un serveur Whisper local fonctionne hors ligne.
+
+### Mise en veille, arrière-plan
+Chrome exempte en général les onglets qui capturent le micro du bridage des minuteurs, mais ce n'est pas garanti sur tous les navigateurs : LexNote détecte les trous d'horloge. À la mise en veille de macOS, l'enregistrement est suspendu : au réveil une interruption « Veille » est consignée et l'enregistrement reprend si le micro est toujours actif, sinon passe en erreur reprenable. Le verrou d'écran empêche la mise en veille *écran* tant que l'enregistrement tourne (non garanti sur tous les navigateurs). **Ne fermez pas la fenêtre** : un `beforeunload` vous prévient.
+
+### Provenance
+Les segments sont `source: TRANSCRIPTION`, `verification: UNVERIFIED` — toujours. « Article 1128 du Code civil » entendu par le moteur n'est **jamais** une source vérifiée (`isTrusted` = faux ; testé).
+
+### CourseContext (préparation de l'étape IA)
+`buildCourseContext(sessionId)` → `{ session, notes, transcript, markers, noteAnchors, interruptions, audio, documents, sources }`. Les trois sources (**notes / transcription / support du professeur**) restent séparées et étiquetées par provenance. `documents` est vide : l'import PDF/PowerPoint/Word/images est préparé (`SourceDocument`, `DocumentImporter`, `DocumentSource`) mais non implémenté.
+
+### Compatibilité navigateurs
+| | Chromium | Firefox | Safari / WebKit |
+|---|---|---|---|
+| App, notes, PWA | ✅ testé (Playwright, Chromium) | ⚠️ **non testé ici** | ⚠️ **non testé ici** |
+| Enregistrement audio | ✅ testé avec micro simulé | attendu (webm/opus) — non testé | attendu (mp4/aac) ; IndexedDB/Blob/ArrayBuffer à valider |
+| Web Speech | ✅ API présente (testée avec un faux moteur, pas de vraie voix) | ❌ API absente → audio seul / Whisper | ⚠️ `webkitSpeechRecognition` ; cohabitation micro + reconnaissance non vérifiée |
+
+Les binaires Firefox/WebKit ne sont pas téléchargeables dans l'environnement de développement (CDN bloqué, HTTP 403). La config Playwright prévoit `ALL_BROWSERS=1 npx playwright test` (Firefox + WebKit Playwright) à lancer sur une machine disposant des navigateurs ; **WebKit Playwright ne vaut pas Safari réel**.
+
 ## Fonctionnalités actuelles (implémentées et testées)
 
-- Navigation : Accueil, Mes matières, Mes CM, Recherche, Réglages ; barre d'onglets sur mobile.
-- Accueil : reprise du dernier CM, « CM suivant », chiffres clés, cours récents, matières, recherche.
-- Matières → modules → CM : créer, renommer, supprimer (suppression en cascade, avec confirmation) ; numérotation automatique « CM 04 ».
-- **Éditeur de CM** : texte, H1/H2/H3, gras, italique, souligné, listes, listes numérotées, citations, séparateurs, liens, annuler/rétablir, retrait (Tab / Maj+Tab, imbrication des listes), raccourcis clavier.
-- **Blocs LexNote** : ⚖️ Article, 📚 Jurisprudence, 💡 Définition, ⭐ Important, 🧑‍🏫 Exemple du professeur, ❓ Question / à vérifier (`Ctrl/⌘ + Alt + A/J/D/I/E/Q`, barre d'actions, palette ; *Entrée* sur une ligne vide en fin de bloc pour en sortir).
-- **Palette de commandes** `Ctrl/⌘ + K` : navigation, blocs, mise en forme, accès rapide aux CM.
-- **Mode Focus** : barre réduite, éditeur agrandi, `Échap` pour quitter.
-- **Autosave** local (« Enregistrement… » → « ✓ Enregistré »), chrono de prise de notes (pause possible), plan du CM cliquable.
-- **Terminer le CM** → récapitulatif (titre, matière, date, durée, mots, notes).
-- **Recherche globale** (accents/casse ignorés) : matières, modules, titres, contenu des notes.
-- Thème clair / sombre / système, responsive (desktop → tablette → mobile), PWA installable et hors-ligne, export JSON, données de démonstration supprimables.
+Toute la V1, plus : transcription (Web Speech et Whisper par API/serveur local), segmentation audio, stockage audio contrôlé, marqueurs, timeline, ancrages notes↔transcription, réécoute (-10 s / ▶ / +10 s), reprise après interruption, mode Focus avec pastille REC, fin de CM avec récapitulatif complet (durée, audio, mots notes/transcription, marqueurs, interruptions + onglets Notes/Transcription/Timeline), recherche dans les transcriptions (ouvre le CM au bon passage), suppression en cascade, `CourseContext`.
 
 ## Préparé mais NON implémenté
+IA (résumé, restructuration, fiches, flashcards, quiz, vérification des articles/jurisprudence, assistant) · Whisper WASM/WebGPU · import de documents · synchronisation cloud/comptes · recherche sémantique · édition manuelle de la transcription.
 
-Ces éléments ont une interface, un type ou un emplacement visuel — **aucun ne produit de résultat** :
-
-- **IA** : `AIProvider`/`aiService` (fournisseur `NullProvider`), catalogue des commandes (Reformuler, Expliquer, Résumer, Développer, Corriger, Vérifier juridiquement) affiché *désactivé « Bientôt »* dans la palette et le panneau.
-- **Transcription** : `TranscriptionProvider`, type `Transcript`, `AudioRef` (avec consentement), bouton 🎙 désactivé.
-- **Documents** : `DocumentImporter`, `DocumentRef`, bouton « Document » désactivé.
-- **Sorties de CM** (cours restructuré, résumé, fiche, articles, jurisprudences, flashcards, questions) : emplacements grisés dans le récapitulatif ; champs prévus dans `CourseSession`.
-- **Synchronisation / comptes** : `SyncEngine` (no-op), hook après chaque commit local.
-- **Recherche sémantique** : interface `SearchProvider`.
-- Éléments juridiques structurés (`legalItems`) : types définis, non extraits automatiquement.
+## Limites connues
+- Pas de vraie voix testée : Web Speech testé avec un faux moteur ; micro = bip simulé par Chromium.
+- Pas de niveau sonore affiché : un micro muet n'est pas détecté.
+- Une seule capture active à la fois ; pas de gestion multi-onglets.
+- Perte maximale de 30 s d'audio sur crash brutal ; la transcription Web Speech non encore « finale » à cet instant est perdue.
+- Les segments d'un moteur par chunks arrivent en différé (≥ 30 s).
+- La fenêtre de transcription affiche les 300 derniers passages ; les précédents se chargent par paliers.
+- Safari/Firefox non testés (voir ci-dessus) ; l'installation PWA elle-même (geste) reste non testée.
 
 ## Principes de confidentialité
 
 - Les notes restent **sur l'appareil** (IndexedDB). Aucun upload, aucune télémétrie, aucune police ou ressource tierce.
 - Toute synchronisation future sera **facultative et explicite**.
-- Aucun enregistrement audio sans consentement explicite (`AudioRef.consentGivenAt`).
+- Aucun enregistrement sans action explicite ; l'indicateur REC est toujours visible ; l'audio reste local. Selon le moteur, la *reconnaissance* peut être distante : c'est indiqué dans le panneau.
 
-## Vérifications effectuées (V1)
+## Vérifications effectuées (V2)
 
-- `npm run typecheck`, `npm run build` : OK.
-- Tests unitaires (Vitest) : contrat de stockage (mémoire **et** IndexedDB, dont fermeture/réouverture de la base), CRUD et cascade de suppression, calcul mots/extrait, suppression de la démo, recherche, règles de fiabilité juridique, debounce, dates/textes.
-- Tests e2e (Playwright, Chromium) : création matière/module/CM, modification du titre, écriture, blocs (barre, palette, raccourcis), **persistance après rechargement**, sortie rapide sans perte, mode Focus, Terminer le CM, suppression (CM, matière, démo), recherche, thème, commandes IA désactivées, mobile/tablette (pas de défilement horizontal), PWA (manifest, icônes, service worker actif, **navigation hors ligne**), et **aucune erreur console** sur les parcours testés.
-- Mesure de performance (Chromium headless, document de ~78 000 mots) : ouverture ≈ 0,6 s ; latence de frappe médiane ≈ 14 ms (une image), p95 ≈ 19 ms, autosave activé.
+- `npm run typecheck`, `npm run build` : OK. **122 tests unitaires** (V1 : 35) · **28 tests e2e Chromium** (V1 : 13) : tous passent sur un build neuf (`REUSE_SERVER` n'est plus activé par défaut, pour ne jamais tester un build périmé).
+- Couverts : permission/refus, démarrage, pause, reprise, arrêt, segments audio et timestamps, stockage (mémoire **et** IndexedDB, réouverture), quotas, segments de transcription, providers (Web Speech et API Whisper avec faux moteur/serveur), marqueurs, NoteAnchor, recherche dans les transcriptions, réécoute, interruptions (micro débranché, recorder tombé, veille, réseau, moteur HS, stockage plein, segment corrompu, fermeture brutale), erreur provider avec reprise, mode Focus, fin de CM, suppression d'un CM et de ses données audio, absence de perte de notes, `CourseContext`, non-régression V1, PWA hors ligne, console sans erreur.
+- **Performance** (Chromium headless, micro simulé, CM de 1 / 2 / 3 h : 8 000 mots de notes/heure, un segment de transcription toutes les 4 s — 900 / 1 800 / 2 700 segments —, marqueurs et ≈ 700 / 1 400 / 2 100 ancrages ; pendant l'enregistrement, un flux de 4 segments/s, ≈ 15× le débit réel) :
 
-### Limites connues
+| CM | ouverture | frappe au repos (méd. / p95) | frappe pendant l'enregistrement (méd. / p95 / max) | nœuds DOM |
+|---|---|---|---|---|
+| 1 h | 1,6 s | 15,9 / 19,9 ms | 15,5 / 24,1 / 27,8 ms | 1 797 |
+| 2 h | 1,6 s | 19,5 / 22,7 ms | 18,7 / 21,5 / 26,6 ms | 2 412 |
+| 3 h | 1,8 s | 19,7 / 23,1 ms | 19,6 / 27,6 / 37,5 ms | 3 027 |
 
-- Testé sur Chromium uniquement (pas Safari/Firefox). L'installation PWA elle-même (invite du navigateur / Dock macOS) n'a pas pu être testée de bout en bout ici : manifest, icônes et service worker sont vérifiés, pas le geste d'installation.
-- Pas de gestion de conflits multi-onglets : éditer le même CM dans deux onglets simultanément n'est pas protégé.
-- La recherche est en mémoire (texte brut, tous les mots) ; elle sera à indexer si la bibliothèque devient très grande.
-- Pas d'import de données (seul l'export JSON existe).
-- Le mode Focus n'utilise pas le plein écran du navigateur.
+La latence est mesurée de l'insertion au prochain rendu (≈ une image) : l'enregistrement n'a pas d'effet mesurable. Sans la fenêtre de 300 passages, le p95 à 3 h montait à ≈ 70 ms (mesure faite avant correction). Résultats d'une machine de développement sans écran réel : à re-mesurer sur votre Mac.
 
-## Roadmap
+## Roadmap IA
 
 1. **V1.1** — import JSON, raccourci « nouveau CM » global, export Markdown/PDF/Word.
 2. **V2** — documents : import PDF/PowerPoint, reconnaissance du plan du professeur.

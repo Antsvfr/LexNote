@@ -6,6 +6,7 @@ import { SubjectDot } from './SubjectDot';
 import { useLibrary } from '@/store/library';
 import { useUI } from '@/store/ui';
 import { modKeyLabel } from '@/features/editor/commands';
+import { GlobalRecPill } from '@/features/capture/RecControls';
 
 const navClass = ({ isActive }: { isActive: boolean }) => `nav__item${isActive ? ' is-active' : ''}`;
 
@@ -66,6 +67,7 @@ export function AppShell() {
       </aside>
 
       <main className="main" id="main">
+        <div className="globalrec"><GlobalRecPill /></div>
         <Outlet />
       </main>
 

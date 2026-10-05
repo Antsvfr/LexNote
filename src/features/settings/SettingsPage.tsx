@@ -7,6 +7,8 @@ import { confirm } from '@/components/confirm';
 import { toast } from '@/store/toasts';
 import { installDemo } from '@/data/seed';
 import { getStorage } from '@/bootstrap';
+import { captureManager } from '@/services/capture/manager';
+import { TranscriptionSettings } from './TranscriptionSettings';
 
 interface BeforeInstallPromptEvent extends Event { prompt(): Promise<void>; userChoice: Promise<{ outcome: string }> }
 
@@ -34,7 +36,7 @@ export function SettingsPage() {
 
   async function exportJson() {
     try {
-      const bundle = await lib.exportAll();
+      const bundle = { ...(await lib.exportAll()), capture: await captureManager.exportAll().catch(() => []) };
       const url = URL.createObjectURL(new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' }));
       const a = document.createElement('a');
       a.href = url; a.download = `lexnote-export-${new Date().toISOString().slice(0, 10)}.json`; a.click();
@@ -66,6 +68,8 @@ export function SettingsPage() {
         </div>
       </section>
 
+      <TranscriptionSettings />
+
       <section className="settings-block">
         <h2>Application</h2>
         <p className="muted">{standalone ? 'LexNote est installée et s’exécute comme une application indépendante.' : 'Installez LexNote pour l’ouvrir depuis le Dock comme une application.'}</p>
@@ -86,6 +90,7 @@ export function SettingsPage() {
         {!lib.persistent && <div className="banner banner--warn">Le stockage persistant est indisponible (navigation privée ?) : vos notes seront perdues à la fermeture.</div>}
         <div className="row-actions">
           <button className="btn" onClick={exportJson}><Download /> Exporter (JSON)</button>
+          <span className="muted" style={{ fontSize: 12.5, alignSelf: 'center' }}>Notes, transcriptions, marqueurs (sans les fichiers audio).</span>
           <button className="btn btn--danger" onClick={wipe}><Trash2 /> Tout effacer</button>
         </div>
       </section>

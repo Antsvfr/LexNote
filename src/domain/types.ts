@@ -1,4 +1,5 @@
 import type { LegalItem } from './legal';
+import type { CaptureSummary } from './capture';
 
 export type ID = string;
 /** Date-heure ISO 8601. */
@@ -55,7 +56,7 @@ export interface AudioRef {
 export interface DocumentRef {
   id: ID;
   name: string;
-  kind: 'pdf' | 'pptx' | 'other';
+  kind: 'pdf' | 'pptx' | 'docx' | 'image' | 'other';
   blobKey: string;
   addedAt: ISODateTime;
 }
@@ -111,7 +112,10 @@ export interface CourseSession extends Entity {
   excerpt: string;
   searchText: string;
 
-  /* Futur : transcription, audio, documents, IA. Vides en V1. */
+  /** Résumé de la capture (audio/transcription/marqueurs). Les données elles-mêmes vivent dans la base `lexnote-capture`. */
+  captureSummary?: CaptureSummary | null;
+
+  /* Réservés. `transcript`/`audio` sont remplacés par la base de capture (domain/capture.ts) ; conservés pour compatibilité. */
   transcript: Transcript | null;
   audio: AudioRef | null;
   documents: DocumentRef[];

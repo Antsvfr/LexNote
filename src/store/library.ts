@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { CaptureSummary } from '@/domain/capture';
 import type { CourseSession, ISODate, LibrarySnapshot, Module, Subject } from '@/domain/types';
 import { createModule, createSession, createSubject, nextSessionNumber } from '@/domain/session';
 import { computeDemoRemoval } from '@/domain/demo';
@@ -28,6 +29,7 @@ interface LibraryState extends LibrarySnapshot {
   saveNotes(id: string, input: { content: unknown; plainText: string; durationSec?: number }): Promise<void>;
   setDuration(id: string, durationSec: number): Promise<void>;
   setStatus(id: string, status: 'in_progress' | 'completed'): Promise<void>;
+  setCaptureSummary(id: string, summary: CaptureSummary): Promise<void>;
 
   removeDemoData(): Promise<void>;
   reload(): Promise<void>;
@@ -37,6 +39,20 @@ interface LibraryState extends LibrarySnapshot {
 }
 
 let adapter: StorageAdapter | null = null;
+
+/**
+ * Données liées à un CM mais stockées ailleurs (audio, transcription…) : elles s'abonnent ici
+ * pour être supprimées avec le CM. Les échecs sont journalisés, jamais bloquants.
+ */
+type RemovalHook = (sessionIds: string[]) => Promise<void> | void;
+const removalHooks: RemovalHook[] = [];
+export const onSessionsRemoved = (h: RemovalHook) => { removalHooks.push(h); };
+export const onLibraryWiped = (h: () => Promise<void> | void) => { wipeHooks.push(h); };
+const wipeHooks: (() => Promise<void> | void)[] = [];
+async function notifyRemoved(ids: string[]) {
+  if (!ids.length) return;
+  for (const h of removalHooks) { try { await h(ids); } catch (e) { console.error('[LexNote] nettoyage lié au CM', e); } }
+}
 const db = (): StorageAdapter => {
   if (!adapter) throw new Error('Le stockage LexNote n’est pas initialisé.');
   return adapter;
@@ -93,6 +109,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
         sessions: s.sessions.filter((x) => x.subjectId !== id),
       }));
       await persist({ deleteSubjects: [id], deleteModules: mods, deleteSessions: sess });
+      await notifyRemoved(sess);
     },
 
     /* --- modules --- */
@@ -113,6 +130,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
       const sess = get().sessions.filter((s) => s.moduleId === id).map((s) => s.id);
       set((s) => ({ modules: s.modules.filter((x) => x.id !== id), sessions: s.sessions.filter((x) => x.moduleId !== id) }));
       await persist({ deleteModules: [id], deleteSessions: sess });
+      await notifyRemoved(sess);
     },
 
     /* --- séances --- */
@@ -134,6 +152,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
     async deleteSession(id) {
       set((s) => ({ sessions: s.sessions.filter((x) => x.id !== id) }));
       await persist({ deleteSessions: [id] });
+      await notifyRemoved([id]);
     },
     async saveNotes(id, { content, plainText, durationSec }) {
       const cur = get().sessions.find((s) => s.id === id);
@@ -168,16 +187,27 @@ export const useLibrary = create<LibraryState>((set, get) => {
       await persist({ putSessions: [next] });
     },
 
+    async setCaptureSummary(id, summary) {
+      const cur = get().sessions.find((s) => s.id === id);
+      if (!cur) return;
+      // Ni updatedAt ni isDemo : capter l'audio n'est pas « modifier les notes ».
+      const next = { ...cur, captureSummary: summary };
+      set((s) => ({ sessions: replace(s.sessions, next) }));
+      await persist({ putSessions: [next] });
+    },
+
     /* --- démo / données --- */
     async removeDemoData() {
       const changes = computeDemoRemoval(get());
       await persist(changes);
+      await notifyRemoved(changes.deleteSessions ?? []);
       await get().reload();
     },
     loadNotes: async (id) => (await db().getNotes(id))?.content,
     exportAll: () => db().exportAll(),
     async wipe() {
       await db().clearAll();
+      for (const h of wipeHooks) { try { await h(); } catch (e) { console.error(e); } }
       set({ subjects: [], modules: [], sessions: [] });
     },
   };

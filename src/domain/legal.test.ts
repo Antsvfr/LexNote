@@ -16,3 +16,11 @@ describe('fiabilité juridique', () => {
     expect(isTrusted({ provenance: 'VERIFIED_SOURCE', verification: 'VERIFIED' })).toBe(true);
   });
 });
+
+describe('transcription ≠ vérification', () => {
+  it('une phrase transcrite n’est jamais « Verified », même si elle cite un article', () => {
+    expect(resolveInitialVerification('TRANSCRIPTION', 'VERIFIED')).toBe('UNVERIFIED');
+    expect(isTrusted({ provenance: 'TRANSCRIPTION', verification: 'VERIFIED' })).toBe(false);
+    expect(mustBeFlagged({ provenance: 'TRANSCRIPTION', verification: 'UNVERIFIED' })).toBe(true);
+  });
+});

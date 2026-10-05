@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { EditorContent, useEditor } from '@tiptap/react';
-import { ChevronRight, Command, Focus, Mic, Minimize2, CheckCheck } from 'lucide-react';
+import { ChevronRight, Command, Focus, Minimize2, CheckCheck } from 'lucide-react';
 import { useLibrary } from '@/store/library';
 import { useUI } from '@/store/ui';
 import { useEditorBridge } from '@/store/editorBridge';
@@ -14,7 +14,15 @@ import { useSaveStatus } from './saveStatus';
 import { ActionBar, FormatBar } from './Toolbar';
 import { SaveIndicator } from './SaveIndicator';
 import { SessionTimer } from './SessionTimer';
-import { AssistantPanel } from './AssistantPanel';
+import { SidePanel } from './AssistantPanel';
+import { RecControls, MarkerQuickChips, useStartCapture } from '@/features/capture/RecControls';
+import { RecPopover } from '@/features/capture/RecPopover';
+import { LiveTimeline } from '@/features/capture/Timeline';
+import { useCaptureShortcuts } from '@/features/capture/useCaptureShortcuts';
+import { useNoteAnchors } from '@/features/capture/useNoteAnchors';
+import { useCapture } from '@/store/capture';
+import { captureManager } from '@/services/capture/manager';
+import { confirm } from '@/components/confirm';
 import { modKeyLabel } from './commands';
 import type { CourseSession } from '@/domain/types';
 
@@ -51,6 +59,23 @@ function Workspace({ sessionId, initialContent }: { sessionId: string; initialCo
   const { focus, setFocus, assistantOpen, toggleAssistant, setPalette } = useUI();
   const setBridge = useEditorBridge((s) => s.setEditor);
   const secondsRef = useRef(session.durationSec);
+  const [params] = useSearchParams();
+  const tParam = params.get('t');
+  const captureStatus = useCapture((s) => s.status);
+  const wasRecording = useRef(false);
+
+  // La capture est un système indépendant : son chargement ne bloque ni n'influence l'éditeur.
+  useEffect(() => {
+    const focusMs = tParam !== null && Number.isFinite(Number(tParam)) ? Number(tParam) : null;
+    void captureManager.open(sessionId, focusMs).catch((e) => console.warn('[LexNote] capture non chargée', e));
+    if (focusMs !== null) { useUI.getState().setSideTab('transcript'); if (!useUI.getState().assistantOpen) useUI.getState().toggleAssistant(); }
+  }, [sessionId, tParam]);
+
+  // À l'activation de la transcription, le panneau s'ouvre sur l'onglet Transcription.
+  useEffect(() => {
+    if (captureStatus === 'RECORDING' && !wasRecording.current) useUI.getState().openTranscript();
+    wasRecording.current = captureStatus === 'RECORDING';
+  }, [captureStatus]);
 
   const extensions = useMemo(() => buildExtensions({ placeholder: `Commencez à prendre vos notes…  (${modKeyLabel}K pour les commandes)` }), []);
   const editor = useEditor({
@@ -65,6 +90,9 @@ function Workspace({ sessionId, initialContent }: { sessionId: string; initialCo
   });
 
   const { flushNow } = useAutosave(editor, sessionId, () => secondsRef.current);
+  useNoteAnchors(editor, sessionId);
+  const { request: requestRecord, dialog: consentDialog } = useStartCapture(sessionId);
+  useCaptureShortcuts(sessionId, requestRecord);
 
   useEffect(() => {
     setBridge(editor);
@@ -87,7 +115,20 @@ function Workspace({ sessionId, initialContent }: { sessionId: string; initialCo
 
   async function finish() {
     try {
+      // Notes d'abord : elles sont enregistrées avant toute autre opération.
       await flushNow();
+      const cap = useCapture.getState().status;
+      if (cap !== 'INACTIVE' && cap !== 'COMPLETED') {
+        const ok = await confirm({
+          title: 'Terminer la transcription ?',
+          message: cap === 'PAUSED' || cap === 'ERROR'
+            ? 'La transcription de ce CM n’est pas terminée. Elle sera clôturée avec le CM ; tout ce qui a été capturé est conservé.'
+            : 'Un enregistrement est en cours. Il va être arrêté proprement (finalisation de la transcription) avant de terminer le CM.',
+          confirmLabel: 'Arrêter et terminer le CM',
+        });
+        if (!ok) return;
+        await captureManager.stop(sessionId); // ne lève jamais : une panne ici ne doit pas empêcher de terminer
+      }
       const st = useLibrary.getState();
       await st.setDuration(sessionId, secondsRef.current);
       await st.setStatus(sessionId, 'completed');
@@ -116,7 +157,7 @@ function Workspace({ sessionId, initialContent }: { sessionId: string; initialCo
         <div className="topbar__right">
           <SessionTimer sessionId={sessionId} initialSeconds={session.durationSec} secondsRef={secondsRef} />
           <SaveIndicator />
-          <button className="btn btn--ghost btn--sm topbar__soon" aria-disabled="true" title="Transcription — bientôt disponible"><Mic /> <span>Transcription</span></button>
+          <RecControls sessionId={sessionId} />
           <button className="btn btn--ghost btn--icon btn--sm" onClick={() => setPalette(true)} aria-label="Palette de commandes" title={`Commandes (${modKeyLabel}K)`}><Command /></button>
           <button className="btn btn--sm topbar__btn" onClick={() => setFocus(!focus)} aria-pressed={focus} data-testid="focus-toggle" aria-label={focus ? "Quitter le mode Focus" : "Mode Focus"} title="Mode Focus (Échap pour quitter)">
             {focus ? <><Minimize2 /> <span className="lbl">Quitter Focus</span></> : <><Focus /> <span className="lbl">Focus</span></>}
@@ -128,13 +169,18 @@ function Workspace({ sessionId, initialContent }: { sessionId: string; initialCo
       <div className="toolrows">
         <ActionBar editor={editor} assistantOpen={assistantOpen} onToggleAssistant={toggleAssistant} />
         {!focus && <FormatBar editor={editor} />}
+        {!focus && <div className="timelinebar"><LiveTimeline size="slim" /></div>}
       </div>
+
+      {!focus && <div className="chips-float"><MarkerQuickChips sessionId={sessionId} /></div>}
+      {focus && <RecPopover sessionId={sessionId} />}
+      {consentDialog}
 
       <div className="workspace__body">
         <div className="note-scroll" onClick={(e) => { if (e.target === e.currentTarget) editor.commands.focus('end'); }}>
           <EditorContent editor={editor} className="note-editor" data-testid="editor" />
         </div>
-        {assistantOpen && !focus && <AssistantPanel editor={editor} />}
+        {assistantOpen && !focus && <SidePanel editor={editor} sessionId={sessionId} />}
       </div>
     </div>
   );

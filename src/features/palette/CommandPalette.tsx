@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Home, FolderTree, Library, Search, Settings, Plus, Moon, Sun, Focus, FileText, type LucideIcon } from 'lucide-react';
+import { Home, FolderTree, Library, Search, Settings, Plus, Moon, Sun, Focus, FileText, Mic, Pause, Play, Square, Star, type LucideIcon } from 'lucide-react';
+import { REQUEST_RECORD_EVENT } from '@/features/capture/useCaptureShortcuts';
+import { SHORTCUT_MARK, SHORTCUT_RECORD } from '@/features/capture/RecControls';
+import { captureManager } from '@/services/capture/manager';
+import { useCapture } from '@/store/capture';
 import { useUI } from '@/store/ui';
 import { useEditorBridge } from '@/store/editorBridge';
 import { useLibrary } from '@/store/library';
@@ -27,6 +31,8 @@ export function CommandPalette() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const lib = useLibrary();
+  const capStatus = useCapture((s) => s.status);
+  const sessionIdInUrl = /^\/session\/([^/]+)$/.exec(pathname)?.[1];
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -65,8 +71,19 @@ export function CommandPalette() {
       { id: 'nav.settings', label: 'Réglages', group: 'Aller à', icon: Settings, run: go('/settings') },
       { id: 'app.theme', label: theme === 'dark' ? 'Passer en thème clair' : 'Passer en thème sombre', group: 'Affichage', icon: theme === 'dark' ? Sun : Moon, keywords: 'theme mode sombre clair', run: () => setTheme(theme === 'dark' ? 'light' : 'dark') },
     ];
+    const sid = sessionIdInUrl;
+    const rec: Item[] = sid && inEditor ? [
+      capStatus === 'RECORDING'
+        ? { id: 'rec.pause', label: 'Mettre en pause la transcription', group: 'Transcription', icon: Pause, keywords: 'pause enregistrement', shortcut: formatShortcut(SHORTCUT_RECORD), run: () => void captureManager.pause(sid) }
+        : capStatus === 'PAUSED'
+          ? { id: 'rec.resume', label: 'Reprendre la transcription', group: 'Transcription', icon: Play, keywords: 'reprise enregistrement', shortcut: formatShortcut(SHORTCUT_RECORD), run: () => void captureManager.resume(sid) }
+          : { id: 'rec.start', label: 'Démarrer la transcription', group: 'Transcription', icon: Mic, keywords: 'enregistrer micro audio', shortcut: formatShortcut(SHORTCUT_RECORD), disabled: ['REQUESTING_PERMISSION', 'STARTING', 'PROCESSING'].includes(capStatus), run: () => window.dispatchEvent(new Event(REQUEST_RECORD_EVENT)) },
+      { id: 'rec.mark', label: 'Marquer ce moment', group: 'Transcription', icon: Star, keywords: 'marqueur etoile signet', shortcut: formatShortcut(SHORTCUT_MARK), disabled: capStatus !== 'RECORDING', note: capStatus !== 'RECORDING' ? 'Transcription requise' : undefined, run: () => captureManager.mark(sid) },
+      ...(capStatus === 'RECORDING' || capStatus === 'PAUSED' ? [{ id: 'rec.stop', label: 'Arrêter la transcription', group: 'Transcription', icon: Square, keywords: 'stop terminer', run: () => void captureManager.stop(sid) } as Item] : []),
+    ] : [];
     const ed: Item[] = inEditor && editor
       ? [
+          ...rec,
           { id: 'app.focus', label: focus ? 'Quitter le mode Focus' : 'Activer le mode Focus', group: 'Affichage', icon: Focus, keywords: 'focus concentration', run: () => setFocus(!focus) },
           ...EDITOR_COMMANDS.map<Item>((c) => ({
             id: c.id, label: c.label, group: c.group, icon: c.icon, keywords: c.keywords.join(' '),
@@ -76,7 +93,7 @@ export function CommandPalette() {
         ]
       : [];
     return [...ed, ...nav];
-  }, [inEditor, editor, focus, theme, navigate, openNewCm, setTheme, setFocus]);
+  }, [inEditor, editor, focus, theme, navigate, openNewCm, setTheme, setFocus, capStatus, sessionIdInUrl]);
 
   const results = useMemo<Item[]>(() => {
     const tokens = normalize(query).split(/\s+/).filter(Boolean);
