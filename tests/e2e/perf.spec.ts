@@ -75,7 +75,7 @@ for (const hours of [1, 2, 3]) {
     await page.addInitScript(FAKE_SPEECH_INIT);
     await page.addInitScript(() => { localStorage.setItem('lexnote.recordingConsent', '1'); localStorage.setItem('lexnote.transcription', JSON.stringify({ keepAudio: true })); });
     await page.goto('/');
-    await expect(page.getByRole('heading', { name: 'Bon cours.' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Bon cours/ })).toBeVisible();
     const nSeg = await seed(page, hours);
 
     const t0 = Date.now();

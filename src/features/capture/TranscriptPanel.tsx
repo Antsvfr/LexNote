@@ -7,6 +7,7 @@ import { captureManager } from '@/services/capture/manager';
 import { useCapture } from '@/store/capture';
 import { MiniPlayer } from './MiniPlayer';
 import { useStartCapture } from './RecControls';
+import { useRecordedMs } from './useRecording';
 
 /** Fenêtre d'affichage : seuls les derniers passages sont rendus ; les précédents se chargent par paliers. */
 const PAGE = 300;
@@ -58,6 +59,7 @@ export function TranscriptPanel({ sessionId, variant = 'live' }: { sessionId: st
   const focusMs = useCapture((s) => s.focusMs);
   const loaded = useCapture((s) => s.loaded);
   const { request, dialog } = useStartCapture(sessionId);
+  const elapsed = useRecordedMs();
 
   const scroller = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -135,8 +137,12 @@ export function TranscriptPanel({ sessionId, variant = 'live' }: { sessionId: st
     <section className="tpanel" aria-label="Transcription" data-testid="transcript-panel">
       <header className="tpanel__head">
         <div className="tpanel__status">
-          <span className={`rec__dot${live ? ' is-live' : ''}`} aria-hidden />
-          <strong data-testid="capture-status">{STATUS_LABELS[status]}</strong>
+          {live || status === 'PAUSED' ? (
+            <span className="tpanel__rec"><span className={`rec__dot${live ? ' is-live' : ''}`} aria-hidden /><strong>{live ? 'REC' : 'PAUSE'}</strong><span className="rec__time">{formatHMS(elapsed)}</span></span>
+          ) : <span className="rec__dot" aria-hidden />}
+          <strong className="tpanel__title">Transcription</strong>
+          <span className="muted">·</span>
+          <span data-testid="capture-status">{STATUS_LABELS[status]}</span>
           {providerLabel && <span className="muted">· {providerLabel}</span>}
           {!providerLabel && <span className="muted">· audio seul</span>}
         </div>

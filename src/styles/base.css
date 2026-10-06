@@ -1,32 +1,49 @@
 *, *::before, *::after { box-sizing: border-box; }
 html, body, #root { height: 100%; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; background: var(--background-primary); }
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--ink);
+  background: var(--background-primary);
+  color: var(--text-primary);
   font-family: var(--font-ui);
-  font-size: 15px;
+  font-size: 14.5px;
   line-height: 1.5;
   font-feature-settings: 'cv11', 'ss01';
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+/* Fond à plusieurs couches : halos rouge / bleu sur un dégradé bleu nuit. Calque fixe, statique (aucun coût à la frappe). */
+body::before {
+  content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(900px 520px at 88% -6%, rgb(255 45 85 / 0.16), transparent 62%),
+    radial-gradient(720px 520px at 6% 108%, rgb(76 141 255 / 0.10), transparent 60%),
+    radial-gradient(600px 400px at 60% 60%, rgb(120 40 90 / 0.05), transparent 70%),
+    linear-gradient(180deg, var(--background-primary) 0%, var(--background-secondary) 55%, var(--background-tertiary) 100%);
+}
+:root[data-theme='light'] body::before {
+  background:
+    radial-gradient(900px 480px at 90% -8%, rgb(224 25 63 / 0.07), transparent 62%),
+    radial-gradient(700px 480px at 4% 110%, rgb(37 99 235 / 0.06), transparent 60%),
+    linear-gradient(180deg, var(--background-primary), var(--background-secondary));
 }
 h1, h2, h3, h4, p { margin: 0; }
 button { font: inherit; color: inherit; }
 a { color: inherit; text-decoration: none; }
 ul, ol { margin: 0; padding: 0; list-style: none; }
 input, select, textarea { font: inherit; color: inherit; }
-:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--r-sm); }
-::selection { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm); }
+::selection { background: rgb(255 45 85 / 0.32); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .mono { font-family: var(--font-mono); }
-.muted { color: var(--ink-3); }
+.muted { color: var(--text-muted); }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* scrollbars discrètes */
-* { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+* { scrollbar-width: thin; scrollbar-color: rgb(255 255 255 / 0.14) transparent; }
+:root[data-theme='light'] * { scrollbar-color: rgb(15 25 50 / 0.2) transparent; }
 
-/* transitions de page */
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .page-enter { animation: rise var(--t-med) var(--ease) both; }
+
+/* Les champs intégrés à un conteneur (recherche, titre…) : l'anneau de focus est porté par le conteneur. */
+.searchbar input:focus-visible, .searchbox input:focus-visible, .palette__input input:focus-visible, .titlefield__input:focus-visible { box-shadow: none; }

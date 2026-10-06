@@ -12,6 +12,6 @@ for (const [name, size] of [['icon-192.png', 192], ['icon-512.png', 512], ['appl
 // Icône maskable : fond plein + logo réduit dans la "safe zone" (80 %).
 const size = 512, inner = Math.round(size * 0.66);
 const logo = await sharp(svg, { density: 384 }).resize(inner, inner).png().toBuffer();
-await sharp({ create: { width: size, height: size, channels: 4, background: '#1f2a4a' } })
+await sharp({ create: { width: size, height: size, channels: 4, background: '#c4143a' } })
   .composite([{ input: logo, gravity: 'center' }]).png().toFile(out('icon-maskable-512.png'));
 console.log('Icônes générées.');

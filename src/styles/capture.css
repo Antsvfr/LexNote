@@ -44,14 +44,14 @@
 .recpop .chips-pop { box-shadow: none; padding: 0; border: 0; }
 
 /* ====== panneau latéral ====== */
-:root { --panel-w: 380px; }
-.sidepanel { border-left: 1px solid var(--line); background: var(--surface); display: flex; flex-direction: column; min-height: 0; animation: slidein var(--t-med) var(--ease) both; }
+:root { --panel-w: 400px; }
+.sidepanel { border-left: 1px solid var(--border-subtle); background: rgb(7 14 25 / 0.82); display: flex; flex-direction: column; min-height: 0; animation: slidein var(--t-med) var(--ease) both; }
 .sidepanel__tabs { display: flex; gap: 2px; padding: 8px 10px 0; border-bottom: 1px solid var(--line); }
 .sidepanel__tabs button {
   display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border: 0; background: none; cursor: pointer;
   font-size: 13px; font-weight: 600; color: var(--ink-3); border-bottom: 2px solid transparent; margin-bottom: -1px;
 }
-.sidepanel__tabs button.is-on { color: var(--ink); border-bottom-color: var(--accent); }
+.sidepanel__tabs button.is-on { color: var(--ink); border-bottom-color: var(--accent-red); }
 .sidepanel__body { flex: 1; min-height: 0; overflow: hidden; }
 .sidepanel .assistant { border-left: 0; height: 100%; overflow-y: auto; animation: none; }
 
@@ -124,3 +124,12 @@ code { font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-sun
 @media (max-width: 860px) { .sidepanel { display: none; } .chips-float { right: 8px; } }
 
 .tmore { display: grid; place-items: center; padding: 8px; }
+
+/* en-tête REC du panneau */
+.tpanel__rec { display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 12px; border-radius: 999px; font-size: 12.5px; letter-spacing: 0.04em;
+  background: color-mix(in srgb, var(--rec) 14%, transparent); border: 1px solid color-mix(in srgb, var(--rec) 40%, transparent); }
+.tpanel__rec strong { letter-spacing: 0.1em; }
+.tpanel__rec .rec__time { font-weight: 700; }
+.tpanel__title { font-size: 15px; font-weight: 650; }
+.tpanel__head { background: transparent; }
+.tseg.is-selected { background: color-mix(in srgb, var(--accent-red) 16%, transparent); box-shadow: inset 2px 0 0 var(--accent-red); }

@@ -21,7 +21,7 @@ const write = (key: string, value: unknown) => {
 export function applyTheme(pref: ThemePref) {
   const dark = pref === 'dark' || (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#14182a' : '#f6f3ec');
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#050b14' : '#f3f5fa');
 }
 
 interface NewCmPreset { subjectId?: string; moduleId?: string }
@@ -33,6 +33,8 @@ interface UIState {
   /** Panneau secondaire de l'éditeur (futur assistant). */
   assistantOpen: boolean;
   paletteOpen: boolean;
+  /** Tiroir de navigation (tablette / mobile). */
+  navOpen: boolean;
   newCm: NewCmPreset | null;
   /** Onglet du panneau latéral de l'éditeur. */
   sideTab: 'transcript' | 'assistant';
@@ -43,6 +45,7 @@ interface UIState {
   setFocus(v: boolean): void;
   toggleAssistant(): void;
   setPalette(v: boolean): void;
+  setNavOpen(v: boolean): void;
   setSideTab(t: 'transcript' | 'assistant'): void;
   /** Ouvre le panneau Transcription (ou, en mode Focus, les contrôles flottants). */
   openTranscript(): void;
@@ -52,10 +55,11 @@ interface UIState {
 }
 
 export const useUI = create<UIState>((set, get) => ({
-  theme: read<ThemePref>('lexnote.theme', 'system'),
+  theme: read<ThemePref>('lexnote.theme', 'dark'),
   focus: false,
   assistantOpen: read('lexnote.assistantOpen', true),
   paletteOpen: false,
+  navOpen: false,
   newCm: null,
   sideTab: 'transcript',
   recPopover: false,
@@ -72,6 +76,7 @@ export const useUI = create<UIState>((set, get) => ({
     set({ assistantOpen });
   },
   setPalette: (paletteOpen) => set({ paletteOpen }),
+  setNavOpen: (navOpen) => set({ navOpen }),
   setSideTab: (sideTab) => set({ sideTab }),
   openTranscript: () => {
     if (get().focus) return set((s) => ({ recPopover: !s.recPopover }));

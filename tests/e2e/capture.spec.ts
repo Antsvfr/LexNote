@@ -284,8 +284,8 @@ test.describe('transcription — après le CM', () => {
     expect((await capIDB(page, 'segments')).length).toBe(1);
     await page.goto('/sessions');
     const row = page.getByTestId('session-row').filter({ hasText: /CM 01 — Vices du consentement/ });
-    await row.hover();
-    await row.getByRole('button', { name: /Supprimer/ }).click();
+    await row.getByTestId('row-menu').click();
+    await page.getByRole('menuitem', { name: 'Supprimer' }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Supprimer' }).click();
     await expect(page.getByTestId('session-row').filter({ hasText: /CM 01 — Vices du consentement/ })).toHaveCount(0);
     await expect.poll(async () => (await capIDB(page, 'segments')).length).toBe(0);

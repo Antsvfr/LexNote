@@ -117,6 +117,15 @@ Dans `src/domain/legal.ts` :
 - **Règle codée et testée** : une information de provenance `AI` ou `UNKNOWN` **ne peut jamais être créée « Verified »** (`resolveInitialVerification`) ni être considérée fiable seule (`isTrusted`). Les blocs de l'éditeur portent déjà `provenance` et `verification` ; tout futur bloc IA sera rendu en pointillés et étiqueté.
 - Toute sortie IA (`AIResult`) est typée `provenance: 'AI'`, `verification: 'UNVERIFIED'`, avec le modèle utilisé.
 
+## Design (refonte premium)
+
+L'interface suit la maquette de référence « LexNote × REV-EM » : thème **sombre** principal (bleu nuit `#050B14`, halos rouge/bleu, rouge vif comme couleur d'action), thème clair conservé.
+- **Tokens** centralisés dans `src/styles/tokens.css` (`--background-*`, `--surface*`, `--border-*`, `--text-*`, `--accent-*`, `--radius-*`, `--shadow-card|red|floating`) ; les anciens noms de variables sont des alias.
+- **Écrans refaits** : barre latérale (logo, navigation, matières avec « + » réel, carte REV-EM honnête, stockage local, réglages), en-tête (recherche globale, thème, notifications, profil), accueil (hero, 4 statistiques, bouton Nouveau CM, carte « Reprendre votre cours », derniers cours, matières, outils), Mes matières (cartes), Mes CM (onglets + filtres), Recherche (groupes Matières / CM / Notes / Transcriptions), Réglages (profil), éditeur (feuille d'écriture sombre), panneau Transcription (en-tête REC), modales, menus, toasts, palette.
+- **Données réelles uniquement** : les statistiques sont calculées (`src/lib/stats.ts`, testé) ; aucune évolution en % n'est inventée ; l'avancement affiché est « CM terminés / CM du module » ; le prénom vient du profil (Réglages) ; la carte REV-EM indique « Connexion bientôt disponible » tant qu'aucune connexion n'existe ; Documents et Assistant sont marqués « Bientôt » et inactifs ; Transcription est active.
+- **Images** : illustrations SVG **locales** (`src/assets/art/`, ≈ 13 Ko au total), vignettes déterministes par matière (changeables depuis le menu ⋯ d'un CM). Aucune image distante.
+- Responsive : sidebar fixe ≥ 1100 px, tiroir en dessous, barre d'onglets sur mobile ; statistiques 2×2 sur tablette.
+
 ## Transcription (V2)
 
 Pendant un CM : **🎙 Transcription** → avertissement (première utilisation) → autorisation du micro → `● REC 01:23:42` avec Pause / Reprendre / Arrêter, ⭐ Marquer, panneau de transcription en direct, timeline, réécoute. **Les notes restent prioritaires** : la capture vit hors de l'éditeur (contrôleur indépendant, base IndexedDB séparée `lexnote-capture`), toute panne y devient un état `ERROR` + une interruption consignée, jamais une exception vers les notes.
@@ -210,7 +219,9 @@ IA (résumé, restructuration, fiches, flashcards, quiz, vérification des artic
 - Toute synchronisation future sera **facultative et explicite**.
 - Aucun enregistrement sans action explicite ; l'indicateur REC est toujours visible ; l'audio reste local. Selon le moteur, la *reconnaissance* peut être distante : c'est indiqué dans le panneau.
 
-## Vérifications effectuées (V2)
+## Vérifications effectuées (V2 + refonte premium)
+
+- Après la refonte : **132 tests unitaires**, **37 tests e2e Chromium**, typecheck et build OK ; performance de l'éditeur inchangée (p95 ≈ 20 ms en frappe pendant l'enregistrement sur un CM de 3 h).
 
 - `npm run typecheck`, `npm run build` : OK. **122 tests unitaires** (V1 : 35) · **28 tests e2e Chromium** (V1 : 13) : tous passent sur un build neuf (`REUSE_SERVER` n'est plus activé par défaut, pour ne jamais tester un build périmé).
 - Couverts : permission/refus, démarrage, pause, reprise, arrêt, segments audio et timestamps, stockage (mémoire **et** IndexedDB, réouverture), quotas, segments de transcription, providers (Web Speech et API Whisper avec faux moteur/serveur), marqueurs, NoteAnchor, recherche dans les transcriptions, réécoute, interruptions (micro débranché, recorder tombé, veille, réseau, moteur HS, stockage plein, segment corrompu, fermeture brutale), erreur provider avec reprise, mode Focus, fin de CM, suppression d'un CM et de ses données audio, absence de perte de notes, `CourseContext`, non-régression V1, PWA hors ligne, console sans erreur.

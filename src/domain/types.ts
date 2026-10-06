@@ -27,6 +27,9 @@ export interface Module extends Entity {
   name: string;
 }
 
+/** Vignette d'un CM : illustration locale (aucune image distante). */
+export type ThumbKey = 'architecture' | 'justice' | 'chart' | 'skyline' | 'document' | 'abstract';
+
 export type SessionStatus = 'in_progress' | 'completed';
 
 /* ------------------------------------------------------------------ */
@@ -106,6 +109,8 @@ export interface CourseSession extends Entity {
   durationSec: number;
   status: SessionStatus;
   completedAt: ISODateTime | null;
+  /** Vignette choisie ; sinon déterministe selon la matière (voir `lib/thumbs.ts`). */
+  thumbnail?: ThumbKey;
 
   /* Dérivés des notes — dupliqués ici pour lister/rechercher sans charger le contenu. */
   wordCount: number;
