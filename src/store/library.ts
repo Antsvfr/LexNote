@@ -24,7 +24,7 @@ interface LibraryState extends LibrarySnapshot {
   deleteModule(id: string): Promise<void>;
 
   addSession(input: { subjectId: string; moduleId: string; title: string; date: ISODate; number?: number | null }): Promise<CourseSession>;
-  updateSession(id: string, patch: Partial<Pick<CourseSession, 'title' | 'number' | 'date' | 'moduleId' | 'subjectId'>>): Promise<void>;
+  updateSession(id: string, patch: Partial<Pick<CourseSession, 'title' | 'number' | 'date' | 'moduleId' | 'subjectId' | 'thumbnail'>>): Promise<void>;
   deleteSession(id: string): Promise<void>;
   saveNotes(id: string, input: { content: unknown; plainText: string; durationSec?: number }): Promise<void>;
   setDuration(id: string, durationSec: number): Promise<void>;

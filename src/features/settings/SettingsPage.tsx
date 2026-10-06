@@ -9,6 +9,7 @@ import { installDemo } from '@/data/seed';
 import { getStorage } from '@/bootstrap';
 import { captureManager } from '@/services/capture/manager';
 import { TranscriptionSettings } from './TranscriptionSettings';
+import { useProfile, DEFAULT_QUOTE } from '@/store/profile';
 
 interface BeforeInstallPromptEvent extends Event { prompt(): Promise<void>; userChoice: Promise<{ outcome: string }> }
 
@@ -20,6 +21,7 @@ const THEMES: { id: ThemePref; label: string; icon: typeof Sun }[] = [
 
 export function SettingsPage() {
   const { theme, setTheme } = useUI();
+  const profile = useProfile();
   const lib = useLibrary();
   const [installEvt, setInstallEvt] = useState<BeforeInstallPromptEvent | null>(null);
   const [standalone] = useState(() => window.matchMedia('(display-mode: standalone)').matches);
@@ -58,6 +60,13 @@ export function SettingsPage() {
   return (
     <div className="page page-enter">
       <header className="page__head"><div><h1>Réglages</h1></div></header>
+
+      <section className="settings-block" aria-labelledby="pr-h">
+        <h2 id="pr-h">Profil</h2>
+        <p className="muted">Enregistré uniquement sur cet appareil. Sert à personnaliser l’accueil.</p>
+        <div className="field"><label htmlFor="fn">Prénom</label><input id="fn" className="input" value={profile.firstName} maxLength={40} onChange={(e) => profile.update({ firstName: e.target.value })} data-testid="profile-name" placeholder="ex. Anton" /></div>
+        <div className="field"><label htmlFor="qt">Citation du bandeau d’accueil</label><input id="qt" className="input" value={profile.quote} maxLength={120} onChange={(e) => profile.update({ quote: e.target.value })} placeholder={DEFAULT_QUOTE} /></div>
+      </section>
 
       <section className="settings-block">
         <h2>Apparence</h2>

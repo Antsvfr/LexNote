@@ -1,92 +1,154 @@
-/* LexNote — design tokens.
-   Direction : papier chaud + encre bleu nuit + laiton. Universitaire, calme, lisible des heures. */
+/* LexNote — design tokens (direction « REV-EM / LexNote premium »).
+   Thème sombre = thème principal. Le thème clair reste disponible (data-theme="light").
+   Les anciens noms (--bg, --surface, --ink…) sont des alias : une seule source de vérité ci-dessous. */
 :root {
   --font-ui: 'Inter Variable', ui-sans-serif, -apple-system, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
   --font-note: 'Newsreader Variable', 'Iowan Old Style', Charter, Georgia, 'Times New Roman', serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 
-  --r-xs: 4px; --r-sm: 6px; --r-md: 10px; --r-lg: 14px; --r-xl: 20px;
+  /* rayons */
+  --radius-sm: 8px; --radius-md: 10px; --radius-lg: 14px; --radius-xl: 18px;
+  --r-xs: 4px; --r-sm: 8px; --r-md: 10px; --r-lg: 14px; --r-xl: 18px;
   --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px; --sp-7: 48px;
 
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
-  --t-fast: 120ms; --t-med: 200ms;
+  --t-fast: 140ms; --t-med: 200ms;
 
-  --sidebar-w: 248px;
-  --panel-w: 340px;
-  --topbar-h: 52px;
-  --measure: 46rem; /* largeur de lecture des notes */
+  --sidebar-w: 280px;
+  --header-h: 44px;
+  --topbar-h: 54px;
+  --panel-w: 390px;
+  --measure: 48rem;
+  --page-pad: 32px;
 }
 
-:root, :root[data-theme='light'] {
-  color-scheme: light;
-  --bg: #f6f3ec;
-  --bg-sunken: #efebe1;
-  --surface: #fffdf8;
-  --surface-2: #faf7ef;
-  --line: #e4ded0;
-  --line-strong: #d3cbb8;
-  --ink: #1d2236;
-  --ink-2: #4b5168;
-  --ink-3: #7b8095;
-  --accent: #26345f;
-  --accent-ink: #ffffff;
-  --accent-soft: #e6e9f4;
-  --brass: #a07a1c;
-  --brass-soft: #f3e9cc;
-  --danger: #b3342b;
-  --danger-soft: #f8e2df;
-  --ok: #2f7a55;
-  --focus-ring: 0 0 0 3px rgb(38 52 95 / 0.28);
-  --shadow-1: 0 1px 2px rgb(40 30 10 / 0.06), 0 1px 1px rgb(40 30 10 / 0.04);
-  --shadow-2: 0 8px 28px rgb(40 30 10 / 0.12), 0 2px 6px rgb(40 30 10 / 0.06);
-  --scrim: rgb(29 34 54 / 0.38);
+:root, :root[data-theme='dark'] {
+  color-scheme: dark;
 
-  /* blocs juridiques : fond, trait, étiquette */
-  --b-article: #3b5aa8;     --b-article-bg: #eef1fa;
-  --b-caselaw: #7a4a98;     --b-caselaw-bg: #f4eef8;
-  --b-definition: #2d7d78;  --b-definition-bg: #e9f5f3;
-  --b-important: #b07d12;   --b-important-bg: #fbf3dc;
-  --b-example: #4f7a3a;     --b-example-bg: #eff5e9;
-  --b-question: #b4475f;    --b-question-bg: #faebee;
+  --background-primary: #050b14;
+  --background-secondary: #07111f;
+  --background-tertiary: #091421;
+  --surface: #0b1626;
+  --surface-elevated: #0f1c30;
+  --surface-hover: #12223a;
+  --surface-glass: rgb(12 22 38 / 0.72);
+  --sidebar-bg: #060d18;
+
+  --border-subtle: rgb(255 255 255 / 0.07);
+  --border-hover: rgb(255 255 255 / 0.13);
+  --border-active: rgb(255 62 92 / 0.6);
+
+  --text-primary: #eef2f9;
+  --text-secondary: #a9b4c7;
+  --text-muted: #6c7b94;
+
+  --accent-red: #ff2d55;
+  --accent-red-2: #ff3d7f;
+  --accent-red-deep: #8f1230;
+  --accent-blue: #4c8dff;
+  --accent-green: #22c58b;
+  --accent-orange: #f5a524;
+  --accent-purple: #a46bff;
+  --accent-cyan: #22d3ee;
+
+  --shadow-card: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 8px 24px -12px rgb(0 0 0 / 0.6);
+  --shadow-red: 0 0 0 1px rgb(255 45 85 / 0.18), 0 10px 28px -10px rgb(255 45 85 / 0.5);
+  --shadow-floating: 0 18px 50px -12px rgb(0 0 0 / 0.75), 0 2px 8px rgb(0 0 0 / 0.4);
+  --scrim: rgb(2 6 12 / 0.66);
+
+  /* surfaces de notes */
+  --paper: #0a1424;
+  --note-heading: #ff7088;
+  --note-link: #6ea6ff;
+
+  /* blocs juridiques */
+  --b-article: #7ea5ff;     --b-article-bg: rgb(76 141 255 / 0.12);
+  --b-caselaw: #c39bff;     --b-caselaw-bg: rgb(164 107 255 / 0.12);
+  --b-definition: #46d6b4;  --b-definition-bg: rgb(34 197 139 / 0.11);
+  --b-important: #ffbf47;   --b-important-bg: rgb(245 165 36 / 0.12);
+  --b-example: #a3d977;     --b-example-bg: rgb(130 200 90 / 0.11);
+  --b-question: #ff7a98;    --b-question-bg: rgb(255 45 85 / 0.12);
 
   /* couleurs de matières */
-  --c-indigo: #3d52a1; --c-brass: #a07a1c; --c-teal: #2d7d78; --c-plum: #8a4a98;
-  --c-rust: #b4572f; --c-moss: #5a7a2f; --c-slate: #5a6580; --c-rose: #b4475f;
+  --c-indigo: #4c8dff; --c-brass: #f5a524; --c-teal: #22c58b; --c-plum: #a46bff;
+  --c-rust: #ff7a45; --c-moss: #9bd05a; --c-slate: #8fa3c4; --c-rose: #ff5c8a;
+
+  --danger: #ff6b81; --danger-soft: rgb(255 45 85 / 0.14);
+  --ok: #3ddba0;
+  --rec: #ff4560;
+  --focus-ring: 0 0 0 3px rgb(255 62 92 / 0.38);
 }
 
-:root[data-theme='dark'] {
-  color-scheme: dark;
-  --bg: #12151f;
-  --bg-sunken: #0e1119;
-  --surface: #181c2a;
-  --surface-2: #1d2233;
-  --line: #2a3047;
-  --line-strong: #394060;
-  --ink: #e8e6df;
-  --ink-2: #aeb2c3;
-  --ink-3: #7f859c;
-  --accent: #9fb2ff;
-  --accent-ink: #12151f;
-  --accent-soft: #232b4a;
-  --brass: #d9b558;
-  --brass-soft: #34301f;
-  --danger: #f08a80;
-  --danger-soft: #3a2220;
-  --ok: #6cc596;
-  --focus-ring: 0 0 0 3px rgb(159 178 255 / 0.35);
-  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
-  --shadow-2: 0 10px 34px rgb(0 0 0 / 0.5), 0 2px 8px rgb(0 0 0 / 0.3);
-  --scrim: rgb(5 7 14 / 0.6);
+:root[data-theme='light'] {
+  color-scheme: light;
+  --background-primary: #f3f5fa;
+  --background-secondary: #eceff6;
+  --background-tertiary: #e6eaf3;
+  --surface: #ffffff;
+  --surface-elevated: #ffffff;
+  --surface-hover: #f1f4fa;
+  --surface-glass: rgb(255 255 255 / 0.78);
+  --sidebar-bg: #fbfcfe;
 
-  --b-article: #8fa8ee;     --b-article-bg: #1c2340;
-  --b-caselaw: #c39be0;     --b-caselaw-bg: #2a2038;
-  --b-definition: #6fcbc4;  --b-definition-bg: #17302f;
-  --b-important: #e6bd5c;   --b-important-bg: #332b15;
-  --b-example: #9fcb84;     --b-example-bg: #1f2c19;
-  --b-question: #ee8fa4;    --b-question-bg: #36202a;
+  --border-subtle: rgb(15 25 50 / 0.09);
+  --border-hover: rgb(15 25 50 / 0.18);
+  --border-active: rgb(220 30 70 / 0.55);
 
-  --c-indigo: #8fa3f0; --c-brass: #d9b558; --c-teal: #6fcbc4; --c-plum: #c39be0;
-  --c-rust: #e8946a; --c-moss: #a3c46c; --c-slate: #9aa6c4; --c-rose: #ee8fa4;
+  --text-primary: #0f1a30;
+  --text-secondary: #46536b;
+  --text-muted: #7a869c;
+
+  --accent-red: #e0193f;
+  --accent-red-2: #e8286f;
+  --accent-red-deep: #fbd7de;
+  --accent-blue: #2563eb;
+  --accent-green: #14966a;
+  --accent-orange: #d98307;
+  --accent-purple: #7c3aed;
+  --accent-cyan: #0891b2;
+
+  --shadow-card: 0 1px 2px rgb(15 25 50 / 0.06), 0 6px 18px -10px rgb(15 25 50 / 0.18);
+  --shadow-red: 0 0 0 1px rgb(224 25 63 / 0.2), 0 8px 22px -10px rgb(224 25 63 / 0.4);
+  --shadow-floating: 0 18px 44px -14px rgb(15 25 50 / 0.35), 0 2px 8px rgb(15 25 50 / 0.12);
+  --scrim: rgb(15 25 50 / 0.4);
+
+  --paper: #ffffff;
+  --note-heading: #c4123a;
+  --note-link: #1d4fd8;
+
+  --b-article: #2f55b8;     --b-article-bg: #eaf0fd;
+  --b-caselaw: #7a3fb8;     --b-caselaw-bg: #f3ecfb;
+  --b-definition: #12806a;  --b-definition-bg: #e5f6f1;
+  --b-important: #a86a00;   --b-important-bg: #fdf3da;
+  --b-example: #467a2a;     --b-example-bg: #edf6e6;
+  --b-question: #c0254a;    --b-question-bg: #fdebef;
+
+  --c-indigo: #2f6fe0; --c-brass: #c98100; --c-teal: #14966a; --c-plum: #8b4dd6;
+  --c-rust: #d4571f; --c-moss: #5f8f22; --c-slate: #5a6a88; --c-rose: #d6336c;
+
+  --danger: #c4123a; --danger-soft: #fde6ea;
+  --ok: #14966a;
+  --rec: #e0193f;
+  --focus-ring: 0 0 0 3px rgb(224 25 63 / 0.28);
+}
+
+/* ---- alias historiques (les composants existants continuent de fonctionner) ---- */
+:root {
+  --bg: var(--background-primary);
+  --bg-sunken: var(--background-secondary);
+  --surface-2: var(--surface-elevated);
+  --line: var(--border-subtle);
+  --line-strong: var(--border-hover);
+  --ink: var(--text-primary);
+  --ink-2: var(--text-secondary);
+  --ink-3: var(--text-muted);
+  --accent: var(--accent-red);
+  --accent-ink: #ffffff;
+  --accent-soft: color-mix(in srgb, var(--accent-red) 16%, transparent);
+  --brass: var(--accent-orange);
+  --brass-soft: color-mix(in srgb, var(--accent-orange) 16%, transparent);
+  --shadow-1: var(--shadow-card);
+  --shadow-2: var(--shadow-floating);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -5,7 +5,7 @@ test.describe('LexNote — parcours principal', () => {
   test('accueil, navigation et données de démo, sans erreur console', async ({ page }) => {
     const errors = trackErrors(page);
     await page.goto('/');
-    await expect(page.getByRole('heading', { name: 'Bon cours.' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Bon cours/ })).toBeVisible();
     await expect(page.getByText('données de démonstration')).toBeVisible();
     await expect(page.getByTestId('continue-last')).toBeVisible();
 
@@ -148,7 +148,7 @@ test.describe('LexNote — parcours principal', () => {
     await input.fill('poussin');
     await expect(page.getByTestId('search-results')).toContainText('Conditions de validité');
     await input.fill('contrats');
-    await expect(page.getByTestId('search-results')).toContainText('Droit des contrats');
+    await expect(page.getByTestId('search-results-subjects')).toContainText('Droit des contrats');
     await input.fill('zzzzintrouvable');
     await expect(page.getByText('Aucun résultat')).toBeVisible();
   });
@@ -159,8 +159,8 @@ test.describe('LexNote — parcours principal', () => {
     await createCm(page, { subject: 'À supprimer', module: 'M', title: 'Éphémère' });
     await page.goto('/sessions');
     const row = page.getByTestId('session-row').filter({ hasText: 'Éphémère' });
-    await row.hover();
-    await row.getByRole('button', { name: /Supprimer/ }).click();
+    await row.getByTestId('row-menu').click();
+    await page.getByRole('menuitem', { name: 'Supprimer' }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Supprimer' }).click();
     await expect(page.getByTestId('session-row').filter({ hasText: 'Éphémère' })).toHaveCount(0);
 

@@ -13,7 +13,9 @@ export function trackErrors(page: Page) {
 export const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
 
 export async function createCm(page: Page, opts: { subject?: string; module?: string; title: string }) {
-  await page.getByTestId('new-cm').first().click();
+  // Le bouton « Nouveau CM » vit sur l'accueil (comme sur la maquette) ; ailleurs, la palette (Ctrl/⌘+K) et les pages proposent aussi la création.
+  if (!(await page.getByTestId('dash-new-cm').isVisible().catch(() => false))) await page.goto('/');
+  await page.getByTestId('dash-new-cm').click();
   const dlg = page.getByRole('dialog', { name: 'Nouveau CM' });
   if (opts.subject) {
     await dlg.getByLabel('Matière').selectOption('__new__');

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { EditorContent, useEditor } from '@tiptap/react';
-import { ChevronRight, Command, Focus, Minimize2, CheckCheck } from 'lucide-react';
+import { Command, Focus, Minimize2, CheckCheck } from 'lucide-react';
 import { useLibrary } from '@/store/library';
 import { useUI } from '@/store/ui';
 import { useEditorBridge } from '@/store/editorBridge';
@@ -68,8 +68,8 @@ function Workspace({ sessionId, initialContent }: { sessionId: string; initialCo
   useEffect(() => {
     const focusMs = tParam !== null && Number.isFinite(Number(tParam)) ? Number(tParam) : null;
     void captureManager.open(sessionId, focusMs).catch((e) => console.warn('[LexNote] capture non chargée', e));
-    if (focusMs !== null) { useUI.getState().setSideTab('transcript'); if (!useUI.getState().assistantOpen) useUI.getState().toggleAssistant(); }
-  }, [sessionId, tParam]);
+    if (focusMs !== null || params.get('panel') === 'transcript') { useUI.getState().setSideTab('transcript'); if (!useUI.getState().assistantOpen) useUI.getState().toggleAssistant(); }
+  }, [sessionId, tParam]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // À l'activation de la transcription, le panneau s'ouvre sur l'onglet Transcription.
   useEffect(() => {
@@ -148,8 +148,8 @@ function Workspace({ sessionId, initialContent }: { sessionId: string; initialCo
 
         <nav className="topbar__crumbs" aria-label="Emplacement">
           {subject && <Link to={`/subjects/${subject.id}`}>{subject.name}</Link>}
-          {mod && <><ChevronRight size={13} aria-hidden /><Link to={`/modules/${mod.id}`}>{mod.name}</Link></>}
-          <ChevronRight size={13} aria-hidden />
+          {mod && <><span aria-hidden>/</span><Link to={`/modules/${mod.id}`}>{mod.name}</Link></>}
+          <span className="topbar__sep" aria-hidden />
         </nav>
 
         <TitleField sessionId={sessionId} />

@@ -50,7 +50,7 @@ export function SubjectPage() {
         </div>
       </header>
 
-      {mods.length === 0 && <div className="empty"><strong>Aucun module</strong>Ajoutez un module (ex. « Droit des contrats »).</div>}
+      {mods.length === 0 && <div className="panel empty"><strong>Aucun module</strong>Ajoutez un module (ex. « Droit des contrats »).</div>}
       {mods.map((m) => {
         const list = sessions.filter((s) => s.moduleId === m.id).sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
         return (
@@ -69,7 +69,7 @@ export function SubjectPage() {
                 <button className="btn btn--sm" onClick={() => openNewCm({ subjectId: subject.id, moduleId: m.id })}><Plus /> CM</button>
               </div>
             </div>
-            {list.length === 0 ? <p className="muted" style={{ padding: '8px 0' }}>Aucun CM dans ce module.</p> : <ul className="list">{list.map((s) => <SessionRow key={s.id} session={s} showContext={false} />)}</ul>}
+            {list.length === 0 ? <p className="muted" style={{ padding: '8px 0' }}>Aucun CM dans ce module.</p> : <ul className="panel rows">{list.map((s) => <SessionRow key={s.id} session={s} showContext={false} />)}</ul>}
           </section>
         );
       })}
