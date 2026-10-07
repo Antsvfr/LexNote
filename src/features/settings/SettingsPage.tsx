@@ -101,6 +101,11 @@ export function SettingsPage() {
           </span>
           {sync.pending > 0 && <span className="muted">{sync.pending} modification{sync.pending > 1 ? 's' : ''} en attente</span>}
         </div>
+        {sync.conflicts > 0 && (
+          <div className="banner banner--warn" role="status">
+            {sync.conflicts} conflit{sync.conflicts > 1 ? 's' : ''} de notes détecté{sync.conflicts > 1 ? 's' : ''}. Les deux versions ont été conservées localement afin d’éviter tout écrasement silencieux.
+          </div>
+        )}
       </section>
 
       <section className="settings-block">
