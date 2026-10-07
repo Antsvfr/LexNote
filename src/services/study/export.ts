@@ -18,7 +18,7 @@ export function toMarkdown(a: StudyArtifact, opts: { sources?: boolean } = {}): 
     case 'COURSE_SHEET': {
       for (const sec of (a.content as SheetContent).sections) {
         lines.push(`## ${sec.title}`, '');
-        for (const it of sec.items) lines.push(`- ${it.label ? `**${it.label}** — ` : ''}${it.text.replace(/\n/g, ' ')}${it.uncertain ? ' *(à vérifier)*' : ''}${srcLine(it.sources)}`);
+        for (const it of sec.items) lines.push(`${'  '.repeat(it.depth ?? 0)}- ${it.label ? `**${it.label}** — ` : ''}${it.text.replace(/\n/g, ' ')}${it.uncertain ? ' *(à vérifier)*' : ''}${srcLine(it.sources)}`);
         lines.push('');
       }
       break;
@@ -57,7 +57,7 @@ const NODE_STYLE: Record<string, { fill: string; stroke: string }> = {
   article: { fill: '#e9f7ef', stroke: '#2e9d64' }, caselaw: { fill: '#f3ecfb', stroke: '#7b4bc2' }, definition: { fill: '#fff4e5', stroke: '#d9822b' },
   example: { fill: '#e6f6fa', stroke: '#2a9bb5' }, important: { fill: '#fdebee', stroke: '#d4143a' }, question: { fill: '#fff9db', stroke: '#c9a400' },
 };
-const wrap = (text: string, max: number, lines = 2): string[] => {
+export const wrap = (text: string, max: number, lines = 2): string[] => {
   const words = text.split(/\s+/); const out: string[] = []; let cur = '';
   for (const w of words) { if ((cur + ' ' + w).trim().length > max && cur) { out.push(cur); cur = w; } else cur = (cur + ' ' + w).trim(); }
   if (cur) out.push(cur);

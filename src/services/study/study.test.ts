@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildOutline, scopeSection } from './outline';
 import { findSection, generateDraft, guardAiContent, interpretStudyCommand, isStale, setStudyProvider, toArtifact } from './engine';
-import { EmptySourceError, countNodes, generateComparison, generateDiagram, generateMindMap, suggestDiagramType, suggestSupports } from './generators';
+import { EmptySourceError, comparableSections, countNodes, generateComparison, generateDiagram, generateMindMap, suggestDiagramType, suggestSupports } from './generators';
 import { validateContent, ArtifactValidationError, type MindMapContent, type SheetContent } from '@/domain/study';
 import { layoutMindMap, layoutDiagram } from './layout';
 
@@ -217,6 +217,22 @@ describe('tableau comparatif', () => {
     const s = suggestSupports(out());
     expect(s.map((x) => x.type)).toEqual(expect.arrayContaining(['MIND_MAP', 'COMPARISON_TABLE']));
     expect(suggestSupports(buildOutline('v', 'V', { type: 'doc', content: [p('court')] }))).toEqual([]);
+  });
+});
+
+describe('dates et numéros d’articles', () => {
+  it('« Art. 1132 », « article L. 1240-1 » ne sont pas des dates', async () => {
+    const o = buildOutline('d', 'D', { type: 'doc', content: [lb('article', 'Art. 1132 : erreur.'), lb('article', 'Article L. 1240-1 du code'), p('Selon l’article 1137 du code civil.'), lb('article', 'Art. 1137 : dol.')] });
+    await expect(generateDraft(o, { type: 'TIMELINE' })).rejects.toBeInstanceOf(EmptySourceError);
+  });
+  it('« en 1804 », « le 13 juillet 1930 » en sont', async () => {
+    const o = buildOutline('d', 'D', { type: 'doc', content: [p('Loi du 13 juillet 1930 sur l’assurance.'), p('Réforme en 2016.')] });
+    const c = (await generateDraft(o, { type: 'TIMELINE' })).content as { events: { date: string }[] };
+    expect(c.events.map((e) => e.date)).toEqual(['13 juillet 1930', '2016']);
+  });
+  it('tableau : choisit le groupe de notions qui porte le plus d’éléments juridiques (erreur / dol / violence)', () => {
+    const o = out();
+    expect(comparableSections({ outline: o, scope: o.root }).map((s) => s.title)).toEqual(['Erreur', 'Dol', 'Violence']);
   });
 });
 

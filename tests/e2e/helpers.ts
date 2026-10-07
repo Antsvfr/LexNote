@@ -160,3 +160,44 @@ export async function capIDB(page: import('@playwright/test').Page, store: strin
     }).catch(rej);
   }), store);
 }
+
+/** Écrit un document de notes (ProseMirror JSON) dans la base locale de l'utilisateur connecté, puis recharge. */
+export async function seedNotes(page: Page, sessionId: string, doc: unknown) {
+  await page.evaluate(async ([sid, d]) => {
+    const names = (await indexedDB.databases()).map((x) => x.name ?? '');
+    const name = names.find((n) => n.startsWith('lexnote-u-'))!;
+    await new Promise<void>((res, rej) => {
+      const r = indexedDB.open(name);
+      r.onsuccess = () => {
+        const tx = r.result.transaction(['notes'], 'readwrite');
+        tx.objectStore('notes').put({ sessionId: sid, content: d, updatedAt: new Date().toISOString() });
+        tx.oncomplete = () => { r.result.close(); res(); }; tx.onerror = () => rej(tx.error);
+      };
+      r.onerror = () => rej(r.error);
+    });
+  }, [sessionId, doc] as const);
+}
+
+const T = (text: string) => ({ type: 'text', text });
+const P = (text: string) => ({ type: 'paragraph', content: [T(text)] });
+const H = (level: number, text: string) => ({ type: 'heading', attrs: { level }, content: [T(text)] });
+const LB = (kind: string, text: string) => ({ type: 'legalBlock', attrs: { kind }, content: [P(text)] });
+/** Cours de droit des contrats : 3 vices du consentement, définitions, articles, un arrêt. Aucune exception, aucune date. */
+export const CONTRACT_DOC = { type: 'doc', content: [
+  H(1, 'Formation du contrat'), P('Le contrat se forme par la rencontre des volontés.'),
+  H(2, 'Consentement'), P('Le consentement doit être libre et éclairé.'),
+  H(3, 'Erreur'), LB('definition', 'Erreur : fausse représentation de la réalité.'), LB('article', 'Art. 1132 : l’erreur de droit ou de fait est une cause de nullité.'),
+  H(3, 'Dol'), LB('definition', 'Dol : manœuvres destinées à tromper le cocontractant.'), LB('article', 'Art. 1137 : le dol est le fait pour un contractant d’obtenir le consentement par des manœuvres.'), LB('caselaw', 'Cass. civ. 3e : réticence dolosive.'),
+  H(3, 'Violence'), LB('definition', 'Violence : contrainte qui inspire la crainte d’un mal considérable.'),
+  H(2, 'Capacité'), P('Toute personne peut contracter sauf incapacité.'), LB('important', 'Les mineurs non émancipés sont incapables.'),
+] };
+
+/** Crée un compte, une séance « Contrats » et y installe CONTRACT_DOC. Retourne l'id de séance. */
+export async function courseWithContent(page: Page, title = 'Droit des contrats'): Promise<string> {
+  await createCm(page, { subject: 'Droit civil', title });
+  const sid = page.url().split('/session/')[1]!.split(/[/?]/)[0]!;
+  await seedNotes(page, sid, CONTRACT_DOC);
+  await page.goto(`/session/${sid}/recap`);
+  await expect(page.getByTestId('recap-create-support')).toBeVisible();
+  return sid;
+}

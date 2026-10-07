@@ -91,7 +91,7 @@ export async function closeWorkspace(): Promise<void> {
   useEditorBridge.getState().setEditor(null);
   useSaveStatus.getState().set('idle');
   useToasts.setState({ toasts: [] });
-  useUI.setState({ focus: false, paletteOpen: false, navOpen: false, newSession: null, recPopover: false });
+  useUI.setState({ focus: false, paletteOpen: false, navOpen: false, newSession: null, supportDialog: null, recPopover: false });
   useSync.setState({ ...initialSync });
   setStorageScope(null);
 }

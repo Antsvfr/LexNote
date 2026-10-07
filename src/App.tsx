@@ -3,6 +3,9 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { RequireAuth } from '@/features/auth/RequireAuth';
 import { ForgotPasswordPage, LoginPage, ResetPasswordPage, SignupPage } from '@/features/auth/AuthPages';
 import { OnboardingPage } from '@/features/auth/Onboarding';
+import { CreateSupportDialog } from '@/features/study/CreateSupportDialog';
+import { SupportsPage } from '@/features/study/SupportsPage';
+import { ArtifactPage } from '@/features/study/ArtifactPage';
 import { SubjectDialog } from '@/features/library/SubjectDialog';
 import { AppShell } from '@/components/AppShell';
 import { ConfirmHost, PromptHost } from '@/components/confirm';
@@ -55,6 +58,8 @@ export function App() {
               <Route path="subjects/:subjectId" element={<SubjectPage />} />
               <Route path="modules/:moduleId" element={<ModulePage />} />
               <Route path="sessions" element={<SessionsPage />} />
+              <Route path="supports" element={<SupportsPage />} />
+              <Route path="supports/:artifactId" element={<ArtifactPage />} />
               <Route path="search" element={<SearchPage />} />
               <Route path="settings" element={<SettingsPage />} />
               <Route path="session/:sessionId/recap" element={<RecapPage />} />
@@ -66,6 +71,7 @@ export function App() {
         </Suspense>
         <NewSessionDialog />
         <SubjectDialog />
+        <CreateSupportDialog />
         <CommandPalette />
         <ConfirmHost />
         <PromptHost />

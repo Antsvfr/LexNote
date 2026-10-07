@@ -105,6 +105,27 @@ supabase/          Migration SQL + Edge Function delete-account
 - **Audio** : jamais envoyé au cloud ; la transcription, les marqueurs et les ancrages, eux, sont synchronisés.
 - **Développement/tests sans Supabase** : `VITE_BACKEND=mock` (build ou dev) remplace Supabase par un serveur simulé dans le navigateur ; **absent des builds de production**.
 
+## Supports d'étude (fiches, cartes mentales, schémas…)
+
+Depuis un cours : **Créer un support** (page de la séance, palette `Ctrl/⌘ K`, ou une phrase comme « Compare erreur, dol et violence »). Rien n'est généré automatiquement.
+
+| Support | Contenu | Personnalisation |
+|---|---|---|
+| Fiche de cours | Plan · Définitions · Articles · Jurisprudences · Exemples · Points examen · À vérifier (ou « Notions » hors droit) — **uniquement les rubriques que le cours alimente** | Express / Standard / Complète ; rubriques à inclure ; sources ; partie du cours |
+| Résumé express | une ligne par partie du cours | — |
+| Carte mentale | structure réelle du cours (titres, définitions, articles, arrêts) | simple (≤ 15 nœuds) / standard (≤ 30) / détaillée ; horizontale, radiale, verticale |
+| Schéma | processus, hiérarchie, comparaison, relations, chronologie, raisonnement (« si… alors ») ; type suggéré automatiquement, modifiable | partie du cours |
+| Tableau comparatif | notions proches (sous-titres frères) × critères (définition, articles, jurisprudence…) | notions choisies |
+| Chronologie · Flashcards · Quiz | dates citées · recto/verso · auto-test de rappel | partie du cours |
+
+**Architecture** (`src/services/study`, `src/domain/study.ts`, `src/features/study`) :
+- un seul modèle `StudyArtifact` (`type`, `content` structuré, `aiContent` = version générée, `sourceHash`, `userEdited`, `sourceSessionIds[]` — multi-séances prévu) synchronisé comme le reste (table `study_artifacts`, RLS) ;
+- `outline.ts` extrait le plan du cours (titres, blocs juridiques, listes) → `generators.ts` produit des structures **validées par des schémas stricts (zod)** ; chaque élément porte un **extrait exact** du cours (`sources`) ;
+- **aucune invention** : rubrique absente du cours = rubrique absente du support ; une flèche n'existe que si le cours l'indique (ordre, structure, « si… alors », citation) ; sinon refus explicite (« aucune étape détectée… ») ou schéma vide à construire soi-même ;
+- cartes et schémas : SVG maison (arbre / graphe en couches, sans dépendance) — zoom, déplacement, repli, recherche, plein écran, édition (renommer, ajouter, supprimer, déplacer), tactile ; exports **SVG / PNG ×3 / Markdown / impression (PDF)** ;
+- versions : le contenu est modifiable ; « Revenir à la version générée » ; si le cours change, bandeau « Le cours a été mis à jour » — la mise à jour **ne remplace jamais** un support modifié (copie mise à jour) ;
+- l'extraction est **locale (sans IA)**. Un `StudyProvider` IA peut être branché (`setStudyProvider`) : sa sortie JSON passe par les mêmes schémas puis par `guardAiContent` (un élément sans extrait vérifiable dans le cours est écarté ou marqué « incertain »). Aucun moteur IA n'est branché dans cette version.
+
 ## Stockage
 
 > (Les bases décrites ci-dessous sont désormais **par compte** : `lexnote-u-<id>`.)

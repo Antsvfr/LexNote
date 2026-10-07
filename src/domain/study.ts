@@ -43,7 +43,7 @@ export const SHEET_SECTION_LABELS: Record<SheetSectionKind, string> = {
   plan: 'Plan', definitions: 'Définitions', rules: 'Règles', articles: 'Articles', caselaw: 'Jurisprudences', examples: 'Exemples du professeur',
   exam: 'Points examen', pitfalls: 'Pièges', toverify: 'À vérifier', concepts: 'Notions', summary: 'Résumé',
 };
-const sheetItem = z.object({ id: z.string(), text: z.string().min(1), label: z.string().optional(), sources, uncertain: z.boolean().optional() });
+const sheetItem = z.object({ id: z.string(), text: z.string().min(1), label: z.string().optional(), /** Retrait (plan hiérarchique). */ depth: z.number().int().min(0).max(6).optional(), sources, uncertain: z.boolean().optional() });
 export const sheetSchema = z.object({
   mode: z.enum(SHEET_MODES),
   variant: z.enum(['sheet', 'summary']).default('sheet'),

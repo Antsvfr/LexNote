@@ -61,7 +61,7 @@ export function generateSheet(i: GenInput, o: SheetOptions): GenResult<SheetCont
   if (heads.length) {
     sections.push({
       id: newId(), kind: 'plan', title: SHEET_SECTION_LABELS.plan,
-      items: fit(heads).map((s) => ({ id: newId(), text: `${'— '.repeat(Math.max(0, s.level - i.scope.level - 1))}${s.title}`, sources: secSrc(i, s) })),
+      items: fit(heads).map((s) => ({ id: newId(), text: s.title, depth: Math.min(6, Math.max(0, s.level - i.scope.level - 1)), sources: secSrc(i, s) })),
     });
   }
 
@@ -167,7 +167,12 @@ export function detectDated(i: GenInput): DatedBlock[] {
   const out: DatedBlock[] = [];
   for (const b of allBlocks(i.scope)) {
     const m = b.text.match(DATE_RE);
-    if (m) out.push({ block: b, date: m[0].trim(), year: Number(m[1]) });
+    if (!m || m.index === undefined) continue;
+    // « Art. 1132 », « article L. 1240-1 », « n° 1998 » : un numéro d'article n'est pas une date.
+    const before = b.text.slice(Math.max(0, m.index - 12), m.index + m[0].length - m[1]!.length);
+    const after = b.text.slice(m.index + m[0].length, m.index + m[0].length + 2);
+    if (/(art(?:icles?)?\.?|n°|no|l\.|r\.|d\.)\s*$/i.test(before) || /^[-–]\d/.test(after) || /^\d/.test(after)) continue;
+    out.push({ block: b, date: m[0].trim(), year: Number(m[1]) });
   }
   return out;
 }
@@ -269,13 +274,19 @@ const ROW_KINDS: { block: BlockKind; label: string }[] = [
 ];
 /** Notions comparables : sous-titres frères portant le plus de contenu. */
 export function comparableSections(i: GenInput): OutlineSection[] {
-  const pick = (sec: OutlineSection): OutlineSection[] => {
+  // Parmi tous les groupes de sous-titres frères (≥ 2 avec du contenu), on retient celui dont le plus de membres portent EUX-MÊMES
+  // des éléments juridiques (définition, article, arrêt…) : ce sont les notions les plus « comparables ». À égalité, le plus profond.
+  let best: { kids: OutlineSection[]; score: number; depth: number } | null = null;
+  const visit = (sec: OutlineSection, depth: number) => {
     const kids = sec.children.filter(hasContent);
-    if (kids.length >= 2) return kids;
-    for (const c of sec.children) { const r = pick(c); if (r.length >= 2) return r; }
-    return [];
+    if (kids.length >= 2) {
+      const score = kids.reduce((n, k) => { const own = k.blocks.filter(isLegal).length; return n + (own ? 100 + own : 0); }, 0);
+      if (!best || score > best.score || (score === best.score && depth > best.depth)) best = { kids, score, depth };
+    }
+    sec.children.forEach((c) => visit(c, depth + 1));
   };
-  return pick(i.scope);
+  visit(i.scope, 0);
+  return (best as { kids: OutlineSection[] } | null)?.kids ?? [];
 }
 export function generateComparison(i: GenInput, sectionIds?: string[]): GenResult<TableContent> {
   const cols = (sectionIds?.length ? allSections(i.outline.root).filter((s) => sectionIds.includes(s.id)) : comparableSections(i)).slice(0, 5);
