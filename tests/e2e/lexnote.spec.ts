@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixture';
 import { createCm, mod, trackErrors, waitSaved } from './helpers';
 
 test.describe('LexNote — parcours principal', () => {
