@@ -1,8 +1,9 @@
 import type { StudyArtifact } from '@/domain/study';
+import type { GeneratedCourse, SourceDocument } from '@/domain/course';
 import type { CourseSession, LibrarySnapshot, Module, NoteDocument, Subject } from '@/domain/types';
 
 /** Tables synchronisées « versionnées » (avec détection de conflit). */
-export type SyncTable = 'subjects' | 'modules' | 'course_sessions' | 'study_artifacts';
+export type SyncTable = 'subjects' | 'modules' | 'course_sessions' | 'study_artifacts' | 'source_documents' | 'generated_courses';
 
 /** Écriture atomique : tout ou rien. Supprimer une séance supprime aussi ses notes. */
 export interface ChangeSet {
@@ -12,6 +13,10 @@ export interface ChangeSet {
   putNotes?: NoteDocument[];
   putArtifacts?: StudyArtifact[];
   deleteArtifacts?: string[];
+  putDocuments?: SourceDocument[];
+  deleteDocuments?: string[];
+  putCourses?: GeneratedCourse[];
+  deleteCourses?: string[];
   deleteSubjects?: string[];
   deleteModules?: string[];
   deleteSessions?: string[];
@@ -39,6 +44,8 @@ export interface DirtySet {
   modules: Module[];
   sessions: CourseSession[];
   artifacts: StudyArtifact[];
+  documents: SourceDocument[];
+  courses: GeneratedCourse[];
   tombstones: Tombstone[];
 }
 
@@ -52,6 +59,8 @@ export interface ExportBundle {
   sessions: CourseSession[];
   notes: NoteDocument[];
   artifacts: StudyArtifact[];
+  documents: SourceDocument[];
+  courses: GeneratedCourse[];
 }
 
 /**
@@ -65,6 +74,11 @@ export interface StorageAdapter {
   loadLibrary(): Promise<LibrarySnapshot>;
   getNotes(sessionId: string): Promise<NoteDocument | undefined>;
   loadArtifacts(): Promise<StudyArtifact[]>;
+  loadDocuments(): Promise<SourceDocument[]>;
+  loadCourses(): Promise<GeneratedCourse[]>;
+  /** Fichier ORIGINAL d'un document importé : stocké sur l'appareil uniquement (jamais synchronisé, séparé du contenu analysé). */
+  putDocumentFile(id: string, file: Blob): Promise<void>;
+  getDocumentFile(id: string): Promise<Blob | undefined>;
   commit(changes: ChangeSet, opts?: CommitOptions): Promise<void>;
   getMeta<T = unknown>(key: string): Promise<T | undefined>;
   setMeta(key: string, value: unknown): Promise<void>;
@@ -80,4 +94,4 @@ export interface StorageAdapter {
   close(): void;
 }
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;

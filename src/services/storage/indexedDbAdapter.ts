@@ -1,5 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import type { StudyArtifact } from '@/domain/study';
+import type { GeneratedCourse, SourceDocument } from '@/domain/course';
 import type { CourseSession, LibrarySnapshot, Module, NoteDocument, Subject } from '@/domain/types';
 import {
   SCHEMA_VERSION, type ChangeSet, type CommitOptions, type DirtySet, type ExportBundle, type StorageAdapter, type SyncTable, type Tombstone,
@@ -11,6 +12,9 @@ interface LexNoteDB extends DBSchema {
   sessions: { key: string; value: CourseSession; indexes: { byModule: string; bySubject: string } };
   /** Contenu des notes, séparé des métadonnées pour garder les listes légères. */
   artifacts: { key: string; value: StudyArtifact };
+  documents: { key: string; value: SourceDocument; indexes: { bySession: string } };
+  courses: { key: string; value: GeneratedCourse; indexes: { bySession: string } };
+  documentFiles: { key: string; value: Blob };
   notes: { key: string; value: NoteDocument };
   meta: { key: string; value: unknown };
   tombstones: { key: string; value: Tombstone };
@@ -19,8 +23,8 @@ interface LexNoteDB extends DBSchema {
 /** Une base par utilisateur : `lexnote-u-<userId>`. Aucune donnée n'est partagée entre comptes d'un même navigateur. */
 export const userDbName = (userId: string) => `lexnote-u-${userId}`;
 
-type Store = 'subjects' | 'modules' | 'sessions' | 'artifacts';
-const STORE_FOR: Record<SyncTable, Store> = { subjects: 'subjects', modules: 'modules', course_sessions: 'sessions', study_artifacts: 'artifacts' };
+type Store = 'subjects' | 'modules' | 'sessions' | 'artifacts' | 'documents' | 'courses';
+const STORE_FOR: Record<SyncTable, Store> = { subjects: 'subjects', modules: 'modules', course_sessions: 'sessions', study_artifacts: 'artifacts', source_documents: 'documents', generated_courses: 'courses' };
 
 /** Migrations incrémentales : une étape par version de schéma. */
 function upgrade(db: IDBPDatabase<LexNoteDB>, oldVersion: number) {
@@ -36,6 +40,11 @@ function upgrade(db: IDBPDatabase<LexNoteDB>, oldVersion: number) {
   }
   if (oldVersion < 2) {
     db.createObjectStore('artifacts', { keyPath: 'id' });
+  }
+  if (oldVersion < 3) {
+    db.createObjectStore('documents', { keyPath: 'id' }).createIndex('bySession', 'sessionId');
+    db.createObjectStore('courses', { keyPath: 'id' }).createIndex('bySession', 'sessionId');
+    db.createObjectStore('documentFiles');
   }
 }
 
@@ -56,10 +65,14 @@ export class IndexedDbAdapter implements StorageAdapter {
     return { subjects, modules, sessions };
   }
   loadArtifacts() { return this.db.getAll('artifacts'); }
+  loadDocuments() { return this.db.getAll('documents'); }
+  loadCourses() { return this.db.getAll('courses'); }
+  async putDocumentFile(id: string, file: Blob) { await this.db.put('documentFiles', file, id); }
+  getDocumentFile(id: string) { return this.db.get('documentFiles', id); }
   getNotes(sessionId: string) { return this.db.get('notes', sessionId); }
 
   async commit(c: ChangeSet, opts: CommitOptions = {}): Promise<void> {
-    const tx = this.db.transaction(['subjects', 'modules', 'sessions', 'artifacts', 'notes', 'tombstones'], 'readwrite');
+    const tx = this.db.transaction(['subjects', 'modules', 'sessions', 'artifacts', 'documents', 'courses', 'documentFiles', 'notes', 'tombstones'], 'readwrite');
     const mark = <T extends { dirty?: boolean }>(v: T): T => (opts.remote ? v : { ...v, dirty: true });
     const ops: Promise<unknown>[] = [];
 
@@ -91,6 +104,8 @@ export class IndexedDbAdapter implements StorageAdapter {
     c.putSubjects?.forEach((v) => ops.push(put('subjects', 'subjects', v)));
     c.putModules?.forEach((v) => ops.push(put('modules', 'modules', v)));
     c.putArtifacts?.forEach((v) => ops.push(put('artifacts', 'study_artifacts', v)));
+    c.putDocuments?.forEach((v) => ops.push(put('documents', 'source_documents', v)));
+    c.putCourses?.forEach((v) => ops.push(put('courses', 'generated_courses', v)));
     const sessionWritten = new Map<string, Promise<boolean>>();
     c.putSessions?.forEach((v) => { const p = put('sessions', 'course_sessions', v); sessionWritten.set(v.id, p); ops.push(p); });
     c.putNotes?.forEach((v) => ops.push((async () => {
@@ -101,6 +116,8 @@ export class IndexedDbAdapter implements StorageAdapter {
     c.deleteSubjects?.forEach((id) => ops.push(del('subjects', id)));
     c.deleteModules?.forEach((id) => ops.push(del('modules', id)));
     c.deleteArtifacts?.forEach((id) => ops.push(del('study_artifacts', id)));
+    c.deleteDocuments?.forEach((id) => ops.push((async () => { if (await del('source_documents', id)) await tx.objectStore('documentFiles').delete(id); })()));
+    c.deleteCourses?.forEach((id) => ops.push(del('generated_courses', id)));
     c.deleteSessions?.forEach((id) => ops.push((async () => { if (await del('course_sessions', id)) await tx.objectStore('notes').delete(id); })()));
     try {
       await Promise.all([...ops, tx.done]);
@@ -114,10 +131,13 @@ export class IndexedDbAdapter implements StorageAdapter {
   async setMeta(key: string, value: unknown) { await this.db.put('meta', value, key); }
 
   async listDirty(): Promise<DirtySet> {
-    const [subjects, modules, sessions, artifacts, tombstones] = await Promise.all([
-      this.db.getAll('subjects'), this.db.getAll('modules'), this.db.getAll('sessions'), this.db.getAll('artifacts'), this.db.getAll('tombstones'),
+    const [subjects, modules, sessions, artifacts, documents, courses, tombstones] = await Promise.all([
+      this.db.getAll('subjects'), this.db.getAll('modules'), this.db.getAll('sessions'), this.db.getAll('artifacts'), this.db.getAll('documents'), this.db.getAll('courses'), this.db.getAll('tombstones'),
     ]);
-    return { subjects: subjects.filter((x) => x.dirty), modules: modules.filter((x) => x.dirty), sessions: sessions.filter((x) => x.dirty), artifacts: artifacts.filter((x) => x.dirty), tombstones };
+    return {
+      subjects: subjects.filter((x) => x.dirty), modules: modules.filter((x) => x.dirty), sessions: sessions.filter((x) => x.dirty), artifacts: artifacts.filter((x) => x.dirty),
+      documents: documents.filter((x) => x.dirty), courses: courses.filter((x) => x.dirty), tombstones,
+    };
   }
 
   async markSynced(table: SyncTable, id: string, version: number, pushedUpdatedAt?: string) {
@@ -134,12 +154,12 @@ export class IndexedDbAdapter implements StorageAdapter {
   async dropTombstone(key: string) { await this.db.delete('tombstones', key); }
 
   async exportAll(): Promise<ExportBundle> {
-    const [lib, notes, artifacts] = await Promise.all([this.loadLibrary(), this.db.getAll('notes'), this.db.getAll('artifacts')]);
-    return { app: 'lexnote', schemaVersion: SCHEMA_VERSION, exportedAt: new Date().toISOString(), ...lib, notes, artifacts };
+    const [lib, notes, artifacts, documents, courses] = await Promise.all([this.loadLibrary(), this.db.getAll('notes'), this.db.getAll('artifacts'), this.db.getAll('documents'), this.db.getAll('courses')]);
+    return { app: 'lexnote', schemaVersion: SCHEMA_VERSION, exportedAt: new Date().toISOString(), ...lib, notes, artifacts, documents, courses };
   }
 
   async clearAll() {
-    const names = ['subjects', 'modules', 'sessions', 'artifacts', 'notes', 'meta', 'tombstones'] as const;
+    const names = ['subjects', 'modules', 'sessions', 'artifacts', 'documents', 'courses', 'documentFiles', 'notes', 'meta', 'tombstones'] as const;
     const tx = this.db.transaction([...names], 'readwrite');
     await Promise.all([...names.map((s) => tx.objectStore(s).clear()), tx.done]);
   }
