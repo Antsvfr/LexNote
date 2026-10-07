@@ -1,3 +1,4 @@
+import { typeLabel } from '@/domain/sessionType';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { EditorContent, useEditor } from '@tiptap/react';
@@ -13,6 +14,7 @@ import { useAutosave } from './useAutosave';
 import { useSaveStatus } from './saveStatus';
 import { ActionBar, FormatBar } from './Toolbar';
 import { SaveIndicator } from './SaveIndicator';
+import { SyncIndicator } from '@/components/SyncIndicator';
 import { SessionTimer } from './SessionTimer';
 import { SidePanel } from './AssistantPanel';
 import { RecControls, MarkerQuickChips, useStartCapture } from '@/features/capture/RecControls';
@@ -107,9 +109,9 @@ function Workspace({ sessionId, initialContent }: { sessionId: string; initialCo
   }, [setFocus]);
 
   const subject = subjectById.get(session.subjectId);
-  const mod = moduleById.get(session.moduleId);
+  const mod = (session.moduleId ? moduleById.get(session.moduleId) : undefined);
   useEffect(() => {
-    document.title = `${session.title || 'CM'} — LexNote`;
+    document.title = `${session.title || typeLabel(session.type)} — LexNote`;
     return () => { document.title = 'LexNote'; };
   }, [session.title]);
 
@@ -141,7 +143,7 @@ function Workspace({ sessionId, initialContent }: { sessionId: string; initialCo
   return (
     <div className={`workspace${focus ? ' is-focus' : ''}${assistantOpen && !focus ? ' has-panel' : ''}`}>
       <header className="topbar">
-        <Link to={`/modules/${session.moduleId}`} className="topbar__brand" aria-label="Quitter l’éditeur (retour au module)" title="Retour au module">
+        <Link to={session.moduleId ? `/modules/${session.moduleId}` : `/subjects/${session.subjectId}`} className="topbar__brand" aria-label="Quitter l’éditeur" title="Quitter l’éditeur">
           <LogoMark className="brand__mark" />
           <span className="topbar__name">LexNote</span>
         </Link>
@@ -157,12 +159,13 @@ function Workspace({ sessionId, initialContent }: { sessionId: string; initialCo
         <div className="topbar__right">
           <SessionTimer sessionId={sessionId} initialSeconds={session.durationSec} secondsRef={secondsRef} />
           <SaveIndicator />
+          <SyncIndicator compact />
           <RecControls sessionId={sessionId} />
           <button className="btn btn--ghost btn--icon btn--sm" onClick={() => setPalette(true)} aria-label="Palette de commandes" title={`Commandes (${modKeyLabel}K)`}><Command /></button>
           <button className="btn btn--sm topbar__btn" onClick={() => setFocus(!focus)} aria-pressed={focus} data-testid="focus-toggle" aria-label={focus ? "Quitter le mode Focus" : "Mode Focus"} title="Mode Focus (Échap pour quitter)">
             {focus ? <><Minimize2 /> <span className="lbl">Quitter Focus</span></> : <><Focus /> <span className="lbl">Focus</span></>}
           </button>
-          <button className="btn btn--sm btn--primary topbar__btn" onClick={finish} data-testid="finish-cm" aria-label="Terminer le CM"><CheckCheck /> <span className="lbl">Terminer le CM</span></button>
+          <button className="btn btn--sm btn--primary topbar__btn" onClick={finish} data-testid="finish-cm" aria-label="Terminer la séance"><CheckCheck /> <span className="lbl">Terminer</span></button>
         </div>
       </header>
 
@@ -190,7 +193,7 @@ function Workspace({ sessionId, initialContent }: { sessionId: string; initialCo
 function TitleField({ sessionId }: { sessionId: string }) {
   const session = useLibrary((s) => s.sessions.find((x) => x.id === sessionId)) as CourseSession;
   const [value, setValue] = useState(session.title);
-  const prefix = session.number != null ? `CM ${String(session.number).padStart(2, '0')} —` : '';
+  const prefix = session.number != null ? `${typeLabel(session.type)} ${String(session.number).padStart(2, '0')} —` : typeLabel(session.type);
 
   const save = useMemo(
     () => debounce((title: string) => {
@@ -209,8 +212,8 @@ function TitleField({ sessionId }: { sessionId: string }) {
       <input
         className="titlefield__input"
         value={value}
-        placeholder="Titre du CM"
-        aria-label="Titre du CM"
+        placeholder="Titre de la séance"
+        aria-label="Titre de la séance"
         data-testid="title-input"
         onChange={(e) => { setValue(e.target.value); save(e.target.value); }}
         onBlur={() => save.flush()}

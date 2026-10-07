@@ -14,7 +14,8 @@ export interface StatCard {
 }
 
 export interface DashboardStats {
-  cm: StatCard;
+  /** Séances (CM, TD, TP… confondus). */
+  sessions: StatCard;
   subjects: StatCard;
   words: StatCard;
   time: StatCard;
@@ -45,7 +46,7 @@ export function computeDashboardStats(sessions: CourseSession[], subjects: Subje
   const newSubjects = subjects.filter((s) => now - new Date(s.createdAt).getTime() <= 7 * DAY).length;
 
   return {
-    cm: {
+    sessions: {
       value: String(sessions.length),
       up: inWeek.length > 0 || inMonth.length > 0,
       note: inWeek.length ? `+${inWeek.length} cette semaine` : inMonth.length ? `+${inMonth.length} ce mois-ci` : 'Aucun récent',
@@ -68,14 +69,18 @@ export function computeDashboardStats(sessions: CourseSession[], subjects: Subje
   };
 }
 
-/** Avancement honnête d'un module : CM terminés / CM du module. */
-export function moduleProgress(sessions: CourseSession[], moduleId: string): { done: number; total: number; pct: number } {
-  const list = sessions.filter((s) => s.moduleId === moduleId);
+/**
+ * Avancement honnête du groupe d'une séance : séances terminées / séances du même module
+ * (ou, sans module, de la même matière sans module).
+ */
+export function groupProgress(sessions: CourseSession[], of: Pick<CourseSession, 'moduleId' | 'subjectId'>): { done: number; total: number; pct: number; scope: 'module' | 'subject' } {
+  const scope = of.moduleId ? 'module' : 'subject';
+  const list = sessions.filter((s) => (of.moduleId ? s.moduleId === of.moduleId : s.subjectId === of.subjectId && !s.moduleId));
   const done = list.filter((s) => s.status === 'completed').length;
-  return { done, total: list.length, pct: list.length ? Math.round((done / list.length) * 100) : 0 };
+  return { done, total: list.length, pct: list.length ? Math.round((done / list.length) * 100) : 0, scope };
 }
 
-/** CM à reprendre : le plus récent « en cours », sinon le plus récent tout court. */
+/** Séance à reprendre : la plus récente « en cours », sinon la plus récente tout court. */
 export function pickResumeSession(sessions: CourseSession[]): CourseSession | undefined {
   const byRecent = [...sessions].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   return byRecent.find((s) => s.status === 'in_progress') ?? byRecent[0];

@@ -69,7 +69,7 @@ export function RecapPage() {
   if (ready && !session) return <Navigate to="/" replace />;
   if (!session) return null;
   const subject = subjectById.get(session.subjectId);
-  const mod = moduleById.get(session.moduleId);
+  const mod = (session.moduleId ? moduleById.get(session.moduleId) : undefined);
 
   return (
     <div className="page page-enter">
@@ -78,7 +78,7 @@ export function RecapPage() {
       </nav>
       <header className="page__head">
         <div>
-          <span className="eyebrow">{session.status === 'completed' ? 'CM terminé' : 'CM en cours'}</span>
+          <span className="eyebrow">{session.status === 'completed' ? 'Séance terminée' : 'Séance en cours'}</span>
           <h1 data-testid="recap-title">{sessionLabel(session)}</h1>
         </div>
         <Link className="btn" to={`/session/${session.id}`} onClick={() => { if (session.status === 'completed') void useLibrary.getState().setStatus(session.id, 'in_progress'); }}>
@@ -91,7 +91,7 @@ export function RecapPage() {
       </p>
 
       <dl className="figures figures--recap" aria-label="Récapitulatif">
-        <div><dt>Durée du CM</dt><dd data-testid="recap-duration">{formatDuration(session.durationSec)}</dd></div>
+        <div><dt>Durée de la séance</dt><dd data-testid="recap-duration">{formatDuration(session.durationSec)}</dd></div>
         <div><dt>Audio</dt><dd data-testid="recap-audio">{audioMs > 0 ? formatDuration(audioMs / 1000) : '—'}</dd></div>
         <div><dt>Notes</dt><dd data-testid="recap-words">{session.wordCount.toLocaleString('fr-FR')}<small> mots</small></dd></div>
         <div><dt>Transcription</dt><dd data-testid="recap-twords">{tWords > 0 ? tWords.toLocaleString('fr-FR') : '—'}{tWords > 0 && <small> mots</small>}</dd></div>
@@ -109,14 +109,14 @@ export function RecapPage() {
 
           {tab === 'notes' && (
             <div className="note-editor note-editor--readonly">
-              {session.wordCount === 0 ? <p className="muted">Aucune note pour ce CM.</p> : <EditorContent editor={editor} />}
+              {session.wordCount === 0 ? <p className="muted">Aucune note pour cette séance.</p> : <EditorContent editor={editor} />}
             </div>
           )}
 
           {tab === 'transcript' && (
             <div className="recap-transcript">
               {captureLoaded && segments.length === 0 && !chunks.length
-                ? <p className="muted">Ce CM n’a pas de transcription.</p>
+                ? <p className="muted">Cette séance n’a pas de transcription.</p>
                 : <TranscriptPanel sessionId={session.id} variant="review" />}
             </div>
           )}

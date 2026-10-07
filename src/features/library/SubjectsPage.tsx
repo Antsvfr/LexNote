@@ -11,7 +11,7 @@ import { formatRelative } from '@/lib/dates';
 
 export function SubjectsPage() {
   const { subjects, modules, sessions } = useLibrary();
-  const openNewCm = useUI((s) => s.openNewCm);
+  const openNewSession = useUI((s) => s.openNewSession);
   const createSubject = useCreateSubject();
   const sorted = useMemo(() => [...subjects].sort((a, b) => a.name.localeCompare(b.name, 'fr')), [subjects]);
 
@@ -20,13 +20,13 @@ export function SubjectsPage() {
       <header className="page__head">
         <div>
           <h1>Mes matières</h1>
-          <p className="page__sub">Une matière regroupe des modules, qui regroupent vos CM.</p>
+          <p className="page__sub">Une matière regroupe vos séances (CM, TD, TP…), éventuellement classées en modules.</p>
         </div>
         <button className="btn btn--primary" onClick={() => void createSubject()} data-testid="new-subject"><FolderPlus /> Nouvelle matière</button>
       </header>
 
       {sorted.length === 0 ? (
-        <div className="panel empty"><strong>Aucune matière</strong>Créez-en une pour organiser vos cours.</div>
+        <div className="panel empty"><strong>Aucune matière</strong>Créez-en une pour organiser vos séances.</div>
       ) : (
         <ul className="subjgrid">
           {sorted.map((s) => {
@@ -38,17 +38,17 @@ export function SubjectsPage() {
             return (
               <li key={s.id} className="subjcard" data-color={s.color} data-testid="subject-card">
                 <Link to={`/subjects/${s.id}`} className="subjcard__head" aria-label={`Ouvrir ${s.name}`}>
-                  <SubjectDot color={s.color} />
+                  <SubjectDot color={s.color} icon={s.icon} />
                   <h2>{s.name}</h2>
                   <ArrowRight size={18} className="muted" style={{ marginLeft: 'auto' }} aria-hidden />
                 </Link>
                 <div className="subjcard__figs">
                   <div><strong>{mods.length}</strong><span>module{mods.length > 1 ? 's' : ''}</span></div>
-                  <div><strong>{cms.length}</strong><span>CM</span></div>
+                  <div><strong>{cms.length}</strong><span>séance{cms.length > 1 ? 's' : ''}</span></div>
                   <div><strong>{done}</strong><span>terminé{done > 1 ? 's' : ''}</span></div>
                 </div>
                 {cms.length > 0 && (
-                  <div className="progress" title="CM terminés / CM de la matière">
+                  <div className="progress" title="Séances terminées / séances de la matière">
                     <div className="progress__bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={`Avancement de ${s.name}`}><span style={{ width: `${pct}%` }} /></div>
                     <span className="progress__label">{pct} %</span>
                   </div>
@@ -56,12 +56,12 @@ export function SubjectsPage() {
                 {last && (
                   <Link to={last.status === 'completed' ? `/session/${last.id}/recap` : `/session/${last.id}`} className="subjcard__last">
                     <img src={THUMBS[thumbFor(last, s)].src} alt="" />
-                    <span className="truncate"><strong className="truncate">{sessionLabel(last)}</strong>Dernier CM · modifié {formatRelative(last.updatedAt)}</span>
+                    <span className="truncate"><strong className="truncate">{sessionLabel(last)}</strong>Dernière séance · modifié {formatRelative(last.updatedAt)}</span>
                   </Link>
                 )}
                 <div className="chips">
                   {mods.map((m) => <Link key={m.id} to={`/modules/${m.id}`} className="chip">{m.name}</Link>)}
-                  <button className="chip chip--add" onClick={() => openNewCm({ subjectId: s.id })}><Plus size={13} /> CM</button>
+                  <button className="chip chip--add" onClick={() => openNewSession({ subjectId: s.id })} data-testid="subject-add-session"><Plus size={13} /> Séance</button>
                 </div>
               </li>
             );

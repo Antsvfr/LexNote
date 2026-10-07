@@ -1,12 +1,13 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { Check, ExternalLink, EyeOff, ImageIcon, MoreHorizontal, Trash2 } from 'lucide-react';
 import type { CourseSession } from '@/domain/types';
-import { sessionLabel } from '@/domain/session';
+import { sessionLabel, sessionNumberTitle } from '@/domain/session';
 import { formatDateShort, formatRelative } from '@/lib/dates';
 import { useLookups } from '@/lib/useLookups';
 import { THUMBS, THUMB_KEYS, thumbFor } from '@/lib/thumbs';
 import { useLibrary } from '@/store/library';
 import { SubjectDot } from '@/components/SubjectDot';
+import { TypeBadge } from '@/components/TypeBadge';
 import { Menu } from '@/components/Menu';
 import { confirm } from '@/components/confirm';
 import { toast } from '@/store/toasts';
@@ -23,19 +24,19 @@ export function SessionRow({ session: s, showContext = true }: Props) {
   const navigate = useNavigate();
   const { deleteSession, updateSession } = useLibrary();
   const subject = subjectById.get(s.subjectId);
-  const mod = moduleById.get(s.moduleId);
+  const mod = s.moduleId ? moduleById.get(s.moduleId) : undefined;
   const done = s.status === 'completed';
   const href = done ? `/session/${s.id}/recap` : `/session/${s.id}`;
   const thumb = thumbFor(s, subject);
 
   async function remove() {
     const ok = await confirm({
-      title: 'Supprimer ce CM ?',
+      title: 'Supprimer cette séance ?',
       message: `« ${sessionLabel(s)} » et ses notes, transcription et audio seront définitivement supprimés de cet appareil.`,
       confirmLabel: 'Supprimer', danger: true,
     });
     if (!ok) return;
-    try { await deleteSession(s.id); toast.success('CM supprimé.'); } catch { /* toast déjà affiché */ }
+    try { await deleteSession(s.id); toast.success('Séance supprimée.'); } catch { /* toast déjà affiché */ }
   }
 
   return (
@@ -43,9 +44,9 @@ export function SessionRow({ session: s, showContext = true }: Props) {
       <Link to={href} className="srow__main">
         <img className="srow__thumb" data-thumb={thumb} src={THUMBS[thumb].src} alt="" width={66} height={54} loading="lazy" />
         <span className="srow__text">
-          <span className="srow__title truncate">{sessionLabel(s)}</span>
+          <span className="srow__title truncate"><TypeBadge type={s.type} size="sm" /> {sessionNumberTitle(s)}</span>
           <span className="srow__meta truncate">
-            {showContext && subject && <><SubjectDot color={subject.color} /> {subject.name}{mod ? ` · ${mod.name}` : ''} · </>}
+            {showContext && subject && <><SubjectDot color={subject.color} icon={subject.icon} /> {subject.name}{mod ? ` · ${mod.name}` : ''} · </>}
             {formatDateShort(s.date)}
             {s.wordCount > 0 ? <> · {s.wordCount.toLocaleString('fr-FR')} mots</> : <> · vide</>}
           </span>

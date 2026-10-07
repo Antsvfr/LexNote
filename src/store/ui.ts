@@ -24,7 +24,9 @@ export function applyTheme(pref: ThemePref) {
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#050b14' : '#f3f5fa');
 }
 
-interface NewCmPreset { subjectId?: string; moduleId?: string }
+import type { SessionType } from '@/domain/sessionType';
+
+export interface NewSessionPreset { subjectId?: string; moduleId?: string | null; type?: SessionType }
 
 interface UIState {
   theme: ThemePref;
@@ -35,7 +37,9 @@ interface UIState {
   paletteOpen: boolean;
   /** Tiroir de navigation (tablette / mobile). */
   navOpen: boolean;
-  newCm: NewCmPreset | null;
+  newSession: NewSessionPreset | null;
+  /** Boîte de dialogue matière (création / modification). */
+  subjectDialog: { id?: string } | null;
   /** Onglet du panneau latéral de l'éditeur. */
   sideTab: 'transcript' | 'assistant';
   /** Mode Focus : contrôles de transcription flottants (le panneau est masqué). */
@@ -50,8 +54,10 @@ interface UIState {
   /** Ouvre le panneau Transcription (ou, en mode Focus, les contrôles flottants). */
   openTranscript(): void;
   setRecPopover(v: boolean): void;
-  openNewCm(preset?: NewCmPreset): void;
-  closeNewCm(): void;
+  openSubjectDialog(id?: string): void;
+  closeSubjectDialog(): void;
+  openNewSession(preset?: NewSessionPreset): void;
+  closeNewSession(): void;
 }
 
 export const useUI = create<UIState>((set, get) => ({
@@ -60,7 +66,8 @@ export const useUI = create<UIState>((set, get) => ({
   assistantOpen: read('lexnote.assistantOpen', true),
   paletteOpen: false,
   navOpen: false,
-  newCm: null,
+  newSession: null,
+  subjectDialog: null,
   sideTab: 'transcript',
   recPopover: false,
 
@@ -84,6 +91,8 @@ export const useUI = create<UIState>((set, get) => ({
     set({ assistantOpen: true, sideTab: 'transcript' });
   },
   setRecPopover: (recPopover) => set({ recPopover }),
-  openNewCm: (preset = {}) => set({ newCm: preset }),
-  closeNewCm: () => set({ newCm: null }),
+  openSubjectDialog: (id) => set({ subjectDialog: { id } }),
+  closeSubjectDialog: () => set({ subjectDialog: null }),
+  openNewSession: (preset = {}) => set({ newSession: preset }),
+  closeNewSession: () => set({ newSession: null }),
 }));

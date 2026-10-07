@@ -1,5 +1,9 @@
 import { Suspense, lazy, useEffect } from 'react';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { RequireAuth } from '@/features/auth/RequireAuth';
+import { ForgotPasswordPage, LoginPage, ResetPasswordPage, SignupPage } from '@/features/auth/AuthPages';
+import { OnboardingPage } from '@/features/auth/Onboarding';
+import { SubjectDialog } from '@/features/library/SubjectDialog';
 import { AppShell } from '@/components/AppShell';
 import { ConfirmHost, PromptHost } from '@/components/confirm';
 import { Toasts } from '@/components/Toasts';
@@ -9,7 +13,7 @@ import { SubjectsPage } from '@/features/library/SubjectsPage';
 import { SubjectPage } from '@/features/library/SubjectPage';
 import { ModulePage } from '@/features/library/ModulePage';
 import { SessionsPage } from '@/features/library/SessionsPage';
-import { NewCmDialog } from '@/features/library/NewCmDialog';
+import { NewSessionDialog } from '@/features/library/NewSessionDialog';
 import { SearchPage } from '@/features/search/SearchPage';
 import { SettingsPage } from '@/features/settings/SettingsPage';
 import { CommandPalette } from '@/features/palette/CommandPalette';
@@ -39,6 +43,12 @@ export function App() {
       <BrowserRouter>
         <Suspense fallback={<div className="editor-loading" aria-busy="true">Chargement…</div>}>
           <Routes>
+            <Route path="login" element={<LoginPage />} />
+            <Route path="signup" element={<SignupPage />} />
+            <Route path="forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="reset-password" element={<ResetPasswordPage />} />
+            <Route element={<RequireAuth />}>
+            <Route path="onboarding" element={<OnboardingPage />} />
             <Route element={<AppShell />}>
               <Route index element={<Dashboard />} />
               <Route path="subjects" element={<SubjectsPage />} />
@@ -51,9 +61,11 @@ export function App() {
               <Route path="*" element={<Dashboard />} />
             </Route>
             <Route path="session/:sessionId" element={<EditorPage />} />
+            </Route>
           </Routes>
         </Suspense>
-        <NewCmDialog />
+        <NewSessionDialog />
+        <SubjectDialog />
         <CommandPalette />
         <ConfirmHost />
         <PromptHost />

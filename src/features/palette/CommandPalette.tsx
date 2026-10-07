@@ -26,7 +26,7 @@ interface Item {
 
 /** Palette de commandes (Cmd/Ctrl + K) : navigation, blocs juridiques, mise en forme. Les commandes IA sont listées mais désactivées. */
 export function CommandPalette() {
-  const { paletteOpen, setPalette, openNewCm, theme, setTheme, focus, setFocus } = useUI();
+  const { paletteOpen, setPalette, openNewSession, theme, setTheme, focus, setFocus } = useUI();
   const editor = useEditorBridge((s) => s.editor);
   const navigate = useNavigate();
   const { pathname } = useLocation();
@@ -63,10 +63,14 @@ export function CommandPalette() {
   const items = useMemo<Item[]>(() => {
     const go = (to: string) => () => navigate(to);
     const nav: Item[] = [
-      { id: 'nav.new', label: 'Nouveau CM', group: 'Aller à', icon: Plus, run: () => openNewCm() },
+      { id: 'nav.new', label: 'Nouvelle séance', group: 'Aller à', icon: Plus, keywords: 'cm td tp cours', run: () => openNewSession() },
+      { id: 'nav.new.cm', label: 'Nouveau CM', group: 'Aller à', icon: Plus, run: () => openNewSession({ type: 'CM' }) },
+      { id: 'nav.new.td', label: 'Nouveau TD', group: 'Aller à', icon: Plus, run: () => openNewSession({ type: 'TD' }) },
+      { id: 'nav.new.tp', label: 'Nouveau TP', group: 'Aller à', icon: Plus, run: () => openNewSession({ type: 'TP' }) },
+      { id: 'nav.new.subject', label: 'Nouvelle matière', group: 'Aller à', icon: Plus, run: () => useUI.getState().openSubjectDialog() },
       { id: 'nav.home', label: 'Accueil', group: 'Aller à', icon: Home, run: go('/') },
       { id: 'nav.subjects', label: 'Mes matières', group: 'Aller à', icon: FolderTree, run: go('/subjects') },
-      { id: 'nav.sessions', label: 'Mes CM', group: 'Aller à', icon: Library, run: go('/sessions') },
+      { id: 'nav.sessions', label: 'Mes séances', group: 'Aller à', icon: Library, run: go('/sessions') },
       { id: 'nav.search', label: 'Recherche', group: 'Aller à', icon: Search, run: go('/search') },
       { id: 'nav.settings', label: 'Réglages', group: 'Aller à', icon: Settings, run: go('/settings') },
       { id: 'app.theme', label: theme === 'dark' ? 'Passer en thème clair' : 'Passer en thème sombre', group: 'Affichage', icon: theme === 'dark' ? Sun : Moon, keywords: 'theme mode sombre clair', run: () => setTheme(theme === 'dark' ? 'light' : 'dark') },
@@ -93,7 +97,7 @@ export function CommandPalette() {
         ]
       : [];
     return [...ed, ...nav];
-  }, [inEditor, editor, focus, theme, navigate, openNewCm, setTheme, setFocus, capStatus, sessionIdInUrl]);
+  }, [inEditor, editor, focus, theme, navigate, openNewSession, setTheme, setFocus, capStatus, sessionIdInUrl]);
 
   const results = useMemo<Item[]>(() => {
     const tokens = normalize(query).split(/\s+/).filter(Boolean);

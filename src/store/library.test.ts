@@ -1,20 +1,20 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { MemoryAdapter } from '@/services/storage/memoryAdapter';
 import { useLibrary } from './library';
-import { buildDemoLibrary } from '@/data/demo/demoData';
+import { U } from '@/test/fixtures';
 
 let adapter: MemoryAdapter;
 beforeEach(async () => {
   adapter = new MemoryAdapter(true);
   useLibrary.setState({ subjects: [], modules: [], sessions: [], ready: false });
-  await useLibrary.getState().init(adapter);
+  await useLibrary.getState().init(adapter, U);
 });
 const lib = () => useLibrary.getState();
 
 async function seed() {
-  const s = await lib().addSubject('Droit');
+  const s = await lib().addSubject({ name: 'Droit' });
   const m = await lib().addModule(s.id, 'Droit des contrats');
-  const cm = await lib().addSession({ subjectId: s.id, moduleId: m.id, title: 'Introduction', date: '2025-02-01' });
+  const cm = await lib().addSession({ subjectId: s.id, moduleId: m.id, type: 'CM', title: 'Introduction', date: '2025-02-01' });
   return { s, m, cm };
 }
 
@@ -22,7 +22,7 @@ describe('bibliothèque', () => {
   it('crée matière, module et CM, et les persiste', async () => {
     const { s, m, cm } = await seed();
     expect(cm.number).toBe(1);
-    const second = await lib().addSession({ subjectId: s.id, moduleId: m.id, title: 'Formation', date: '2025-02-08' });
+    const second = await lib().addSession({ subjectId: s.id, moduleId: m.id, type: 'CM', title: 'Formation', date: '2025-02-08' });
     expect(second.number).toBe(2);
     const stored = await adapter.loadLibrary();
     expect(stored.subjects).toHaveLength(1);
@@ -78,39 +78,26 @@ describe('bibliothèque', () => {
   });
 });
 
-describe('données de démonstration', () => {
-  async function installDemo() {
-    const demo = buildDemoLibrary();
-    await adapter.commit({ putSubjects: demo.subjects, putModules: demo.modules, putSessions: demo.sessions, putNotes: demo.notes });
-    await lib().reload();
-    return demo;
-  }
-
-  it('se suppriment entièrement sans toucher aux données utilisateur', async () => {
-    const mine = await seed();
-    await installDemo();
-    await lib().removeDemoData();
-    expect(lib().subjects.map((s) => s.id)).toEqual([mine.s.id]);
-    expect(lib().sessions.map((s) => s.id)).toEqual([mine.cm.id]);
-    expect((await adapter.exportAll()).notes.every((n) => !n.sessionId.startsWith('demo-'))).toBe(true);
+describe('séances génériques (CM / TD / TP…)', () => {
+  it('numérote chaque type indépendamment dans une matière', async () => {
+    const { s } = await seed();
+    const td1 = await lib().addSession({ subjectId: s.id, type: 'TD', title: 'Cas pratique', date: '2025-02-02' });
+    const td2 = await lib().addSession({ subjectId: s.id, type: 'TD', title: '', date: '2025-02-09' });
+    const cm2 = await lib().addSession({ subjectId: s.id, type: 'CM', title: '', date: '2025-02-10' });
+    expect([td1.number, td2.number, cm2.number]).toEqual([1, 2, 2]);
+    expect(td1.moduleId).toBeNull();
   });
-
-  it('conservent la matière/module de démo qui contient un CM créé par l’étudiant', async () => {
-    const demo = await installDemo();
-    const droit = demo.subjects[0]!;
-    const contrats = demo.modules.find((m) => m.subjectId === droit.id && m.name.includes('contrats'))!;
-    const mine = await lib().addSession({ subjectId: droit.id, moduleId: contrats.id, title: 'Le mien', date: '2025-05-05' });
-    await lib().removeDemoData();
-    expect(lib().subjects.map((s) => s.id)).toEqual([droit.id]);
-    expect(lib().subjects[0]?.isDemo).toBeUndefined();
-    expect(lib().sessions.map((s) => s.id)).toEqual([mine.id]);
+  it('supprimer un module détache ses séances au lieu de les supprimer', async () => {
+    const { m, cm } = await seed();
+    await lib().deleteModule(m.id);
+    expect(lib().modules).toHaveLength(0);
+    expect(lib().sessions.find((x) => x.id === cm.id)?.moduleId).toBeNull();
   });
-
-  it('une séance de démo modifiée par l’étudiant est conservée', async () => {
-    const demo = await installDemo();
-    const edited = demo.sessions.find((s) => s.id === 'demo-cm-c4')!;
-    await lib().saveNotes(edited.id, { content: { x: 1 }, plainText: 'Mes vraies notes' });
-    await lib().removeDemoData();
-    expect(lib().sessions.map((s) => s.id)).toEqual([edited.id]);
+  it('wipe et reset vident tout', async () => {
+    await seed();
+    await lib().wipe();
+    expect(lib().sessions).toHaveLength(0);
+    lib().reset();
+    expect(lib().userId).toBeNull();
   });
 });

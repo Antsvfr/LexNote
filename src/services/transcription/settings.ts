@@ -1,4 +1,6 @@
-/** Réglages du moteur de transcription — stockés uniquement dans le localStorage de cet appareil. */
+import { scoped } from '@/lib/scope';
+
+/** Réglages du moteur de transcription — stockés uniquement dans le localStorage de cet appareil, PAR COMPTE (la clé d'API d'un compte n'est jamais visible d'un autre). */
 export interface EngineSettings {
   providerId: string;
   language: string;
@@ -11,7 +13,7 @@ export interface EngineSettings {
   chunkMs?: number;
 }
 
-const KEY = 'lexnote.transcription';
+const BASE_KEY = 'lexnote.transcription';
 export const DEFAULT_ENGINE_SETTINGS: EngineSettings = {
   providerId: 'auto',
   language: 'fr-FR',
@@ -23,7 +25,7 @@ export const DEFAULT_ENGINE_SETTINGS: EngineSettings = {
 
 export function loadEngineSettings(): EngineSettings {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(scoped(BASE_KEY));
     return { ...DEFAULT_ENGINE_SETTINGS, ...(raw ? (JSON.parse(raw) as Partial<EngineSettings>) : {}) };
   } catch {
     return { ...DEFAULT_ENGINE_SETTINGS };
@@ -31,11 +33,11 @@ export function loadEngineSettings(): EngineSettings {
 }
 export function saveEngineSettings(patch: Partial<EngineSettings>): EngineSettings {
   const next = { ...loadEngineSettings(), ...patch };
-  try { localStorage.setItem(KEY, JSON.stringify(next)); } catch { /* préférence non persistée */ }
+  try { localStorage.setItem(scoped(BASE_KEY), JSON.stringify(next)); } catch { /* préférence non persistée */ }
   return next;
 }
 
 const CONSENT_KEY = 'lexnote.recordingConsent';
-export const hasRecordingConsent = () => { try { return localStorage.getItem(CONSENT_KEY) === '1'; } catch { return false; } };
-export const grantRecordingConsent = () => { try { localStorage.setItem(CONSENT_KEY, '1'); } catch { /* sans effet */ } };
-export const resetRecordingConsent = () => { try { localStorage.removeItem(CONSENT_KEY); } catch { /* sans effet */ } };
+export const hasRecordingConsent = () => { try { return localStorage.getItem(scoped(CONSENT_KEY)) === '1'; } catch { return false; } };
+export const grantRecordingConsent = () => { try { localStorage.setItem(scoped(CONSENT_KEY), '1'); } catch { /* sans effet */ } };
+export const resetRecordingConsent = () => { try { localStorage.removeItem(scoped(CONSENT_KEY)); } catch { /* sans effet */ } };

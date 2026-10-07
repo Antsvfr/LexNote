@@ -2,13 +2,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { MemoryCaptureStorage } from './storage/memory';
 import { ChunkPlayer } from './playback';
 import { buildCourseContext } from '@/services/course/courseContext';
-import { createSession } from '@/domain/session';
+import { sess } from '@/test/fixtures';
 import { docToPlainText } from '@/lib/docText';
 
 describe('CourseContext (interface pour le futur moteur IA)', () => {
   it('réunit notes, transcription, marqueurs, ancrages — sources séparées et étiquetées', async () => {
     const cap = new MemoryCaptureStorage(true);
-    const session = createSession({ subjectId: 's', moduleId: 'm', title: 'Dol', number: 4, date: '2026-03-02' });
+    const session = sess({ subjectId: 's', moduleId: 'm', title: 'Dol', number: 4, date: '2026-03-02' });
     const doc = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Le dol vicie le consentement' }] }] };
     await cap.putSegments([{ id: 'g1', sessionId: session.id, startMs: 0, endMs: 2000, text: 'Article 1137 du Code civil', provider: 'fake', status: 'final', source: 'TRANSCRIPTION', verification: 'UNVERIFIED', createdAt: 'x' }]);
     await cap.putMarker({ id: 'm1', sessionId: session.id, atMs: 1000, reasons: ['exam'], createdAt: 'x' });
@@ -31,7 +31,7 @@ describe('CourseContext (interface pour le futur moteur IA)', () => {
     await expect(buildCourseContext('nope', { getSession: () => undefined, loadNotes: async () => undefined, capture: new MemoryCaptureStorage() })).rejects.toThrow(/introuvable/);
   });
   it('CM vide : sources indisponibles mais contexte valide', async () => {
-    const s = createSession({ subjectId: 's', moduleId: 'm', title: '', number: 1, date: '2026-03-02' });
+    const s = sess({ subjectId: 's', moduleId: 'm', title: '', number: 1, date: '2026-03-02' });
     const ctx = await buildCourseContext(s.id, { getSession: () => s, loadNotes: async () => undefined, capture: new MemoryCaptureStorage() });
     expect(ctx.sources.notes.available).toBe(false);
     expect(ctx.audio).toBeNull();

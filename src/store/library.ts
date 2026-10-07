@@ -1,21 +1,38 @@
 import { create } from 'zustand';
 import type { CaptureSummary } from '@/domain/capture';
 import type { CourseSession, ISODate, LibrarySnapshot, Module, Subject } from '@/domain/types';
-import { createModule, createSession, createSubject, nextSessionNumber } from '@/domain/session';
-import { computeDemoRemoval } from '@/domain/demo';
+import type { SessionType } from '@/domain/sessionType';
+import { createModule, createSession, createSubject, nextSessionNumber, type SubjectInput } from '@/domain/session';
 import type { ChangeSet, StorageAdapter } from '@/services/storage/types';
 import { countWords, makeExcerpt } from '@/lib/text';
 import { nextSubjectColor } from '@/lib/palette';
 import { toast } from './toasts';
 
+export interface NewSessionInput {
+  subjectId: string;
+  moduleId?: string | null;
+  type: SessionType;
+  title: string;
+  date: ISODate;
+  startTime?: string;
+  endTime?: string;
+  teacher?: string;
+  room?: string;
+  number?: number | null;
+}
+
 interface LibraryState extends LibrarySnapshot {
   ready: boolean;
+  userId: string | null;
   storageKind: 'indexeddb' | 'memory' | null;
   persistent: boolean;
 
-  init(adapter: StorageAdapter): Promise<void>;
+  init(adapter: StorageAdapter, userId: string): Promise<void>;
+  /** Vide TOUT l'état en mémoire (déconnexion) : aucune donnée de l'utilisateur précédent ne doit rester visible. */
+  reset(): void;
 
-  addSubject(name: string): Promise<Subject>;
+  addSubject(input: Omit<SubjectInput, 'color'> & { color?: string }): Promise<Subject>;
+  updateSubject(id: string, patch: Partial<SubjectInput>): Promise<void>;
   renameSubject(id: string, name: string): Promise<void>;
   deleteSubject(id: string): Promise<void>;
 
@@ -23,43 +40,49 @@ interface LibraryState extends LibrarySnapshot {
   renameModule(id: string, name: string): Promise<void>;
   deleteModule(id: string): Promise<void>;
 
-  addSession(input: { subjectId: string; moduleId: string; title: string; date: ISODate; number?: number | null }): Promise<CourseSession>;
-  updateSession(id: string, patch: Partial<Pick<CourseSession, 'title' | 'number' | 'date' | 'moduleId' | 'subjectId' | 'thumbnail'>>): Promise<void>;
+  addSession(input: NewSessionInput): Promise<CourseSession>;
+  updateSession(id: string, patch: Partial<Pick<CourseSession, 'title' | 'number' | 'date' | 'moduleId' | 'subjectId' | 'thumbnail' | 'type' | 'startTime' | 'endTime' | 'teacher' | 'room'>>): Promise<void>;
   deleteSession(id: string): Promise<void>;
   saveNotes(id: string, input: { content: unknown; plainText: string; durationSec?: number }): Promise<void>;
   setDuration(id: string, durationSec: number): Promise<void>;
   setStatus(id: string, status: 'in_progress' | 'completed'): Promise<void>;
   setCaptureSummary(id: string, summary: CaptureSummary): Promise<void>;
 
-  removeDemoData(): Promise<void>;
   reload(): Promise<void>;
   loadNotes(id: string): Promise<unknown | undefined>;
   exportAll: StorageAdapter['exportAll'];
   wipe(): Promise<void>;
+  /** Appelé par la synchronisation quand le cloud a modifié des données locales. */
+  applyRemote(removedSessionIds: string[]): Promise<void>;
 }
 
 let adapter: StorageAdapter | null = null;
-
-/**
- * Données liées à un CM mais stockées ailleurs (audio, transcription…) : elles s'abonnent ici
- * pour être supprimées avec le CM. Les échecs sont journalisés, jamais bloquants.
- */
-type RemovalHook = (sessionIds: string[]) => Promise<void> | void;
-const removalHooks: RemovalHook[] = [];
-export const onSessionsRemoved = (h: RemovalHook) => { removalHooks.push(h); };
-export const onLibraryWiped = (h: () => Promise<void> | void) => { wipeHooks.push(h); };
-const wipeHooks: (() => Promise<void> | void)[] = [];
-async function notifyRemoved(ids: string[]) {
-  if (!ids.length) return;
-  for (const h of removalHooks) { try { await h(ids); } catch (e) { console.error('[LexNote] nettoyage lié au CM', e); } }
-}
 const db = (): StorageAdapter => {
   if (!adapter) throw new Error('Le stockage LexNote n’est pas initialisé.');
   return adapter;
 };
 
+/**
+ * Données liées à une séance mais stockées ailleurs (audio, transcription…) : elles s'abonnent ici
+ * pour être supprimées avec la séance. Les échecs sont journalisés, jamais bloquants.
+ */
+type RemovalHook = (sessionIds: string[]) => Promise<void> | void;
+const removalHooks: RemovalHook[] = [];
+const wipeHooks: (() => Promise<void> | void)[] = [];
+export const onSessionsRemoved = (h: RemovalHook) => { removalHooks.push(h); };
+export const onLibraryWiped = (h: () => Promise<void> | void) => { wipeHooks.push(h); };
+async function notifyRemoved(ids: string[]) {
+  if (!ids.length) return;
+  for (const h of removalHooks) { try { await h(ids); } catch (e) { console.error('[LexNote] nettoyage lié à la séance', e); } }
+}
+
 const stamp = () => new Date().toISOString();
 const replace = <T extends { id: string }>(list: T[], item: T) => list.map((x) => (x.id === item.id ? item : x));
+const uid = (get: () => LibraryState) => {
+  const u = get().userId;
+  if (!u) throw new Error('Aucun utilisateur connecté.');
+  return u;
+};
 
 export const useLibrary = create<LibraryState>((set, get) => {
   /** Applique le changement en base ; en cas d'échec, prévient l'étudiant sans perdre l'état en mémoire. */
@@ -75,31 +98,38 @@ export const useLibrary = create<LibraryState>((set, get) => {
 
   return {
     subjects: [], modules: [], sessions: [],
-    ready: false, storageKind: null, persistent: false,
+    ready: false, userId: null, storageKind: null, persistent: false,
 
-    async init(a) {
+    async init(a, userId) {
       adapter = a;
       const lib = await a.loadLibrary();
-      set({ ...lib, ready: true, storageKind: a.kind, persistent: a.persistent });
+      set({ ...lib, ready: true, userId, storageKind: a.kind, persistent: a.persistent });
     },
-    async reload() {
-      set({ ...(await db().loadLibrary()) });
+    reset() {
+      adapter = null;
+      set({ subjects: [], modules: [], sessions: [], ready: false, userId: null, storageKind: null, persistent: false });
+    },
+    async reload() { set({ ...(await db().loadLibrary()) }); },
+    async applyRemote(removedSessionIds) {
+      await get().reload();
+      await notifyRemoved(removedSessionIds);
     },
 
     /* --- matières --- */
-    async addSubject(name) {
-      const subject = createSubject(name, nextSubjectColor(get().subjects.map((s) => s.color)));
+    async addSubject(input) {
+      const subject = createSubject(uid(get), { ...input, color: input.color ?? nextSubjectColor(get().subjects.map((s) => s.color)) });
       set((s) => ({ subjects: [...s.subjects, subject] }));
       await persist({ putSubjects: [subject] });
       return subject;
     },
-    async renameSubject(id, name) {
+    async updateSubject(id, patch) {
       const cur = get().subjects.find((s) => s.id === id);
-      if (!cur || !name.trim()) return;
-      const next = { ...cur, name: name.trim(), updatedAt: stamp() };
+      if (!cur) return;
+      const next: Subject = { ...cur, ...patch, name: (patch.name ?? cur.name).trim() || cur.name, updatedAt: stamp() };
       set((s) => ({ subjects: replace(s.subjects, next) }));
       await persist({ putSubjects: [next] });
     },
+    async renameSubject(id, name) { if (name.trim()) await get().updateSubject(id, { name }); },
     async deleteSubject(id) {
       const mods = get().modules.filter((m) => m.subjectId === id).map((m) => m.id);
       const sess = get().sessions.filter((s) => s.subjectId === id).map((s) => s.id);
@@ -114,7 +144,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
 
     /* --- modules --- */
     async addModule(subjectId, name) {
-      const mod = createModule(subjectId, name);
+      const mod = createModule(uid(get), subjectId, name);
       set((s) => ({ modules: [...s.modules, mod] }));
       await persist({ putModules: [mod] });
       return mod;
@@ -127,16 +157,16 @@ export const useLibrary = create<LibraryState>((set, get) => {
       await persist({ putModules: [next] });
     },
     async deleteModule(id) {
-      const sess = get().sessions.filter((s) => s.moduleId === id).map((s) => s.id);
-      set((s) => ({ modules: s.modules.filter((x) => x.id !== id), sessions: s.sessions.filter((x) => x.moduleId !== id) }));
-      await persist({ deleteModules: [id], deleteSessions: sess });
-      await notifyRemoved(sess);
+      // Les séances du module ne sont pas supprimées : elles restent rattachées à la matière, sans module.
+      const detached = get().sessions.filter((s) => s.moduleId === id).map((s) => ({ ...s, moduleId: null, updatedAt: stamp() }));
+      set((s) => ({ modules: s.modules.filter((x) => x.id !== id), sessions: s.sessions.map((x) => detached.find((d) => d.id === x.id) ?? x) }));
+      await persist({ deleteModules: [id], putSessions: detached });
     },
 
     /* --- séances --- */
     async addSession(input) {
-      const number = input.number === undefined ? nextSessionNumber(get().sessions, input.moduleId) : input.number;
-      const session = createSession({ ...input, number });
+      const number = input.number === undefined ? nextSessionNumber(get().sessions, input.subjectId, input.type) : input.number;
+      const session = createSession(uid(get), { ...input, number });
       set((s) => ({ sessions: [...s.sessions, session] }));
       await persist({ putSessions: [session] });
       return session;
@@ -165,7 +195,6 @@ export const useLibrary = create<LibraryState>((set, get) => {
         searchText: plainText,
         durationSec: durationSec ?? cur.durationSec,
         updatedAt: t,
-        isDemo: undefined, // l'étudiant a écrit dedans : ce n'est plus une donnée de démo
       };
       set((s) => ({ sessions: replace(s.sessions, next) }));
       await persist({ putSessions: [next], putNotes: [{ sessionId: id, content, updatedAt: t }] });
@@ -173,7 +202,8 @@ export const useLibrary = create<LibraryState>((set, get) => {
     async setDuration(id, durationSec) {
       const cur = get().sessions.find((s) => s.id === id);
       if (!cur || cur.durationSec === durationSec) return;
-      // On ne touche pas à `updatedAt` : passer du temps sur un CM n'est pas une modification.
+      // On ne touche pas à `updatedAt` : passer du temps sur une séance n'est pas modifier ses notes.
+      // (La ligne est tout de même marquée « à envoyer » par l'adaptateur.)
       const next = { ...cur, durationSec };
       set((s) => ({ sessions: replace(s.sessions, next) }));
       await persist({ putSessions: [next] });
@@ -186,29 +216,24 @@ export const useLibrary = create<LibraryState>((set, get) => {
       set((s) => ({ sessions: replace(s.sessions, next) }));
       await persist({ putSessions: [next] });
     },
-
     async setCaptureSummary(id, summary) {
       const cur = get().sessions.find((s) => s.id === id);
       if (!cur) return;
-      // Ni updatedAt ni isDemo : capter l'audio n'est pas « modifier les notes ».
       const next = { ...cur, captureSummary: summary };
       set((s) => ({ sessions: replace(s.sessions, next) }));
       await persist({ putSessions: [next] });
     },
 
-    /* --- démo / données --- */
-    async removeDemoData() {
-      const changes = computeDemoRemoval(get());
-      await persist(changes);
-      await notifyRemoved(changes.deleteSessions ?? []);
-      await get().reload();
-    },
     loadNotes: async (id) => (await db().getNotes(id))?.content,
     exportAll: () => db().exportAll(),
     async wipe() {
-      await db().clearAll();
-      for (const h of wipeHooks) { try { await h(); } catch (e) { console.error(e); } }
+      // Suppression « douce » : chaque élément reçoit une pierre tombale, donc l'effacement est aussi propagé au cloud de CE compte.
+      const { subjects, modules, sessions } = get();
+      const sessionIds = sessions.map((x) => x.id);
       set({ subjects: [], modules: [], sessions: [] });
+      await persist({ deleteSubjects: subjects.map((x) => x.id), deleteModules: modules.map((x) => x.id), deleteSessions: sessionIds });
+      await notifyRemoved(sessionIds);
+      for (const h of wipeHooks) { try { await h(); } catch (e) { console.error(e); } }
     },
   };
 });

@@ -265,3 +265,17 @@ dialog.palette::backdrop { background: var(--scrim); }
   .avatarbtn svg { display: none; } .avatarbtn { padding: 0 6px; }
   .hero { min-height: 0; margin-bottom: 16px; }
 }
+
+/* ----- accueil vide (nouveau compte) ----- */
+.welcome { position: relative; z-index: 1; overflow: hidden; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 28px; padding: 32px; margin-top: 8px; min-height: 220px; border-radius: var(--radius-lg); border: 1px solid rgb(255 62 92 / 0.5);
+  background: radial-gradient(420px 220px at 80% 100%, rgb(255 45 85 / 0.26), transparent 70%), linear-gradient(100deg, rgb(130 16 42 / 0.55), rgb(58 9 26 / 0.78) 55%, rgb(16 8 18 / 0.9)); box-shadow: var(--shadow-card), 0 0 40px -18px rgb(255 45 85 / 0.55); }
+:root[data-theme='light'] .welcome { background: linear-gradient(100deg, #fff1f3, #ffe3e8); }
+.welcome__body { position: relative; display: grid; gap: 10px; max-width: 640px; }
+.welcome__cta { position: relative; height: 52px; padding: 0 24px; font-size: 15.5px; }
+.steps { display: flex; gap: 18px; flex-wrap: wrap; font-size: 13.5px; color: var(--text-secondary); margin-top: 4px; }
+.steps li { display: inline-flex; align-items: center; gap: 8px; } .steps b { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: rgb(255 255 255 / 0.1); color: var(--text-primary); font-size: 12px; } .steps i { color: var(--text-muted); }
+.quicktypes { display: flex; gap: 8px; } .quicktypes .btn { flex: 1; }
+.resume__title .typebadge { vertical-align: 6px; margin-right: 6px; }
+.srow__title .typebadge { margin-right: 6px; vertical-align: 1px; }
+@media (max-width: 760px) { .welcome { grid-template-columns: 1fr; padding: 20px; } }
+.dash__legacy { position: relative; z-index: 1; margin-bottom: 16px; }
