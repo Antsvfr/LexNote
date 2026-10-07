@@ -5,6 +5,7 @@ import { ForgotPasswordPage, LoginPage, ResetPasswordPage, SignupPage } from '@/
 import { OnboardingPage } from '@/features/auth/Onboarding';
 import { CreateSupportDialog } from '@/features/study/CreateSupportDialog';
 import { SupportsPage } from '@/features/study/SupportsPage';
+import { ReviewPage } from '@/features/review/ReviewPage';
 import { ArtifactPage } from '@/features/study/ArtifactPage';
 import { CoursePage } from '@/features/course/CoursePage';
 import { SubjectDialog } from '@/features/library/SubjectDialog';
@@ -65,6 +66,7 @@ export function App() {
               <Route path="settings" element={<SettingsPage />} />
               <Route path="session/:sessionId/recap" element={<RecapPage />} />
               <Route path="session/:sessionId/course" element={<CoursePage />} />
+              <Route path="session/:sessionId/review" element={<ReviewPage />} />
               <Route path="*" element={<Dashboard />} />
             </Route>
             <Route path="session/:sessionId" element={<EditorPage />} />

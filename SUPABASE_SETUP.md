@@ -43,6 +43,7 @@ L'application démarre mais l'écran de connexion affiche « LexNote n'est pas e
 
 1. `supabase/migrations/20261008000000_study_artifacts.sql` — supports d'étude (fiches, cartes mentales…).
 2. `supabase/migrations/20261009000000_course_engine.sql` — documents importés (texte analysé uniquement, **jamais le fichier**) et cours reconstruits versionnés.
+3. `supabase/migrations/20261010000000_study_artifacts_from_course.sql` — supports de révision dérivés du cours reconstruit (version du cours, instantané des sources, provenance, réglages, type MÉTHODE).
 
 ### 2 ter. Moteur de cours distant (facultatif — sans lui, le moteur local est utilisé)
 

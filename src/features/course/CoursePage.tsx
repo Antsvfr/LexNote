@@ -7,6 +7,7 @@ import { useLookups } from '@/lib/useLookups';
 import { sessionLabel } from '@/domain/session';
 import { captureManager } from '@/services/capture/manager';
 import { TranscriptPanel } from '@/features/capture/TranscriptPanel';
+import { SessionSpaces } from '@/components/SessionSpaces';
 import { SubjectDot } from '@/components/SubjectDot';
 import { NotesTab } from './NotesTab';
 import { SourcesTab } from './SourcesTab';
@@ -42,6 +43,7 @@ export function CoursePage() {
   return (
     <div className="page page-enter coursepage" data-testid="course-page">
       <nav className="crumbs" aria-label="Fil d’Ariane">{subject && <><Link to={`/subjects/${subject.id}`}>{subject.name}</Link> ›</>}</nav>
+      <SessionSpaces sessionId={session.id} />
       <header className="page__head">
         <div><span className="eyebrow">Cours</span><h1 data-testid="course-title">{sessionLabel(session)}</h1>
           <p className="page__sub">{subject && <SubjectDot color={subject.color} icon={subject.icon} />} {subject?.name} — vos sources, jamais modifiées, et le cours reconstruit à partir d’elles</p></div>

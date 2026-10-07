@@ -26,9 +26,9 @@ export function applyTheme(pref: ThemePref) {
 
 import type { SessionType } from '@/domain/sessionType';
 import type { ArtifactType } from '@/domain/study';
-import type { StudyOptions } from '@/services/study/engine';
+import type { StudySettings } from '@/domain/study';
 
-export interface SupportPreset { sessionId?: string; type?: ArtifactType; sectionId?: string; options?: StudyOptions; sectionIds?: string[] }
+export interface SupportPreset { sessionId?: string; type?: ArtifactType; sectionId?: string; settings?: StudySettings; sectionIds?: string[] }
 export interface NewSessionPreset { subjectId?: string; moduleId?: string | null; type?: SessionType }
 
 interface UIState {

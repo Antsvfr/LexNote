@@ -1,18 +1,20 @@
 /** Export des supports : Markdown (fiches, tableaux, listes), SVG/PNG haute résolution (cartes, schémas), impression (PDF via le navigateur). */
+import type { SourceReference } from '@/domain/course';
 import {
-  ARTIFACT_LABELS, DIAGRAM_LABELS, type ArtifactSource, type DiagramContent, type FlashcardsContent, type MindMapContent, type MindNode, type QuizContent,
+  ARTIFACT_LABELS, DIAGRAM_LABELS, DIFFICULTY_LABELS, QUIZ_KIND_LABELS, type DiagramContent, type FlashcardsContent, type MethodContent, type MindMapContent, type MindNode, type QuizContent,
   type SheetContent, type StudyArtifact, type TableContent, type TimelineContent,
 } from '@/domain/study';
+import { describeLocation, describeRefs } from '@/services/engine/sourceLabels';
 import { DNODE_H, DNODE_W, layoutDiagram, layoutMindMap } from './layout';
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-export const sourceLabel = (s: ArtifactSource) => [...s.headingPath, s.quote ? `« ${s.quote.slice(0, 80)}${s.quote.length > 80 ? '…' : ''} »` : ''].filter(Boolean).join(' › ');
+export const sourceLabel = (s: SourceReference) => `${describeLocation(s.location)}${s.quote ? ` — « ${s.quote.slice(0, 80)}${s.quote.length > 80 ? '…' : ''} »` : ''}`;
 
 /* ------------------------------------------------------------------ Markdown */
 export function toMarkdown(a: StudyArtifact, opts: { sources?: boolean } = {}): string {
   const withSrc = opts.sources ?? true;
-  const srcLine = (s: ArtifactSource[]) => (withSrc && s.length ? `\n  *Source : ${sourceLabel(s[0]!)}*` : '');
+  const srcLine = (s: SourceReference[]) => (withSrc && s.length ? `\n  *Source : ${describeRefs(s)}*` : '');
   const lines: string[] = [`# ${a.title}`, ''];
   switch (a.type) {
     case 'COURSE_SHEET': {
@@ -44,10 +46,22 @@ export function toMarkdown(a: StudyArtifact, opts: { sources?: boolean } = {}): 
       break;
     }
     case 'TIMELINE': (a.content as TimelineContent).events.forEach((e) => lines.push(`- **${e.date}** — ${e.label}${srcLine(e.sources)}`)); break;
-    case 'FLASHCARDS': (a.content as FlashcardsContent).cards.forEach((c) => lines.push(`- **${c.front}**\n  ${c.back.replace(/\n/g, ' ')}`)); break;
-    case 'QUIZ': (a.content as QuizContent).questions.forEach((q, k) => lines.push(`${k + 1}. ${q.prompt}\n   - Réponse : ${q.answer.replace(/\n/g, ' ')}`)); break;
+    case 'FLASHCARDS': (a.content as FlashcardsContent).cards.forEach((c) => lines.push(`- **${c.question}** *(${DIFFICULTY_LABELS[c.difficulty]}${c.concept ? ` · ${c.concept}` : ''})*\n  ${c.answer.replace(/\n/g, ' ')}${srcLine(c.sources)}`)); break;
+    case 'QUIZ': (a.content as QuizContent).questions.forEach((q, k) => {
+      lines.push(`${k + 1}. **${q.prompt}** *(${QUIZ_KIND_LABELS[q.kind]} · ${DIFFICULTY_LABELS[q.difficulty]})*`);
+      if (q.options) q.options.forEach((o) => lines.push(`   - ${o.id === q.correct ? '✅' : '▫️'} ${o.text}`));
+      lines.push(`   - Réponse : ${q.kind === 'truefalse' ? (q.correct === 'true' ? 'Vrai' : 'Faux') : q.kind === 'mcq' ? q.options?.find((o) => o.id === q.correct)?.text : q.correct.replace(/\n/g, ' ')}`, `   - Explication : ${q.explanation.replace(/\n/g, ' ')}${srcLine(q.sources)}`);
+    }); break;
+    case 'METHOD': {
+      const m = a.content as MethodContent;
+      if (m.objective) lines.push(`**Objectif** : ${m.objective.text}`, '');
+      const list = (t: string, l: MethodContent['steps'], num = false) => { if (l.length) { lines.push(`## ${t}`, ''); l.forEach((x, k) => lines.push(`${num ? `${k + 1}.` : '-'} ${x.text}${srcLine(x.sources)}`)); lines.push(''); } };
+      list('Étapes', m.steps, true); list('Questions à se poser', m.questions); list('Erreurs fréquentes', m.pitfalls);
+      if (m.checklist.length) { lines.push('## Checklist', ''); m.checklist.forEach((x) => lines.push(`- [${x.done ? 'x' : ' '}] ${x.text}`)); }
+      break;
+    }
   }
-  return `${lines.join('\n').trim()}\n\n---\n*${ARTIFACT_LABELS[a.type]} générée par LexNote à partir de vos notes. Vérifiez toujours les références juridiques.*\n`;
+  return `${lines.join('\n').trim()}\n\n---\n*${ARTIFACT_LABELS[a.type]} générée à partir du cours reconstruit (version ${a.courseVersion}) par LexNote. Vérifiez toujours les références juridiques.*\n`;
 }
 
 /* ------------------------------------------------------------------ SVG (indépendant de React : même rendu écran / export / impression) */

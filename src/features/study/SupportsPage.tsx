@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { BarChart3, BookOpen, Brain, CalendarClock, FileText, HelpCircle, Network, Plus, Search, type LucideIcon } from 'lucide-react';
+import { BarChart3, BookOpen, Brain, CalendarClock, FileText, HelpCircle, ListOrdered, Network, Plus, Search, type LucideIcon } from 'lucide-react';
 import { useArtifacts } from '@/store/artifacts';
 import { useLibrary } from '@/store/library';
 import { useUI } from '@/store/ui';
@@ -9,10 +9,10 @@ import { formatRelative } from '@/lib/dates';
 import { normalize } from '@/lib/text';
 import { ARTIFACT_LABELS, type ArtifactType } from '@/domain/study';
 
-const ICONS: Record<ArtifactType, LucideIcon> = { COURSE_SHEET: FileText, MIND_MAP: Brain, DIAGRAM: Network, COMPARISON_TABLE: BarChart3, TIMELINE: CalendarClock, FLASHCARDS: BookOpen, QUIZ: HelpCircle };
+const ICONS: Record<ArtifactType, LucideIcon> = { COURSE_SHEET: FileText, MIND_MAP: Brain, DIAGRAM: Network, COMPARISON_TABLE: BarChart3, TIMELINE: CalendarClock, METHOD: ListOrdered, FLASHCARDS: BookOpen, QUIZ: HelpCircle };
 const TABS: { id: '' | ArtifactType; label: string }[] = [
   { id: '', label: 'Tous' }, { id: 'COURSE_SHEET', label: 'Fiches' }, { id: 'MIND_MAP', label: 'Cartes mentales' }, { id: 'DIAGRAM', label: 'Schémas' },
-  { id: 'COMPARISON_TABLE', label: 'Tableaux' }, { id: 'TIMELINE', label: 'Chronologies' }, { id: 'FLASHCARDS', label: 'Flashcards' }, { id: 'QUIZ', label: 'Quiz' },
+  { id: 'COMPARISON_TABLE', label: 'Tableaux' }, { id: 'TIMELINE', label: 'Chronologies' }, { id: 'METHOD', label: 'Méthodes' }, { id: 'FLASHCARDS', label: 'Flashcards' }, { id: 'QUIZ', label: 'Quiz' },
 ];
 
 export function SupportsPage() {
