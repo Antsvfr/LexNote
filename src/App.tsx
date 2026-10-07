@@ -49,7 +49,7 @@ function ProtectedGate() {
 
   if (status === 'loading') return <div className="editor-loading" aria-busy="true">Connexion à LexNote…</div>;
   if (status !== 'authenticated' || !session) return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
-  if (failed) return <div className="auth"><div className="auth__card" role="alert"><h1>Impossible d’ouvrir votre espace</h1><p>{failed}</p><button className="btn btn--primary" onClick={() => location.reload()}>Réessayer</button></div></div>;
+  if (failed) return <div className="auth"><div className="auth__card" role="alert"><h1>Impossible d’ouvrir votre espace</h1><p>{failed}</p><button className="btn btn--primary" onClick={() => window.location.reload()}>Réessayer</button></div></div>;
   if (!ready) return <div className="editor-loading" aria-busy="true">Synchronisation de votre espace…</div>;
   if (profile && !profile.onboardingCompleted) return <OnboardingPage />;
   return <Outlet />;
