@@ -29,6 +29,21 @@ interface QueuedChange {
 const now = () => new Date().toISOString();
 const queueKey = (userId: string) => 'lexnote.sync.queue.' + userId;
 const lastKey = (userId: string) => 'lexnote.sync.last.' + userId;
+const deviceKey = 'lexnote.device.id';
+
+function deviceId(): string {
+  try {
+    const existing = localStorage.getItem(deviceKey);
+    if (existing) return existing;
+    const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : 'device-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    localStorage.setItem(deviceKey, id);
+    return id;
+  } catch {
+    return 'ephemeral-device';
+  }
+}
 
 function readQueue(userId: string): QueuedChange[] {
   try { return JSON.parse(localStorage.getItem(queueKey(userId)) ?? '[]') as QueuedChange[]; }
@@ -172,6 +187,15 @@ export class CloudSyncEngine implements SyncEngine {
       }
       const at = now();
       localStorage.setItem(lastKey(this.userId), at);
+      await restUpsert('sync_metadata', [{
+        id: this.syncMetaId(),
+        user_id: this.userId,
+        device_id: deviceId(),
+        last_sync_at: at,
+        last_error: null,
+        created_at: at,
+        updated_at: at,
+      }], token()).catch(() => undefined);
       setSyncStatus({ phase: 'idle', pending: 0, lastSyncedAt: at, lastError: null });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Synchronisation impossible.';
@@ -290,11 +314,34 @@ export class CloudSyncEngine implements SyncEngine {
       });
       const at = now();
       localStorage.setItem(lastKey(this.userId), at);
+      await restUpsert('sync_metadata', [{
+        id: this.syncMetaId(),
+        user_id: this.userId,
+        device_id: deviceId(),
+        last_sync_at: at,
+        last_error: null,
+        created_at: at,
+        updated_at: at,
+      }], access).catch(() => undefined);
       setSyncStatus({ phase: 'idle', lastSyncedAt: at, lastError: null });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Lecture cloud impossible.';
       setSyncStatus({ phase: 'error', lastError: message });
     }
+  }
+
+  private syncMetaId(): string {
+    const raw = this.userId + ':' + deviceId();
+    // UUID v5-like deterministic local key without pulling a crypto dependency.
+    let h1 = 0x811c9dc5;
+    let h2 = 0x9e3779b9;
+    for (let i = 0; i < raw.length; i++) {
+      h1 = Math.imul(h1 ^ raw.charCodeAt(i), 16777619);
+      h2 = Math.imul(h2 ^ raw.charCodeAt(i), 2246822519);
+    }
+    const hex = (n: number) => (n >>> 0).toString(16).padStart(8, '0');
+    const s = hex(h1) + hex(h2) + hex(h1 ^ h2) + hex(Math.imul(h1, h2));
+    return s.slice(0, 8) + '-' + s.slice(8, 12) + '-4' + s.slice(13, 16) + '-8' + s.slice(17, 20) + '-' + s.slice(20, 32);
   }
 
   dispose() {
