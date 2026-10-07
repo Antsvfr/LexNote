@@ -1,18 +1,19 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, ChevronDown, Menu as MenuIcon, Moon, Search, Settings, Sun, GraduationCap, HardDrive } from 'lucide-react';
+import { Bell, ChevronDown, LogOut, Menu as MenuIcon, Moon, Search, Settings, Sun, GraduationCap, HardDrive } from 'lucide-react';
 import { Menu } from './Menu';
 import { useUI } from '@/store/ui';
-import { useProfile } from '@/store/profile';
 import { estimateStorage, type StorageInfo } from '@/services/capture/quota';
 import { formatBytes } from '@/domain/capture';
 import { modKeyLabel } from '@/features/editor/commands';
+import { useAuth } from '@/store/auth';
 
 /** Barre supérieure : recherche globale, thème, notifications, profil. */
 export function AppHeader() {
   const navigate = useNavigate();
   const { theme, setTheme, setPalette, setNavOpen } = useUI();
-  const firstName = useProfile((p) => p.firstName);
+  const firstName = useAuth((s) => s.profile?.firstName ?? '');
+  const signOut = useAuth((s) => s.signOut);
   const [q, setQ] = useState('');
   const [info, setInfo] = useState<StorageInfo | null>(null);
   const dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
@@ -69,6 +70,7 @@ export function AppHeader() {
               <button className="menu__item" role="menuitem" onClick={() => { close(); setTheme(dark ? 'light' : 'dark'); }}>{dark ? <Sun /> : <Moon />}Thème {dark ? 'clair' : 'sombre'}</button>
               <div className="menu__sep" />
               <div className="menu__item" aria-disabled="true" style={{ cursor: 'default', opacity: 0.6 }}><GraduationCap />REV-EM · connexion bientôt disponible</div>
+              <button className="menu__item menu__item--danger" role="menuitem" onClick={() => { close(); void signOut(); }}><LogOut />Se déconnecter</button>
             </>
           )}
         </Menu>
