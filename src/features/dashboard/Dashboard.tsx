@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { ArrowRight, BookOpen, ChevronRight, Clock, FileText, FileUp, Mic, Pencil, Plus, Sparkles, TrendingUp } from 'lucide-react';
 import { useLibrary } from '@/store/library';
 import { useUI } from '@/store/ui';
-import { greeting } from '@/store/profile';
+import { greeting } from '@/lib/greeting';
 import { useAuth } from '@/store/auth';
 import { useCapture } from '@/store/capture';
 import { useLookups } from '@/lib/useLookups';
