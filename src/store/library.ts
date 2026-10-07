@@ -22,7 +22,7 @@ interface LibraryState extends LibrarySnapshot {
   renameModule(id: string, name: string): Promise<void>;
   deleteModule(id: string): Promise<void>;
 
-  addSession(input: { subjectId: string; moduleId?: string; type: SessionType; title: string; date: ISODate; number?: number | null; startTime?: string; endTime?: string; teacher?: string; room?: string }): Promise<CourseSession>;
+  addSession(input: { subjectId: string; moduleId?: string; type?: SessionType; title: string; date: ISODate; number?: number | null; startTime?: string; endTime?: string; teacher?: string; room?: string }): Promise<CourseSession>;
   updateSession(id: string, patch: Partial<Pick<CourseSession, 'title' | 'number' | 'date' | 'moduleId' | 'subjectId' | 'thumbnail' | 'type' | 'startTime' | 'endTime' | 'teacher' | 'room'>>): Promise<void>;
   deleteSession(id: string): Promise<void>;
   saveNotes(id: string, input: { content: unknown; plainText: string; durationSec?: number }): Promise<void>;
@@ -134,9 +134,10 @@ export const useLibrary = create<LibraryState>((set, get) => {
 
     /* --- séances --- */
     async addSession(input) {
-      const numbered = ['CM', 'TD', 'TP'].includes(input.type);
-      const number = input.number === undefined && numbered ? nextSessionNumber(get().sessions, input.moduleId, input.type) : (input.number ?? null);
-      const session = createSession({ ...input, number });
+      const type = input.type ?? 'CM';
+      const numbered = ['CM', 'TD', 'TP'].includes(type);
+      const number = input.number === undefined && numbered ? nextSessionNumber(get().sessions, input.moduleId, type) : (input.number ?? null);
+      const session = createSession({ ...input, type, number });
       set((s) => ({ sessions: [...s.sessions, session] }));
       await persist({ putSessions: [session] });
       return session;
