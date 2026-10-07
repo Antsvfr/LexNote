@@ -4,6 +4,7 @@ import { useLibrary } from '@/store/library';
 import { captureManager } from '@/services/capture/manager';
 import { createCaptureStorage } from '@/services/capture/storage';
 import { CloudSyncEngine, type SyncEngine } from '@/services/sync';
+import { flushCaptureCloud, hydrateCaptureCloud } from '@/services/sync/captureCloud';
 
 let storage: StorageAdapter | null = null;
 let rawStorage: StorageAdapter | null = null;
@@ -37,7 +38,10 @@ export async function bootstrapUser(userId: string): Promise<void> {
   await useLibrary.getState().init(storage);
 
   // La capture (audio/transcription) a sa propre base, elle aussi isolée par utilisateur.
-  await captureManager.init(await createCaptureStorage(userId)).catch((e) => console.warn('[LexNote] capture indisponible', e));
+  const captureStorage = await createCaptureStorage(userId);
+  await flushCaptureCloud().catch(() => undefined);
+  await hydrateCaptureCloud(captureStorage).catch((e) => console.warn('[LexNote] capture cloud non chargée', e));
+  await captureManager.init(captureStorage).catch((e) => console.warn('[LexNote] capture indisponible', e));
   void requestPersistence();
 }
 
