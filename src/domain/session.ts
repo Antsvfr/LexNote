@@ -16,7 +16,7 @@ export function createModule(subjectId: string, name: string): Module {
 export function createSession(input: {
   subjectId: string;
   moduleId?: string;
-  type: SessionType;
+  type?: SessionType;
   title: string;
   number: number | null;
   date: string;
@@ -30,7 +30,7 @@ export function createSession(input: {
     id: newId(),
     subjectId: input.subjectId,
     moduleId: input.moduleId ?? '',
-    type: input.type,
+    type: input.type ?? 'CM',
     number: input.number,
     title: input.title.trim(),
     date: input.date,
