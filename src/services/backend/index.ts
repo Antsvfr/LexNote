@@ -3,6 +3,8 @@ import type { AuthRepository, ProfileRepository } from '../auth/types';
 import { SupabaseAuth, SupabaseProfiles } from '../auth/supabaseAuth';
 import { SupabaseRemote } from '../sync/supabaseRemote';
 import type { RemoteStore } from '../sync/types';
+import type { IntegrationApi } from '../integration/types';
+import { createSupabaseIntegration, unavailableIntegration } from '../integration/supabaseIntegration';
 
 export type BackendKind = 'supabase' | 'mock' | 'unconfigured';
 
@@ -12,6 +14,8 @@ export interface Backend {
   profiles: ProfileRepository;
   /** Accès distant aux données d'UN utilisateur (la RLS fait le reste côté base). */
   remoteFor(userId: string): RemoteStore;
+  /** Liaison avec une application partenaire (REV-EM) — via l'Edge Function `integration-link` uniquement. */
+  integration: IntegrationApi;
 }
 
 /** Variables attendues (voir .env.example). Ce sont des valeurs PUBLIQUES (clé « anon ») : la sécurité vient de la RLS. */
@@ -40,6 +44,7 @@ export function getBackend(): Promise<Backend> {
         },
         profiles: { get: reject, update: reject },
         remoteFor: () => { throw new Error('Supabase non configuré'); },
+        integration: unavailableIntegration,
       };
     }
     const client = createClient(URL!, ANON!, {
@@ -50,6 +55,7 @@ export function getBackend(): Promise<Backend> {
       auth: new SupabaseAuth(client),
       profiles: new SupabaseProfiles(client),
       remoteFor: (userId) => new SupabaseRemote(client, userId),
+      integration: createSupabaseIntegration(client),
     };
   })();
   return cached;

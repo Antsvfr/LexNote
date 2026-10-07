@@ -1,6 +1,6 @@
 # Intégration REV-EM ⇄ LexNote — contrat `lexnote-revem/v1`
 
-> **Statut : fondation (aucune fonction utilisateur).** Ce document et `src/integration/` définissent *comment* les deux applications se
+> **Statut : fondation + première connexion réelle (§11).** Ce document et `src/integration/` définissent *comment* les deux applications se
 > parleront. Planning, assistant, synchronisation visible, écrans de liaison : **non construits** — ce sont les étapes suivantes, qui
 > s'appuieront sur ce contrat sans le modifier.
 >
@@ -243,7 +243,9 @@ L'ensemble de codes est **ouvert** : un code inconnu est traité comme `INTERNAL
 - Migration : pour passer à `v2`, une application déclare `SUPPORTED_MAJORS = [1, 2]` et ajoute un adaptateur ; l'autre continue en `v1`. **Support de N et N-1 pendant au moins 6 mois** ; la dépréciation est annoncée dans ce document (changelog ci-dessous).
 - Tests de contrat : le fichier `contracts.ts` est identique dans les deux dépôts (empreinte comparée) ; des *fixtures JSON* par version servent de tests d'acceptation réciproques.
 
-**Changelog** — `v1` (2026-10) : version initiale.
+**Changelog**
+- `v1` (2026-10) : version initiale.
+- `v1` (+ liaison de comptes) : nouveaux `kind` **compatibles** `connection-state`, `link-request`, `link-response` ; aucun champ existant modifié (le majeur reste `v1`).
 
 ---
 
@@ -285,3 +287,93 @@ L'ensemble de codes est **ouvert** : un code inconnu est traité comme `INTERNAL
 3. Transport exact : Edge Functions « gateway » signées (recommandé) vs. pont navigateur pour le tout-hors-ligne.
 4. Appariement des matières : saisie manuelle par l'étudiant vs. suggestion par nom (jamais automatique).
 5. Politique de rétention des copies reçues et du journal d'audit.
+
+---
+
+## 11. Liaison de comptes — architecture réellement implémentée
+
+> Ajoutée après la fondation. Le contrat `lexnote-revem/v1` n'est ni refait ni remplacé : on y ajoute trois `kind` compatibles.
+
+### 11.1 Flux
+
+```
+REV-EM (navigateur) ─JWT REV-EM─▶ integration-link {start}            REV-EM crée l'intention (5 min, usage unique) + nonce
+        │  location.assign(confirmUrl)  = https://<lexnote>/integrations/revem/connect?intent=<uuid>#n=<nonce>
+        ▼
+LexNote (navigateur) : met le nonce en sessionStorage, EFFACE le fragment, → connexion LexNote si besoin
+        ─JWT LexNote─▶ integration-link {inspect}  ─▶ [serveur LexNote] ─INSPECT (signé)─▶ [serveur REV-EM]   « compte REV-EM « Alice » »
+        ─JWT LexNote─▶ integration-link {confirm}  ─▶ REDEEM (signé)   intention PENDING→CONFIRMED, liaison PENDING (REV-EM)
+                                                    ─▶ liaison PENDING (LexNote) ─▶ ACTIVATE (signé) ─▶ CONNECTED des deux côtés
+        ◀ returnUrl = https://antsvfr.github.io/REV-EM/?lexnote_link=connected     (bouton « Retourner dans REV-EM »)
+REV-EM : lit puis retire ?lexnote_link, REVÉRIFIE (status + sonde STATUS signée) → « LexNote ✓ Connecté »
+```
+Le navigateur n'appelle **que** `integration-link` (avec son propre JWT). Les messages serveur ↔ serveur passent par `integration-gateway` (signés).
+
+### 11.2 Identité et références
+
+- `integrationLinkId` (`lnk_…`) : identifiant public de la liaison, généré par le serveur de l'initiateur, identique des deux côtés.
+- `local_reference` / `external_reference` (`ref_…`) : pseudonymes aléatoires générés **côté serveur** ; chaque côté stocke le sien et celui du partenaire, croisés.
+  Aucun UUID utilisateur, aucun e-mail ne circule (testé sur le trafic réel entre les deux services).
+- L'e-mail ne relie **jamais** deux comptes : seule l'autorisation explicite de l'étudiant, connecté aux DEUX applications, crée la liaison.
+
+### 11.3 Intentions (`integration_link_intents`)
+
+| État | Sens |
+|---|---|
+| `PENDING` | créée, utilisable (≤ 5 min ; contrainte base ≤ 15 min) |
+| `CONFIRMED` | consommée par `REDEEM` (usage unique, atomique) ; en attente d'`ACTIVATE` |
+| `USED` | liaison activée |
+| `EXPIRED` | délai dépassé (écrit paresseusement) |
+| `CANCELLED` | annulée par l'étudiant, remplacée par une nouvelle intention, ou liaison révoquée |
+
+Seule l'**empreinte SHA-256** du nonce est stockée ; un mauvais nonce **ne consomme pas** l'intention. Le nonce voyage dans le **fragment** d'URL
+(jamais envoyé à un serveur, absent de `Referer`), est gardé en `sessionStorage` le temps de la connexion LexNote (≤ 10 min), puis effacé.
+Ce n'est pas un secret inter-applications : une capacité à usage unique, liée à une intention, inutilisable sans session LexNote authentifiée.
+
+### 11.4 Signature de passerelle (`LNRV1-HMAC-SHA256`)
+
+Chaîne signée : `schéma · méthode · route · timestamp · nonce · SHA-256(corps) · from · to · kid`. Clé dérivée **par direction** (`lnrv1|from->to`).
+Contrôles dans l'ordre : en-têtes → expéditeur connu (= partenaire attendu) → destinataire → clé (`kid`) → nonce → horodatage (±5 min) → empreinte du
+corps → signature (temps constant) → **nonce jamais vu** (enregistré seulement après signature valide) → contrat (secrets, version, forme, expiration) →
+autorisation (liaison, expéditeur = référence enregistrée). Les réponses sont signées elles aussi ; une réponse non signée n'a **aucun effet d'état**.
+Un en-tête `Origin` (navigateur) est refusé. Taille de message ≤ 16 Ko. Les requêtes sortantes n'acceptent aucune redirection et ne ciblent que `INTEGRATION_PEER_GATEWAY_URL`.
+
+### 11.5 États de connexion (`ConnectionState`)
+
+`NOT_CONNECTED · PENDING · CONNECTED · REVOKED · ERROR`, avec `localStatus`, `peerStatus` et `verified`. **`CONNECTED` exige `verified` ET `peerStatus = CONNECTED`**
+(le schéma l'impose). Sans sonde ou si le partenaire n'a pas confirmé → `PENDING` ; partenaire injoignable → `ERROR/PEER_UNREACHABLE` (rien n'est modifié en base) ;
+le partenaire ne connaît plus la liaison → `ERROR/PEER_MISSING` ; le partenaire l'a révoquée → `REVOKED (revokedBy: partner)`.
+
+### 11.6 Révocation
+
+Depuis l'un ou l'autre côté : effet **immédiat** sur le côté qui révoque (la passerelle refuse dès lors tout échange : `assertLinkUsable` → `LINK_REVOKED`), puis
+notification du partenaire ; s'il est injoignable, il le constate à son prochain contrôle. **Aucune donnée métier n'est supprimée** (les lignes de liaison passent à `REVOKED`).
+Reconnecter crée une nouvelle liaison (nouvel identifiant).
+
+### 11.7 Tables (migration identique dans les deux projets)
+
+LexNote : `supabase/migrations/20261011000000_integration_links.sql` · REV-EM : `supabase/migrations/006_integration_links.sql`.
+`integration_links`, `integration_link_intents`, `integration_nonces` — RLS activée **et forcée**, une seule policy (`SELECT` de ses propres liaisons, colonnes non sensibles),
+fonctions `integration_*` en `SECURITY DEFINER` à `search_path` figé et réservées à `service_role`.
+
+### 11.8 Domaines
+
+Centralisés dans `src/integration/config.ts` et les variables `INTEGRATION_*` : développement = `localhost` LexNote (5173/4173) et REV-EM (8080/3000) ;
+production = `https://antsvfr.github.io` (REV-EM) et l'URL fournie pour LexNote. Refusés : `*`, `http` hors développement, identifiants dans l'URL, `localhost` en production.
+
+### 11.9 Secrets (par projet Supabase, jamais dans un frontend)
+
+| Secret | Rôle |
+|---|---|
+| `INTEGRATION_KEY` (+ `INTEGRATION_KEY_ID`) | clé HMAC partagée (≥ 32 car.), **identique** dans les deux projets ; `INTEGRATION_KEY_PREVIOUS[_ID]` pour la rotation |
+| `INTEGRATION_ENV` | `production` (défaut) ou `development` |
+| `INTEGRATION_SELF_APP_URL` | URL complète de CETTE application |
+| `INTEGRATION_PEER_APP_URL` | URL complète de l'autre application (redirections, liens) |
+| `INTEGRATION_PEER_GATEWAY_URL` | URL de la fonction `integration-gateway` de l'autre projet |
+| `INTEGRATION_ALLOWED_ORIGINS` | (facultatif) origines navigateur supplémentaires, https |
+| `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | fournis automatiquement par Supabase aux Edge Functions |
+
+### 11.10 Paquet partagé
+
+`node scripts/build-integration-bundle.mjs [--revem <dépôt REV-EM>] [--check]` génère `supabase/functions/_shared/integration/lexnote-revem-v1.mjs`
+(autonome, zod inclus, empreinte en en-tête) dans les **deux** dépôts ; `--check` échoue si une copie diverge. Les Edge Functions ne font que câbler (`runtime.ts`).

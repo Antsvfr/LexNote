@@ -9,6 +9,7 @@ import { AuthError, emptyProfile, type AuthEvent, type AuthRepository, type Auth
 import { CloudDb, InMemoryRemote } from '../sync/inMemoryRemote';
 import type { RemoteStore } from '../sync/types';
 import type { Backend } from './index';
+import { createMockIntegration } from '../integration/mockIntegration';
 import { saveEngineSettings } from '../../lib/engineSettings';
 import { EngineUnavailableError, registerEngineProvider, setActiveEngineProvider } from '../engine/provider';
 
@@ -105,5 +106,6 @@ export function createMockBackend(): Backend {
   return {
     kind: 'mock', auth, profiles,
     remoteFor: (userId: string): RemoteStore => new InMemoryRemote(cloud, userId),
+    integration: createMockIntegration(() => load().sessionUserId),
   };
 }

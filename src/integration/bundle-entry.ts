@@ -1,11 +1,9 @@
-/** Surface publique du module d'intégration (importer d'ici, jamais des fichiers internes). */
+/** Point d'entrée du paquet autonome `lexnote-revem-v1.mjs` (zod inclus) copié à l'identique dans les Edge Functions des DEUX projets. */
 export * from './version';
 export * from './contracts';
 export * from './errors';
 export * from './security';
 export * from './envelope';
-export * from './links';
-export { toSessionReference, toArtifactReference, itemCountOf, type SessionRefContext } from './mappers';
 export * from './config';
 export * from './signing';
 export * from './store';

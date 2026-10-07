@@ -185,3 +185,68 @@ export function progressEventId(p: { progressKind: ProgressKind; sessionRef: str
   h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
   return `pe_${(h2 >>> 0).toString(36)}${(h1 >>> 0).toString(36)}`;
 }
+
+/* ------------------------------------------------------------------ liaison de comptes (étape « connexion »)
+ * Ajouts COMPATIBLES de `lexnote-revem/v1` (nouveaux `kind`, aucun champ existant modifié).
+ * Identifiants : `linkId` (« integrationLinkId ») est public et propre à la liaison ; `…Reference` sont des pseudonymes opaques générés
+ * par le SERVEUR de chaque application. Aucun UUID de compte, aucun e-mail, aucun jeton.
+ */
+export const CONNECTION_STATES = ['NOT_CONNECTED', 'PENDING', 'CONNECTED', 'REVOKED', 'ERROR'] as const;
+export type ConnectionStateName = (typeof CONNECTION_STATES)[number];
+export const PEER_STATUSES = ['CONNECTED', 'PENDING', 'REVOKED', 'MISSING', 'UNKNOWN'] as const;
+
+/**
+ * État de connexion tel que l'étudiant le voit. `CONNECTED` n'est affiché que si LES DEUX côtés l'affirment (`verified: true`) :
+ * une ligne présente dans une seule base ne suffit jamais.
+ */
+export const connectionStateSchema = z.object({
+  integrationVersion: z.string(),
+  kind: z.literal('connection-state'),
+  partner: app,
+  state: z.enum(CONNECTION_STATES),
+  linkId: ref.optional(),
+  linkedAt: isoDateTime.optional(),
+  revokedAt: isoDateTime.optional(),
+  revokedBy: z.enum(['self', 'partner']).optional(),
+  errorCode: z.string().max(60).optional(),
+  localStatus: z.enum(['PENDING', 'CONNECTED', 'REVOKED', 'ERROR']).nullable(),
+  peerStatus: z.enum(PEER_STATUSES),
+  verified: z.boolean(),
+  checkedAt: isoDateTime,
+}).refine((c) => c.state !== 'CONNECTED' || (c.verified && c.peerStatus === 'CONNECTED' && c.localStatus === 'CONNECTED'), { message: 'CONNECTED exige les deux côtés vérifiés', path: ['state'] });
+export type ConnectionState = z.infer<typeof connectionStateSchema>;
+
+export const LINK_OPERATIONS = ['INSPECT', 'REDEEM', 'ACTIVATE', 'REVOKE', 'STATUS'] as const;
+export type LinkOperation = (typeof LINK_OPERATIONS)[number];
+const intentId = z.string().uuid();
+const nonce = z.string().regex(/^[A-Za-z0-9_-]{32,100}$/);
+
+/** Requête de liaison SERVEUR → SERVEUR (jamais émise par un navigateur). */
+export const linkRequestSchema = z.object({
+  integrationVersion: z.string(),
+  kind: z.literal('link-request'),
+  operation: z.enum(LINK_OPERATIONS),
+  /** INSPECT / REDEEM : intention créée par l'application destinataire. */
+  linkIntentId: intentId.optional(),
+  /** Capacité à usage unique remise à l'étudiant (≠ secret inter-applications) ; seule son empreinte est stockée. */
+  nonce: nonce.optional(),
+  /** REDEEM / ACTIVATE / REVOKE / STATUS : pseudonyme de l'EXPÉDITEUR dans cette liaison. */
+  senderReference: ref.optional(),
+  linkId: ref.optional(),
+});
+export type LinkRequest = z.infer<typeof linkRequestSchema>;
+
+export const linkResponseSchema = z.object({
+  integrationVersion: z.string(),
+  kind: z.literal('link-response'),
+  operation: z.enum(LINK_OPERATIONS),
+  ok: z.boolean(),
+  linkId: ref.optional(),
+  /** Pseudonyme du DESTINATAIRE dans cette liaison (REDEEM). */
+  receiverReference: ref.optional(),
+  status: z.enum(['PENDING', 'CONNECTED', 'REVOKED', 'ERROR']).optional(),
+  /** INSPECT : prénom / pseudo de l'étudiant qui a initié la liaison — affiché pour qu'il reconnaisse son propre compte. */
+  displayHint: z.string().max(40).optional(),
+  expiresAt: isoDateTime.optional(),
+});
+export type LinkResponse = z.infer<typeof linkResponseSchema>;

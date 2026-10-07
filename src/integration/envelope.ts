@@ -1,11 +1,11 @@
 import { z } from 'zod';
-import { APPS, courseProgressEventSchema, externalCourseEventSchema, integrationIdentitySchema, lexNoteSessionReferenceSchema, studyArtifactReferenceSchema } from './contracts';
+import { APPS, connectionStateSchema, courseProgressEventSchema, linkRequestSchema, linkResponseSchema, externalCourseEventSchema, integrationIdentitySchema, lexNoteSessionReferenceSchema, studyArtifactReferenceSchema } from './contracts';
 import { fail, integrationError, integrationErrorSchema, IntegrationFailure, type IntegrationError } from './errors';
 import { findSecrets } from './security';
 import { INTEGRATION_VERSION, isSupportedVersion, majorOf } from './version';
 
 const payloadSchema = z.discriminatedUnion('kind', [
-  externalCourseEventSchema, lexNoteSessionReferenceSchema, studyArtifactReferenceSchema, courseProgressEventSchema, integrationIdentitySchema, integrationErrorSchema,
+  externalCourseEventSchema, lexNoteSessionReferenceSchema, studyArtifactReferenceSchema, courseProgressEventSchema, integrationIdentitySchema, integrationErrorSchema, linkRequestSchema, linkResponseSchema, connectionStateSchema,
 ]);
 export type IntegrationPayload = z.infer<typeof payloadSchema>;
 export type PayloadKind = IntegrationPayload['kind'];

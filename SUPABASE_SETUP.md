@@ -45,6 +45,21 @@ L'application démarre mais l'écran de connexion affiche « LexNote n'est pas e
 2. `supabase/migrations/20261009000000_course_engine.sql` — documents importés (texte analysé uniquement, **jamais le fichier**) et cours reconstruits versionnés.
 3. `supabase/migrations/20261010000000_study_artifacts_from_course.sql` — supports de révision dérivés du cours reconstruit (version du cours, instantané des sources, provenance, réglages, type MÉTHODE).
 
+4. `supabase/migrations/20261011000000_integration_links.sql` — liaison avec un compte REV-EM (tables `integration_*`, RLS forcée, fonctions réservées à `service_role`).
+
+### 2 quater. Connexion avec REV-EM (facultatif — sans elle, LexNote fonctionne seule)
+
+Deux Edge Functions : `integration-link` (appelée par le navigateur avec le JWT de l'utilisateur) et `integration-gateway` (serveur ↔ serveur, **sans JWT** mais signée).
+```bash
+supabase functions deploy integration-link
+supabase functions deploy integration-gateway --no-verify-jwt     # la signature HMAC remplace le JWT, uniquement pour cette fonction
+supabase secrets set INTEGRATION_ENV=production INTEGRATION_KEY_ID=k1 INTEGRATION_KEY=<MÊME clé que REV-EM, ≥ 32 car., openssl rand -base64 48> \
+  INTEGRATION_SELF_APP_URL=https://<domaine officiel de LexNote>/ \
+  INTEGRATION_PEER_APP_URL=https://antsvfr.github.io/REV-EM/ \
+  INTEGRATION_PEER_GATEWAY_URL=https://<réf-projet-REV-EM>.supabase.co/functions/v1/integration-gateway
+```
+La clé reste dans les secrets Supabase : **jamais** dans Vercel, dans le dépôt ni dans le navigateur. Détails : `docs/REVEM_LEXNOTE_INTEGRATION.md` §11.
+
 ### 2 ter. Moteur de cours distant (facultatif — sans lui, le moteur local est utilisé)
 
 ```bash
