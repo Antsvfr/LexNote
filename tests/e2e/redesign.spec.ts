@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixture';
 import { createCm, trackErrors } from './helpers';
 
 /** Refonte premium : tableau de bord, navigation, thème, vignettes, pages — avec de VRAIES données. */
