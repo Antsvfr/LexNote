@@ -1,7 +1,8 @@
+import type { StudyArtifact } from '@/domain/study';
 import type { CourseSession, LibrarySnapshot, Module, NoteDocument, Subject } from '@/domain/types';
 
 /** Tables synchronisées « versionnées » (avec détection de conflit). */
-export type SyncTable = 'subjects' | 'modules' | 'course_sessions';
+export type SyncTable = 'subjects' | 'modules' | 'course_sessions' | 'study_artifacts';
 
 /** Écriture atomique : tout ou rien. Supprimer une séance supprime aussi ses notes. */
 export interface ChangeSet {
@@ -9,6 +10,8 @@ export interface ChangeSet {
   putModules?: Module[];
   putSessions?: CourseSession[];
   putNotes?: NoteDocument[];
+  putArtifacts?: StudyArtifact[];
+  deleteArtifacts?: string[];
   deleteSubjects?: string[];
   deleteModules?: string[];
   deleteSessions?: string[];
@@ -35,6 +38,7 @@ export interface DirtySet {
   subjects: Subject[];
   modules: Module[];
   sessions: CourseSession[];
+  artifacts: StudyArtifact[];
   tombstones: Tombstone[];
 }
 
@@ -47,6 +51,7 @@ export interface ExportBundle {
   modules: Module[];
   sessions: CourseSession[];
   notes: NoteDocument[];
+  artifacts: StudyArtifact[];
 }
 
 /**
@@ -59,6 +64,7 @@ export interface StorageAdapter {
   readonly persistent: boolean;
   loadLibrary(): Promise<LibrarySnapshot>;
   getNotes(sessionId: string): Promise<NoteDocument | undefined>;
+  loadArtifacts(): Promise<StudyArtifact[]>;
   commit(changes: ChangeSet, opts?: CommitOptions): Promise<void>;
   getMeta<T = unknown>(key: string): Promise<T | undefined>;
   setMeta(key: string, value: unknown): Promise<void>;
@@ -74,4 +80,4 @@ export interface StorageAdapter {
   close(): void;
 }
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;

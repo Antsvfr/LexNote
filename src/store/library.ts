@@ -70,6 +70,9 @@ type RemovalHook = (sessionIds: string[]) => Promise<void> | void;
 const removalHooks: RemovalHook[] = [];
 const wipeHooks: (() => Promise<void> | void)[] = [];
 export const onSessionsRemoved = (h: RemovalHook) => { removalHooks.push(h); };
+type SubjectsHook = (subjectIds: string[]) => Promise<void> | void;
+const subjectHooks: SubjectsHook[] = [];
+export const onSubjectsRemoved = (h: SubjectsHook) => { subjectHooks.push(h); };
 export const onLibraryWiped = (h: () => Promise<void> | void) => { wipeHooks.push(h); };
 async function notifyRemoved(ids: string[]) {
   if (!ids.length) return;
@@ -140,6 +143,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
       }));
       await persist({ deleteSubjects: [id], deleteModules: mods, deleteSessions: sess });
       await notifyRemoved(sess);
+      for (const h of subjectHooks) { try { await h([id]); } catch (e) { console.error(e); } }
     },
 
     /* --- modules --- */
@@ -233,6 +237,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
       set({ subjects: [], modules: [], sessions: [] });
       await persist({ deleteSubjects: subjects.map((x) => x.id), deleteModules: modules.map((x) => x.id), deleteSessions: sessionIds });
       await notifyRemoved(sessionIds);
+      for (const h of subjectHooks) { try { await h(subjects.map((x) => x.id)); } catch (e) { console.error(e); } }
       for (const h of wipeHooks) { try { await h(); } catch (e) { console.error(e); } }
     },
   };

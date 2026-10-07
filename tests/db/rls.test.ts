@@ -31,6 +31,7 @@ beforeAll(async () => {
     grant usage on schema public to anon, authenticated;
   `);
   await db.exec(readFileSync('supabase/migrations/20261007000000_lexnote_init.sql', 'utf8'));
+  await db.exec(readFileSync('supabase/migrations/20261008000000_study_artifacts.sql', 'utf8'));
   await db.exec(`insert into auth.users values ('${A}', 'a@test.fr'), ('${B}', 'b@test.fr');`);
 });
 
@@ -136,5 +137,27 @@ describe('Row Level Security — isolation des utilisateurs', () => {
       `select relname, relrowsecurity, relforcerowsecurity from pg_class where relnamespace = 'public'::regnamespace and relkind = 'r'`);
     expect(r.rows.length).toBeGreaterThanOrEqual(11);
     for (const t of r.rows) { expect(t.relrowsecurity, t.relname).toBe(true); expect(t.relforcerowsecurity, t.relname).toBe(true); }
+  });
+});
+
+describe('Row Level Security — supports d\'étude', () => {
+  const art = (id: string, extra = '') => q(`insert into study_artifacts (id, type, title, content${extra}) values ($1, 'MIND_MAP', 'Carte', '{}'::jsonb)`, [id]);
+  it('chacun ne voit, ne modifie et ne supprime que ses supports', async () => {
+    await as(A, () => art(uuid(900)));
+    await as(B, () => art(uuid(901)));
+    expect((await as(A, () => q('select id from study_artifacts'))) as { rows: unknown[] }).toMatchObject({ rows: [{ id: uuid(900) }] });
+    const upd = (await as(B, () => q(`update study_artifacts set title = 'piraté' where id = $1`, [uuid(900)]))) as { affectedRows: number };
+    expect(upd.affectedRows).toBe(0);
+    const del = (await as(B, () => q('delete from study_artifacts where id = $1', [uuid(900)]))) as { affectedRows: number };
+    expect(del.affectedRows).toBe(0);
+  });
+  it('usurpation de user_id refusée ; anon bloqué ; type inconnu refusé', async () => {
+    await expect(as(B, () => q(`insert into study_artifacts (id, user_id, type, title, content) values ($1, $2, 'QUIZ', 'x', '{}')`, [uuid(902), A]))).rejects.toThrow();
+    await expect(as(null, () => q('select * from study_artifacts'))).rejects.toThrow();
+    await expect(as(A, () => q(`insert into study_artifacts (id, type, title, content) values ($1, 'AUTRE', 'x', '{}')`, [uuid(903)]))).rejects.toThrow();
+  });
+  it('un support ne peut pas être rattaché à la matière d\'un autre utilisateur', async () => {
+    await as(A, () => insertSubject(uuid(910), 'Matière de A'));
+    await expect(as(B, () => q(`insert into study_artifacts (id, type, title, content, subject_id) values ($1, 'QUIZ', 'x', '{}', $2)`, [uuid(904), uuid(910)]))).rejects.toThrow();
   });
 });

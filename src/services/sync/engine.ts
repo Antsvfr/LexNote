@@ -5,7 +5,7 @@ import type { CaptureStorage, CaptureTable } from '@/services/capture/storage/ty
 import type { StorageAdapter, SyncTable } from '@/services/storage/types';
 import {
   anchorFromRow, anchorToRow, audioSessionFromRow, audioSessionToRow, interruptionFromRow, interruptionToRow, markerFromRow, markerToRow,
-  moduleFromRow, moduleToRow, segmentFromRow, segmentToRow, sessionFromRow, sessionToRow, subjectFromRow, subjectToRow,
+  artifactFromRow, artifactToRow, moduleFromRow, moduleToRow, segmentFromRow, segmentToRow, sessionFromRow, sessionToRow, subjectFromRow, subjectToRow,
 } from './mappers';
 import { CAPTURE_TABLES, NetworkError, type RemoteRow, type RemoteStore, type RemoteTable, VERSIONED_TABLES } from './types';
 
@@ -103,7 +103,7 @@ export class SyncEngine {
   private async countPending(): Promise<number> {
     const l = await this.d.local.listDirty();
     const c = this.d.capture();
-    let n = l.subjects.length + l.modules.length + l.sessions.length + l.tombstones.length;
+    let n = l.subjects.length + l.modules.length + l.sessions.length + l.artifacts.length + l.tombstones.length;
     if (c) { const k = await c.listDirty(); n += k.audioSessions.length + k.segments.length + k.markers.length + k.anchors.length + k.interruptions.length + k.tombstones.length; }
     return n;
   }
@@ -149,6 +149,7 @@ export class SyncEngine {
       const notes = (await local.getNotes(s.id))?.content;
       await this.pushVersioned('course_sessions', s.id, s.updatedAt, sessionToRow(s, notes), s.version);
     }
+    for (const a of dirty.artifacts) await this.pushVersioned('study_artifacts', a.id, a.updatedAt, artifactToRow(a), a.version);
     for (const t of dirty.tombstones) {
       await this.d.remote.softDelete(t.table, t.id);
       await local.dropTombstone(t.key);
@@ -179,6 +180,7 @@ export class SyncEngine {
       const lib = await local.loadLibrary();
       if (table === 'subjects') { const r = lib.subjects.find((x) => x.id === id); if (r) await local.commit({ putSubjects: [{ ...r, version: undefined }] }); }
       else if (table === 'modules') { const r = lib.modules.find((x) => x.id === id); if (r) await local.commit({ putModules: [{ ...r, version: undefined }] }); }
+      else if (table === 'study_artifacts') { const r = (await local.loadArtifacts()).find((x) => x.id === id); if (r) await local.commit({ putArtifacts: [{ ...r, version: undefined }] }); }
       else { const r = lib.sessions.find((x) => x.id === id); if (r) await local.commit({ putSessions: [{ ...r, version: undefined }] }); }
       return;
     }
@@ -196,6 +198,18 @@ export class SyncEngine {
       const myNotes = (await local.getNotes(id))?.content;
       if (mine && stableJson(myNotes) !== stableJson(server.notes_content)) {
         await this.keepBoth(mine, myNotes, server);
+        return;
+      }
+    }
+    if (table === 'study_artifacts') {
+      // Support d'étude : jamais d'écrasement silencieux d'un travail de l'utilisateur.
+      const mine = (await local.loadArtifacts()).find((x) => x.id === id);
+      if (mine && String(server.updated_at ?? '') > mine.updatedAt && stableJson(server.content) !== stableJson(mine.content)) {
+        const stamp = new Date().toISOString();
+        await local.commit({ putArtifacts: [{ ...structuredClone(mine), id: newId(), version: undefined, dirty: undefined, createdAt: stamp, updatedAt: stamp, title: `${mine.title} (copie locale en conflit)` }] });
+        await this.applyServerRow(table, server);
+        this.conflicts++;
+        this.d.status.update({ conflicts: this.conflicts });
         return;
       }
     }
@@ -232,7 +246,7 @@ export class SyncEngine {
   }
   private async markClean(table: SyncTable, id: string) {
     const lib = await this.d.local.loadLibrary();
-    const row = [...lib.subjects, ...lib.modules, ...lib.sessions].find((x) => x.id === id);
+    const row = [...lib.subjects, ...lib.modules, ...lib.sessions, ...(await this.d.local.loadArtifacts())].find((x) => x.id === id);
     if (row) await this.d.local.markSynced(table, id, row.version ?? 0, row.updatedAt);
   }
 
@@ -240,6 +254,7 @@ export class SyncEngine {
     await this.markClean(table, server.id);
     if (table === 'subjects') await this.d.local.commit({ putSubjects: [subjectFromRow(server)] }, { remote: true });
     else if (table === 'modules') await this.d.local.commit({ putModules: [moduleFromRow(server)] }, { remote: true });
+    else if (table === 'study_artifacts') await this.d.local.commit({ putArtifacts: [artifactFromRow(server)] }, { remote: true });
     else await this.forceApplyServerSession(server);
     this.d.onApplied({ library: true, removedSessionIds: [], captureSessionIds: [] });
   }
@@ -284,14 +299,15 @@ export class SyncEngine {
       const rows = await this.d.remote.pull(table, cursor, PAGE);
       if (!rows.length) return;
       const lib = await local.loadLibrary();
+      const artifacts = table === 'study_artifacts' ? await local.loadArtifacts() : [];
       const byId = new Map<string, { version?: number; dirty?: boolean }>(
-        ([] as { id: string; version?: number; dirty?: boolean }[]).concat(table === 'subjects' ? lib.subjects : table === 'modules' ? lib.modules : lib.sessions).map((x) => [x.id, x]),
+        ([] as { id: string; version?: number; dirty?: boolean }[]).concat(table === 'subjects' ? lib.subjects : table === 'modules' ? lib.modules : table === 'study_artifacts' ? artifacts : lib.sessions).map((x) => [x.id, x]),
       );
       for (const row of rows) {
         const mine = byId.get(row.id);
         if (row.deleted_at) {
           if (mine && !mine.dirty) {
-            await local.commit(table === 'subjects' ? { deleteSubjects: [row.id] } : table === 'modules' ? { deleteModules: [row.id] } : { deleteSessions: [row.id] }, { remote: true });
+            await local.commit(table === 'subjects' ? { deleteSubjects: [row.id] } : table === 'modules' ? { deleteModules: [row.id] } : table === 'study_artifacts' ? { deleteArtifacts: [row.id] } : { deleteSessions: [row.id] }, { remote: true });
             applied.library = true;
             if (table === 'course_sessions') applied.removedSessionIds.push(row.id);
           }
@@ -301,6 +317,7 @@ export class SyncEngine {
         if (mine && (mine.version ?? 0) >= (row.version ?? 0)) continue; // déjà à jour (curseur inclusif : idempotent)
         if (table === 'subjects') await local.commit({ putSubjects: [subjectFromRow(row)] }, { remote: true });
         else if (table === 'modules') await local.commit({ putModules: [moduleFromRow(row)] }, { remote: true });
+        else if (table === 'study_artifacts') await local.commit({ putArtifacts: [artifactFromRow(row)] }, { remote: true });
         else {
           const { session, notes } = sessionFromRow(row);
           await local.commit({ putSessions: [session], putNotes: notes === undefined ? [] : [{ sessionId: session.id, content: notes, updatedAt: session.updatedAt }] }, { remote: true });

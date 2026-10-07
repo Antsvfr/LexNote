@@ -1,5 +1,6 @@
 import type { AudioSession, Interruption, NoteAnchor, TimelineMarker, TranscriptSegment } from '@/domain/capture';
 import type { CourseSession, Module, Subject } from '@/domain/types';
+import { ARTIFACT_TYPES, type ArtifactContent, type StudyArtifact } from '@/domain/study';
 import { isSessionType } from '@/domain/sessionType';
 import type { RemoteRow } from './types';
 
@@ -100,4 +101,19 @@ export const interruptionToRow = (i: Interruption, userId: string): RemoteRow =>
 export const interruptionFromRow = (r: RemoteRow): Interruption => ({
   id: r.id, userId: String(r.user_id), sessionId: String(r.session_id), atMs: Number(r.at_ms), kind: r.kind as Interruption['kind'],
   message: String(r.message), recoverable: r.recoverable !== false, resolvedAtMs: (r.resolved_at_ms as number | null) ?? undefined,
+});
+
+/* ---------------- study_artifacts ---------------- */
+export const artifactToRow = (a: StudyArtifact): RemoteRow => ({
+  id: a.id, user_id: a.userId, type: a.type, title: a.title, subject_id: a.subjectId, source_session_ids: a.sourceSessionIds, scope: a.scope,
+  options: a.options, content: a.content, ai_content: a.aiContent, source_hash: a.sourceHash, user_edited: a.userEdited, generated_by: a.generatedBy,
+  created_at: a.createdAt, updated_at: a.updatedAt, deleted_at: null,
+});
+export const artifactFromRow = (r: RemoteRow): StudyArtifact => ({
+  id: r.id, userId: String(r.user_id), type: (ARTIFACT_TYPES as readonly string[]).includes(String(r.type)) ? (r.type as StudyArtifact['type']) : 'COURSE_SHEET',
+  title: String(r.title), subjectId: (r.subject_id as string | null) ?? null, sourceSessionIds: (r.source_session_ids as string[]) ?? [],
+  scope: (r.scope as StudyArtifact['scope']) ?? null, options: (r.options as Record<string, unknown>) ?? {},
+  content: r.content as ArtifactContent, aiContent: (r.ai_content as ArtifactContent | null) ?? null, sourceHash: String(r.source_hash ?? ''),
+  userEdited: !!r.user_edited, generatedBy: (r.generated_by as StudyArtifact['generatedBy']) ?? null,
+  createdAt: String(r.created_at), updatedAt: String(r.updated_at), version: r.version,
 });

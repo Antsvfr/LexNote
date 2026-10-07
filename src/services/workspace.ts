@@ -11,7 +11,8 @@ import { captureManager } from './capture/manager';
 import { setSyncRequester } from './sync/hook';
 import { setStorageScope } from '@/lib/scope';
 import { newId } from '@/lib/ids';
-import { useLibrary } from '@/store/library';
+import { useLibrary, onSubjectsRemoved } from '@/store/library';
+import { useArtifacts } from '@/store/artifacts';
 import { useEditorBridge } from '@/store/editorBridge';
 import { initialSync, setSync, useSync } from '@/store/sync';
 import { useToasts } from '@/store/toasts';
@@ -19,6 +20,7 @@ import { useUI } from '@/store/ui';
 import { useSaveStatus } from '@/features/editor/saveStatus';
 import { toast } from '@/store/toasts';
 
+let hooked = false;
 interface Workspace { userId: string; local: StorageAdapter; engine: SyncEngine | null }
 let current: Workspace | null = null;
 
@@ -40,6 +42,7 @@ function deviceId(): string {
 }
 
 export async function openWorkspace(user: AuthUser, backend: Backend): Promise<void> {
+  if (!hooked) { hooked = true; onSubjectsRemoved(async (ids) => { for (const id of ids) await useArtifacts.getState().removeForSubject(id); }); }
   if (current?.userId === user.id) return;
   if (current) await closeWorkspace();
   setStorageScope(user.id);
@@ -47,6 +50,7 @@ export async function openWorkspace(user: AuthUser, backend: Backend): Promise<v
   let engine: SyncEngine | null = null;
   const local = withSync(await createStorage(user.id), { onLocalWrite: () => engine?.schedule() });
   await useLibrary.getState().init(local, user.id);
+  await useArtifacts.getState().init(local);
   await captureManager.init(user.id);
 
   if (backend.kind !== 'unconfigured') {
@@ -59,6 +63,7 @@ export async function openWorkspace(user: AuthUser, backend: Backend): Promise<v
       status: { update: (p) => setSync(p) },
       onApplied: (c) => {
         void useLibrary.getState().applyRemote(c.removedSessionIds);
+        void useArtifacts.getState().reload();
         if (c.captureSessionIds.length) void captureManager.refreshAfterRemote(c.captureSessionIds);
       },
       onConflictCopy: (orig) => toast.info(`Conflit sur « ${orig.title || 'une séance'} » : les deux versions ont été conservées.`),
@@ -82,6 +87,7 @@ export async function closeWorkspace(): Promise<void> {
   }
   // Plus aucune donnée du compte précédent ne doit rester visible.
   useLibrary.getState().reset();
+  useArtifacts.getState().reset();
   useEditorBridge.getState().setEditor(null);
   useSaveStatus.getState().set('idle');
   useToasts.setState({ toasts: [] });

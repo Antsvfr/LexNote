@@ -28,6 +28,7 @@ export function withSync(adapter: StorageAdapter, listener: WriteListener): Stor
     get persistent() { return adapter.persistent; },
     loadLibrary: () => adapter.loadLibrary(),
     getNotes: (id) => adapter.getNotes(id),
+    loadArtifacts: () => adapter.loadArtifacts(),
     getMeta: (k) => adapter.getMeta(k),
     setMeta: (k, v) => adapter.setMeta(k, v),
     listDirty: () => adapter.listDirty(),
