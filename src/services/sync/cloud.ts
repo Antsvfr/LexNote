@@ -65,7 +65,7 @@ function rowSession(s: CourseSession, userId: string, notes?: NoteDocument): Rec
     user_id: userId,
     subject_id: s.subjectId,
     module_id: s.moduleId || null,
-    session_type: s.type,
+    session_type: s.type ?? 'CM',
     title: s.title,
     session_date: s.date || null,
     start_time: s.startTime || null,
