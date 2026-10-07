@@ -206,14 +206,17 @@ export class CloudSyncEngine implements SyncEngine {
     setSyncStatus({ phase: 'syncing' });
     try {
       const [sr, mr, cr] = await Promise.all([
-        restSelect<Record<string, unknown>>('subjects', 'select=*&deleted_at=is.null', access),
-        restSelect<Record<string, unknown>>('modules', 'select=*&deleted_at=is.null', access),
-        restSelect<Record<string, unknown>>('course_sessions', 'select=*&deleted_at=is.null', access),
+        restSelect<Record<string, unknown>>('subjects', 'select=*', access),
+        restSelect<Record<string, unknown>>('modules', 'select=*', access),
+        restSelect<Record<string, unknown>>('course_sessions', 'select=*', access),
       ]);
+      const deletedSubjects = sr.filter((r) => r.deleted_at != null).map((r) => String(r.id));
+      const deletedModules = mr.filter((r) => r.deleted_at != null).map((r) => String(r.id));
+      const deletedSessions = cr.filter((r) => r.deleted_at != null).map((r) => String(r.id));
       const remote: LibrarySnapshot = {
-        subjects: sr.map(fromSubject),
-        modules: mr.map(fromModule),
-        sessions: cr.map(fromSession),
+        subjects: sr.filter((r) => r.deleted_at == null).map(fromSubject),
+        modules: mr.filter((r) => r.deleted_at == null).map(fromModule),
+        sessions: cr.filter((r) => r.deleted_at == null).map(fromSession),
       };
       const local = await this.local.loadLibrary();
       const choose = <T extends { id: string; updatedAt: string }>(a: T[], b: T[]): T[] => {
@@ -224,17 +227,20 @@ export class CloudSyncEngine implements SyncEngine {
         }
         return [...map.values()];
       };
+      const deletedSubjectSet = new Set(deletedSubjects);
+      const deletedModuleSet = new Set(deletedModules);
+      const deletedSessionSet = new Set(deletedSessions);
       const merged: LibrarySnapshot = {
-        subjects: choose(local.subjects, remote.subjects),
-        modules: choose(local.modules, remote.modules),
-        sessions: choose(local.sessions, remote.sessions),
+        subjects: choose(local.subjects, remote.subjects).filter((x) => !deletedSubjectSet.has(x.id)),
+        modules: choose(local.modules, remote.modules).filter((x) => !deletedModuleSet.has(x.id)),
+        sessions: choose(local.sessions, remote.sessions).filter((x) => !deletedSessionSet.has(x.id)),
       };
       const notes: NoteDocument[] = [];
       const conflicts: Array<{ sessionId: string; local: NoteDocument; remote: NoteDocument; detectedAt: string }> = [];
       const lastSync = localStorage.getItem(lastKey(this.userId));
       const lastSyncMs = lastSync ? new Date(lastSync).getTime() : 0;
 
-      for (const r of cr.filter((row) => row.notes != null)) {
+      for (const r of cr.filter((row) => row.deleted_at == null && row.notes != null)) {
         const remoteNote: NoteDocument = { sessionId: String(r.id), content: r.notes, updatedAt: String(r.updated_at) };
         const localNote = await this.local.getNotes(remoteNote.sessionId);
         if (!localNote) {
@@ -278,6 +284,9 @@ export class CloudSyncEngine implements SyncEngine {
         putModules: merged.modules,
         putSessions: merged.sessions,
         putNotes: notes,
+        deleteSubjects: deletedSubjects,
+        deleteModules: deletedModules,
+        deleteSessions: deletedSessions,
       });
       const at = now();
       localStorage.setItem(lastKey(this.userId), at);
