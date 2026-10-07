@@ -20,7 +20,7 @@ export function SubjectsPage() {
       <header className="page__head">
         <div>
           <h1>Mes matières</h1>
-          <p className="page__sub">Une matière regroupe des modules, qui regroupent vos CM.</p>
+          <p className="page__sub">Une matière regroupe des modules, qui regroupent vos séances.</p>
         </div>
         <button className="btn btn--primary" onClick={() => void createSubject()} data-testid="new-subject"><FolderPlus /> Nouvelle matière</button>
       </header>
@@ -48,7 +48,7 @@ export function SubjectsPage() {
                   <div><strong>{done}</strong><span>terminé{done > 1 ? 's' : ''}</span></div>
                 </div>
                 {cms.length > 0 && (
-                  <div className="progress" title="CM terminés / CM de la matière">
+                  <div className="progress" title="Séance terminés / séance de la matière">
                     <div className="progress__bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={`Avancement de ${s.name}`}><span style={{ width: `${pct}%` }} /></div>
                     <span className="progress__label">{pct} %</span>
                   </div>
@@ -56,12 +56,12 @@ export function SubjectsPage() {
                 {last && (
                   <Link to={last.status === 'completed' ? `/session/${last.id}/recap` : `/session/${last.id}`} className="subjcard__last">
                     <img src={THUMBS[thumbFor(last, s)].src} alt="" />
-                    <span className="truncate"><strong className="truncate">{sessionLabel(last)}</strong>Dernier CM · modifié {formatRelative(last.updatedAt)}</span>
+                    <span className="truncate"><strong className="truncate">{sessionLabel(last)}</strong>Dernier séance · modifié {formatRelative(last.updatedAt)}</span>
                   </Link>
                 )}
                 <div className="chips">
                   {mods.map((m) => <Link key={m.id} to={`/modules/${m.id}`} className="chip">{m.name}</Link>)}
-                  <button className="chip chip--add" onClick={() => openNewCm({ subjectId: s.id })}><Plus size={13} /> CM</button>
+                  <button className="chip chip--add" onClick={() => openNewCm({ subjectId: s.id })}><Plus size={13} /> séance</button>
                 </div>
               </li>
             );
