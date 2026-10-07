@@ -30,12 +30,12 @@ export function SessionRow({ session: s, showContext = true }: Props) {
 
   async function remove() {
     const ok = await confirm({
-      title: 'Supprimer ce séance ?',
-      message: `« ${sessionLabel(s)} » et ses notes, transcription et audio seront définitivement supprimés de cet appareil.`,
+      title: 'Supprimer cette séance ?',
+      message: `« ${sessionLabel(s)} » et ses notes, transcription et métadonnées seront supprimés de votre espace synchronisé. L’audio local de cet appareil sera également supprimé.`,
       confirmLabel: 'Supprimer', danger: true,
     });
     if (!ok) return;
-    try { await deleteSession(s.id); toast.success('Séance supprimé.'); } catch { /* toast déjà affiché */ }
+    try { await deleteSession(s.id); toast.success('Séance supprimée.'); } catch { /* toast déjà affiché */ }
   }
 
   return (
@@ -43,7 +43,7 @@ export function SessionRow({ session: s, showContext = true }: Props) {
       <Link to={href} className="srow__main">
         <img className="srow__thumb" data-thumb={thumb} src={THUMBS[thumb].src} alt="" width={66} height={54} loading="lazy" />
         <span className="srow__text">
-          <span className="srow__title truncate">{sessionLabel(s)}</span>
+          <span className="srow__title truncate"><span className="tag srow__type">{s.type ?? 'CM'}</span>{sessionLabel(s)}</span>
           <span className="srow__meta truncate">
             {showContext && subject && <><SubjectDot color={subject.color} /> {subject.name}{mod ? ` · ${mod.name}` : ''} · </>}
             {formatDateShort(s.date)}
