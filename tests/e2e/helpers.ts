@@ -12,11 +12,12 @@ export function trackErrors(page: Page) {
 
 export const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
 
-export async function createCm(page: Page, opts: { subject?: string; module?: string; title: string }) {
-  // Le bouton « Nouveau CM » vit sur l'accueil (comme sur la maquette) ; ailleurs, la palette (Ctrl/⌘+K) et les pages proposent aussi la création.
+export async function createCm(page: Page, opts: { subject?: string; module?: string; title: string; type?: 'CM' | 'TD' | 'TP' }) {
+  // Le bouton principal ouvre le créateur de séance ; CM reste le type par défaut.
   if (!(await page.getByTestId('dash-new-cm').isVisible().catch(() => false))) await page.goto('/');
   await page.getByTestId('dash-new-cm').click();
-  const dlg = page.getByRole('dialog', { name: 'Nouveau CM' });
+  const dlg = page.getByRole('dialog', { name: 'Nouvelle séance' });
+  if (opts.type) await dlg.getByRole('button', { name: opts.type, exact: true }).click();
   if (opts.subject) {
     await dlg.getByLabel('Matière').selectOption('__new__');
     await dlg.getByLabel('Nom de la nouvelle matière').fill(opts.subject);
@@ -73,7 +74,7 @@ export async function startRecording(page: import('@playwright/test').Page) {
 
 export async function capIDB(page: import('@playwright/test').Page, store: string): Promise<any[]> {
   return page.evaluate((st) => new Promise<any[]>((res, rej) => {
-    const r = indexedDB.open('lexnote-capture');
+    const r = indexedDB.open('lexnote-capture-33333333-3333-4333-8333-333333333333');
     r.onerror = () => rej(r.error);
     r.onsuccess = () => {
       const tx = r.result.transaction(st, 'readonly').objectStore(st).getAll();
