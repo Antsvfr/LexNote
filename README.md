@@ -281,6 +281,10 @@ IA (résumé, restructuration, fiches, flashcards, quiz, vérification des artic
 - Les notes sont d'abord **sur l'appareil** (IndexedDB), puis synchronisées avec **votre espace personnel** Supabase (RLS : personne d'autre n'y accède). L'audio ne quitte jamais l'appareil. Aucune télémétrie, aucune police ou ressource tierce.
 - Aucun enregistrement sans action explicite ; l'indicateur REC est toujours visible ; l'audio reste local. Selon le moteur, la *reconnaissance* peut être distante : c'est indiqué dans le panneau.
 
+## Vérifications effectuées (moteur de cours)
+
+- `tsc`, build de production (sans backend simulé) : OK. **281 tests unitaires/DB** (dont 70 pour le moteur : extracteurs PDF/PPTX/DOCX réels, chunking, provenance, conflits, non-invention, incrémental, validation, versions, isolation, hors-ligne) · **77 tests e2e Chromium** (dont le scénario complet matière → séance → notes → transcription + document → cours → consultation d'une source → rechargement).
+
 ## Vérifications effectuées (comptes + synchronisation)
 
 - `tsc --noEmit` et build de production OK (le build de production ne contient pas le backend simulé). **158 tests unitaires** (dont 14 tests RLS sur Postgres réel et 8 tests du moteur de synchronisation) · **49 tests e2e Chromium** (backend simulé : comptes, isolation A/B, hors ligne → synchronisation, « autre appareil », conflit, import des anciennes notes, suppression de compte, types de séances, non-régression complète, performance 1/2/3 h).
