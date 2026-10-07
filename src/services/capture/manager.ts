@@ -24,20 +24,44 @@ class CaptureManager {
   readonly index = new TranscriptIndex();
   private player: ChunkPlayer | null = null;
   private lastSummaryAt = 0;
+  private hooksInstalled = false;
 
   async init(storage?: CaptureStorage) {
+    if (this.storage && this.storage !== storage) await this.reset();
     this.storage = storage ?? (await createCaptureStorage());
-    onSessionsRemoved((ids) => this.removeSessions(ids));
-    onLibraryWiped(async () => {
-      for (const c of this.controllers.values()) c.dispose();
-      this.controllers.clear();
-      await this.storage?.clearAll();
-      this.index.clear();
-      captureSet({ ...initialCapture });
-    });
-    window.addEventListener('beforeunload', (e) => {
-      if (this.activeController()) { e.preventDefault(); } // enregistrement en cours : confirmation du navigateur
-    });
+    if (!this.hooksInstalled) {
+      this.hooksInstalled = true;
+      onSessionsRemoved((ids) => this.removeSessions(ids));
+      onLibraryWiped(async () => {
+        for (const c of this.controllers.values()) c.dispose();
+        this.controllers.clear();
+        await this.storage?.clearAll();
+        this.index.clear();
+        captureSet({ ...initialCapture });
+      });
+      window.addEventListener('beforeunload', (e) => {
+        if (this.activeController()) { e.preventDefault(); }
+      });
+    }
+  }
+
+  async reset() {
+    for (const c of this.controllers.values()) {
+      try {
+        if (c.isActive) await c.stop();
+      } catch {
+        // Déconnexion : on privilégie l'isolement du compte, même si le micro s'est déjà interrompu.
+      }
+      c.dispose();
+    }
+    this.controllers.clear();
+    for (const off of this.unsubs.values()) off();
+    this.unsubs.clear();
+    await this.player?.dispose();
+    this.player = null;
+    this.storage = null;
+    this.index.clear();
+    captureSet({ ...initialCapture });
   }
   getStorage(): CaptureStorage {
     if (!this.storage) throw new Error('Stockage de capture non initialisé');
