@@ -229,9 +229,50 @@ export class CloudSyncEngine implements SyncEngine {
         modules: choose(local.modules, remote.modules),
         sessions: choose(local.sessions, remote.sessions),
       };
-      const notes: NoteDocument[] = cr
-        .filter((r) => r.notes != null)
-        .map((r) => ({ sessionId: String(r.id), content: r.notes, updatedAt: String(r.updated_at) }));
+      const notes: NoteDocument[] = [];
+      const conflicts: Array<{ sessionId: string; local: NoteDocument; remote: NoteDocument; detectedAt: string }> = [];
+      const lastSync = localStorage.getItem(lastKey(this.userId));
+      const lastSyncMs = lastSync ? new Date(lastSync).getTime() : 0;
+
+      for (const r of cr.filter((row) => row.notes != null)) {
+        const remoteNote: NoteDocument = { sessionId: String(r.id), content: r.notes, updatedAt: String(r.updated_at) };
+        const localNote = await this.local.getNotes(remoteNote.sessionId);
+        if (!localNote) {
+          notes.push(remoteNote);
+          continue;
+        }
+
+        const remoteMs = new Date(remoteNote.updatedAt).getTime();
+        const localMs = new Date(localNote.updatedAt).getTime();
+        const divergent = JSON.stringify(localNote.content) !== JSON.stringify(remoteNote.content);
+        const bothChangedSinceLastSync = divergent && localMs > lastSyncMs && remoteMs > lastSyncMs;
+
+        if (bothChangedSinceLastSync) {
+          conflicts.push({ sessionId: remoteNote.sessionId, local: localNote, remote: remoteNote, detectedAt: now() });
+        }
+
+        // Dernière écriture gagne pour l'affichage, mais la version perdante est conservée
+        // dans le journal de conflits ci-dessus et n'est donc jamais écrasée silencieusement.
+        if (remoteMs >= localMs) notes.push(remoteNote);
+        else {
+          await restPatch(
+            'course_sessions',
+            'id=eq.' + encodeURIComponent(localNote.sessionId),
+            { notes: localNote.content, updated_at: localNote.updatedAt },
+            access,
+          );
+        }
+      }
+
+      if (conflicts.length) {
+        const conflictKey = 'lexnote.sync.conflicts.' + this.userId;
+        let previous: typeof conflicts = [];
+        try { previous = JSON.parse(localStorage.getItem(conflictKey) ?? '[]') as typeof conflicts; } catch { /* ignore */ }
+        const mergedConflicts = [...previous, ...conflicts].slice(-50);
+        localStorage.setItem(conflictKey, JSON.stringify(mergedConflicts));
+        setSyncStatus({ conflicts: mergedConflicts.length });
+      }
+
       await this.local.commit({
         putSubjects: merged.subjects,
         putModules: merged.modules,
