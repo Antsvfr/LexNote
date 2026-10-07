@@ -201,3 +201,22 @@ export async function courseWithContent(page: Page, title = 'Droit des contrats'
   await expect(page.getByTestId('recap-create-support')).toBeVisible();
   return sid;
 }
+
+/** Écrit des segments de transcription (et marqueurs) dans la base de capture de l'utilisateur connecté. */
+export async function seedTranscript(page: Page, sessionId: string, segs: { id: string; startMs: number; text: string; confidence?: number }[], markers: { id: string; atMs: number; reasons: string[] }[] = []) {
+  await page.waitForFunction(async () => (await indexedDB.databases()).some((d) => d.name?.startsWith('lexnote-capture-u-')));
+  await page.evaluate(async ([sid, ss, mk]) => {
+    const name = (await indexedDB.databases()).map((x) => x.name ?? '').find((n) => n.startsWith('lexnote-capture-u-'))!;
+    await new Promise<void>((res, rej) => {
+      const r = indexedDB.open(name);
+      r.onsuccess = () => {
+        const tx = r.result.transaction(['segments', 'markers'], 'readwrite');
+        for (const s of ss) tx.objectStore('segments').put({ id: s.id, sessionId: sid, startMs: s.startMs, endMs: s.startMs + 4000, text: s.text, confidence: s.confidence ?? 0.9, provider: 'test', status: 'final', source: 'TRANSCRIPTION', verification: 'UNVERIFIED', createdAt: new Date().toISOString() });
+        for (const m of mk) tx.objectStore('markers').put({ id: m.id, sessionId: sid, atMs: m.atMs, reasons: m.reasons, createdAt: new Date().toISOString() });
+        tx.oncomplete = () => { r.result.close(); res(); }; tx.onerror = () => rej(tx.error);
+      };
+      r.onerror = () => rej(r.error);
+    });
+  }, [sessionId, segs, markers] as const);
+}
+export const sessionIdOf = (page: Page) => page.url().split('/session/')[1]!.split(/[/?]/)[0]!;

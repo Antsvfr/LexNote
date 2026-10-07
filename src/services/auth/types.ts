@@ -46,6 +46,8 @@ export interface AuthRepository {
   updatePassword(newPassword: string): Promise<void>;
   /** Suppression définitive du compte : nécessite une fonction serveur (voir supabase/functions/delete-account). */
   deleteAccount(): Promise<void>;
+  /** Jeton de session (pour appeler une fonction serveur du moteur de cours). */
+  getAccessToken?(): Promise<string | null>;
 }
 
 export interface ProfileRepository {

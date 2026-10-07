@@ -93,6 +93,8 @@ export class CourseContextBuilder {
       const labelToks = tokens(u.label ?? '').filter((t) => !/\d/.test(t));
       const cand = new Map<string, SourceChunk>();
       for (const h of index.search(`${u.label ?? ''} ${u.text}`, { k: 6, filter: (c) => c.kind !== own.kind })) cand.set(h.id, index.get(h.id)!);
+      // Références chiffrées (article, arrêt, date, chiffre) : on cherche aussi par la valeur elle-même.
+      if (VALUE_TYPES.has(u.type) && u.values?.length) for (const h of index.search(`${u.label ?? ''} ${u.values.join(' ')}`, { k: 6, filter: (c) => c.kind !== own.kind })) cand.set(h.id, index.get(h.id)!);
       for (const sid of own.linkedSegmentIds ?? []) { const t = bySegment.get(sid); if (t && t.kind !== own.kind) cand.set(t.id, t); }
       for (const c of cand.values()) {
         const ct = new Set(tokens(c.text.replace(/[\d.,/-]+/g, ' ')));
@@ -100,9 +102,12 @@ export class CourseContextBuilder {
         cover /= ut.size;
         const labelIn = labelToks.length > 0 && labelToks.every((t) => ct.has(t));
         const linked = (own.linkedSegmentIds ?? []).some((s) => c.location.segmentIds?.includes(s));
-        if (!(cover >= 0.5 || (labelIn && cover >= 0.2) || (linked && cover >= 0.15))) continue; // ne couvre pas ce sujet
         const text = foldKey(c.text);
         const vals = u.values ?? [];
+        // Un passage qui CITE la même valeur (« article 1137 ») corrobore la référence, même si le reste de la phrase diffère.
+        const cites = VALUE_TYPES.has(u.type) && vals.length > 0 && vals.every((v) => text.includes(foldKey(v))) &&
+          (u.type === 'article' ? vals.every((v) => new RegExp(`\\bart(?:icles?)?\\s*(?:[lrd]\\s*)?${foldKey(v).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).test(text)) : u.type === 'caselaw' ? cover >= 0.1 : cover >= 0.2);
+        if (!(cover >= 0.5 || cites || (VALUE_TYPES.has(u.type) && labelIn && cover >= 0.3) || (linked && cover >= 0.15))) continue; // ne couvre pas ce sujet
         const absent = vals.filter((v) => v && !text.includes(foldKey(v)));
         if (VALUE_TYPES.has(u.type) && vals.length && absent.length) {
           // Autres valeurs du même type dans ce passage ? → désaccord (conflit) ; sinon la valeur est simplement absente.
@@ -122,7 +127,7 @@ export class CourseContextBuilder {
           } else missing.set(u.id, [...(missing.get(u.id) ?? []), `« ${absent.join(', ')} » n’apparaît pas dans ${label(c)}, qui traite pourtant du même sujet.`]);
           continue;
         }
-        const quote = bestSentence(c.text, ut) ?? c.text.slice(0, 300);
+        const quote = (cites ? sentences(c.text).find((x) => vals.every((v) => foldKey(x.text).includes(foldKey(v))))?.text : undefined) ?? bestSentence(c.text, ut) ?? c.text.slice(0, 300);
         if (!u.refs.some((r) => r.chunkId === c.id)) u.refs.push(refOf(c, quote));
       }
     }

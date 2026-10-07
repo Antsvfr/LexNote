@@ -35,7 +35,8 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}', '**/*-latin-wght-normal*.woff2', '**/*-latin-wght-italic*.woff2'],
+        globPatterns: ['**/*.{js,mjs,css,html,svg,png,webmanifest}', '**/*-latin-wght-normal*.woff2', '**/*-latin-wght-italic*.woff2'],
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         navigateFallback: '/index.html',
         cleanupOutdatedCaches: true,
       },

@@ -71,6 +71,7 @@ export function CommandPalette() {
       { id: 'nav.new.cm', label: 'Nouveau CM', group: 'Aller à', icon: Plus, run: () => openNewSession({ type: 'CM' }) },
       { id: 'nav.new.td', label: 'Nouveau TD', group: 'Aller à', icon: Plus, run: () => openNewSession({ type: 'TD' }) },
       { id: 'nav.new.tp', label: 'Nouveau TP', group: 'Aller à', icon: Plus, run: () => openNewSession({ type: 'TP' }) },
+      ...(sessionIdInUrl || /^\/session\/[^/]+\/(recap|course)$/.test(pathname) ? [{ id: 'course.open', label: 'Ouvrir le Cours (sources et cours reconstruit)', group: 'Aller à', icon: Brain, keywords: 'cours reconstruit sources documents pdf', run: () => navigate(`/session/${sessionIdInUrl ?? /^\/session\/([^/]+)/.exec(pathname)?.[1]}/course`) } as Item] : []),
       { id: 'study.new', label: 'Créer un support…', group: 'Supports', icon: Brain, keywords: 'fiche carte mentale schema tableau flashcards quiz chronologie resume', run: () => useUI.getState().openSupportDialog({ sessionId: sessionIdInUrl ?? /^\/session\/([^/]+)\/recap$/.exec(pathname)?.[1] }) },
       { id: 'study.list', label: 'Mes supports', group: 'Aller à', icon: Brain, keywords: 'fiches cartes mentales schemas', run: go('/supports') },
       { id: 'nav.new.subject', label: 'Nouvelle matière', group: 'Aller à', icon: Plus, run: () => useUI.getState().openSubjectDialog() },

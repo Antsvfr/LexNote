@@ -85,6 +85,7 @@ export function RecapPage() {
           <span className="eyebrow">{session.status === 'completed' ? 'Séance terminée' : 'Séance en cours'}</span>
           <h1 data-testid="recap-title">{sessionLabel(session)}</h1>
         </div>
+        <Link className="btn btn--primary" to={`/session/${session.id}/course`} data-testid="open-course"><Layers /> Cours</Link>
         <Link className="btn" to={`/session/${session.id}`} onClick={() => { if (session.status === 'completed') void useLibrary.getState().setStatus(session.id, 'in_progress'); }}>
           <Pencil /> Reprendre l’édition
         </Link>

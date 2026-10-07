@@ -2,7 +2,7 @@ import { typeLabel } from '@/domain/sessionType';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { EditorContent, useEditor } from '@tiptap/react';
-import { Command, Focus, Minimize2, CheckCheck } from 'lucide-react';
+import { Command, Focus, Layers, Minimize2, CheckCheck } from 'lucide-react';
 import { useLibrary } from '@/store/library';
 import { useUI } from '@/store/ui';
 import { useEditorBridge } from '@/store/editorBridge';
@@ -162,6 +162,7 @@ function Workspace({ sessionId, initialContent }: { sessionId: string; initialCo
           <SyncIndicator compact />
           <RecControls sessionId={sessionId} />
           <button className="btn btn--ghost btn--icon btn--sm" onClick={() => setPalette(true)} aria-label="Palette de commandes" title={`Commandes (${modKeyLabel}K)`}><Command /></button>
+          <Link className="btn btn--sm topbar__btn" to={`/session/${sessionId}/course`} data-testid="editor-open-course" aria-label="Ouvrir le Cours (sources et cours reconstruit)" title="Cours : sources et cours reconstruit"><Layers /> <span className="lbl">Cours</span></Link>
           <button className="btn btn--sm topbar__btn" onClick={() => setFocus(!focus)} aria-pressed={focus} data-testid="focus-toggle" aria-label={focus ? "Quitter le mode Focus" : "Mode Focus"} title="Mode Focus (Échap pour quitter)">
             {focus ? <><Minimize2 /> <span className="lbl">Quitter Focus</span></> : <><Focus /> <span className="lbl">Focus</span></>}
           </button>

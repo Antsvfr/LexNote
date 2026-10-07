@@ -39,6 +39,19 @@
 ### Sans ces variables
 L'application démarre mais l'écran de connexion affiche « LexNote n'est pas encore relié à un projet Supabase » et **aucune donnée n'est accessible** (pas de mode anonyme qui mélangerait des données).
 
+### 2 bis. Migrations supplémentaires (à exécuter dans l'ordre, après la première)
+
+1. `supabase/migrations/20261008000000_study_artifacts.sql` — supports d'étude (fiches, cartes mentales…).
+2. `supabase/migrations/20261009000000_course_engine.sql` — documents importés (texte analysé uniquement, **jamais le fichier**) et cours reconstruits versionnés.
+
+### 2 ter. Moteur de cours distant (facultatif — sans lui, le moteur local est utilisé)
+
+```bash
+supabase secrets set ANTHROPIC_API_KEY=<clé> COURSE_ENGINE_MODEL=<modèle>   # secrets SERVEUR : jamais dans Vercel/le frontend
+supabase functions deploy course-engine
+```
+Puis, dans Vercel : `VITE_ENGINE_URL=https://<ref>.supabase.co/functions/v1/course-engine`. La fonction n'a pu être testée contre un vrai modèle dans l'environnement de développement : la tester après déploiement.
+
 ## 3. Sécurité : ce qui est garanti **au niveau de la base**
 
 * Toutes les tables ont `user_id` (ou `id` pour `profiles`) et **`ENABLE` + `FORCE ROW LEVEL SECURITY`**.

@@ -61,6 +61,10 @@ export class SupabaseAuth implements AuthRepository {
     const { error } = await this.client.auth.updateUser({ password: newPassword });
     if (error) throw mapError(error);
   }
+  async getAccessToken() {
+    const { data } = await this.client.auth.getSession();
+    return data.session?.access_token ?? null;
+  }
   async deleteAccount() {
     // Impossible côté client (clé « service role » requise) : fonction serveur dédiée.
     const { error } = await this.client.functions.invoke('delete-account', { method: 'POST' });

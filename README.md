@@ -105,6 +105,33 @@ supabase/          Migration SQL + Edge Function delete-account
 - **Audio** : jamais envoyé au cloud ; la transcription, les marqueurs et les ancrages, eux, sont synchronisés.
 - **Développement/tests sans Supabase** : `VITE_BACKEND=mock` (build ou dev) remplace Supabase par un serveur simulé dans le navigateur ; **absent des builds de production**.
 
+## Intelligent Course Engine (espace « Cours »)
+
+Dans chaque séance, **Cours** réunit : *Notes · Transcription · Sources · Cours reconstruit*. Le moteur exploite ensemble les notes, la transcription, les marqueurs, les NoteAnchors et les documents importés (PDF, PowerPoint .pptx, Word .docx, texte ; images acceptées mais **sans OCR** pour l'instant) et reconstruit un cours structuré **sans jamais perdre la provenance**.
+
+```
+Sources → Extraction → Normalisation → Context Builder → Structure Analyzer → Course Generator → Validation → GeneratedCourse
+```
+
+| Étape | Code (`src/services/engine`) |
+|---|---|
+| Extraction (une interface `DocumentExtractor` par format, remplaçable) | `extractors/` (pdf.js chargé à la demande, fflate pour .docx/.pptx) |
+| Normalisation (en-têtes/pieds de page, doublons) | `normalize.ts` |
+| Morceaux + emplacements exacts (`SourceChunk`, `SourceLocation` : page, slide, plage temporelle, segments, passage de notes, ancrage, marqueur) | `chunking.ts` |
+| Index BM25 (sélection du contexte, corroboration, rattachement) — base d'un futur RAG | `sourceIndex.ts` |
+| Connaissances (`CourseKnowledgeUnit` : définitions, articles, arrêts, dates, chiffres, formules, exemples, points d'examen, méthodes, raisonnements, ambiguïtés, passages incomplets, contradictions) | `analyzer.ts` (interface `KnowledgeAnalyzer`) |
+| Corroboration, confiance, conflits | `context.ts` (`CourseContextBuilder`) |
+| Plan issu des sources (titres des notes, slides, sinon découpage de la transcription) | `structure.ts` |
+| Rédaction (reprise de textes sources, aucune prose inventée) | `generator.ts` |
+| Validation (schéma strict, citations exactes, garde juridique) | `validator.ts` |
+| Moteurs interchangeables (local / distant), repli | `provider.ts`, `pipeline.ts` |
+
+- **Provenance** : chaque bloc porte ses `SourceReference` (extrait exact + emplacement). Composant réutilisable `SourceBadge` (« Notes », « Transcription 00:34:12 », « PDF p. 18 », « Slide 24 », « Notes + transcription »…) ; au clic, popover détaillé et lien **Ouvrir la source** (notes surlignées, transcription au bon instant, document à la bonne page).
+- **Fiabilité** : `VERIFIED` (corroboré par ≥ 2 sources indépendantes) · `SUPPORTED` · `UNCERTAIN` (source fragile, ou date/chiffre absent des autres sources qui traitent du sujet, ou référence entendue seulement à l'oral) · `CONFLICTING` (deux sources, deux valeurs : les deux sont montrées, aucune n'est tranchée) · `MISSING_SOURCE` (« Information non vérifiée dans les sources »). **Aucun article, arrêt, date ou citation n'est jamais reconstitué** : ils sont repris littéralement ou absents ; la validation dégrade tout ce qui ne figure pas dans les sources citées, quel que soit le moteur.
+- **Sources intactes** : le cours est un artefact **séparé et versionné** (`GeneratedCourse` : `courseVersion`, `generatedAt`, `engineVersion`, `sourceSnapshot`) ; régénérer crée une nouvelle version, les anciennes sont conservées. Le fichier original d'un document reste **sur l'appareil** ; seuls son texte analysé et le cours sont synchronisés (tables `source_documents`, `generated_courses`, RLS).
+- **Performance** : morceaux bornés, index, déduplication, analyse mémorisée par empreinte (traitement incrémental : relancer sans changement = 0 analyse), traitement par lots sans geler l'interface ; séance de 3 h de transcription testée.
+- **Moteur IA** : abstrait (`CourseEngineProvider`). Livré : moteur **local** déterministe (aucune IA, hors-ligne). Un moteur **distant** s'active avec `VITE_ENGINE_URL` (Edge Function `supabase/functions/course-engine`, **clé du modèle uniquement côté serveur**, prompts hors du frontend). Sa sortie JSON repasse par la même validation. Si le moteur est injoignable : message clair, repli local au choix, **les notes ne sont jamais affectées**.
+
 ## Supports d'étude (fiches, cartes mentales, schémas…)
 
 Depuis un cours : **Créer un support** (page de la séance, palette `Ctrl/⌘ K`, ou une phrase comme « Compare erreur, dol et violence »). Rien n'est généré automatiquement.
