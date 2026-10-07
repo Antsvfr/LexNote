@@ -213,11 +213,21 @@ IA (résumé, restructuration, fiches, flashcards, quiz, vérification des artic
 - La fenêtre de transcription affiche les 300 derniers passages ; les précédents se chargent par paliers.
 - Safari/Firefox non testés (voir ci-dessus) ; l'installation PWA elle-même (geste) reste non testée.
 
-## Principes de confidentialité
+## Comptes, synchronisation et confidentialité
 
-- Les notes restent **sur l'appareil** (IndexedDB). Aucun upload, aucune télémétrie, aucune police ou ressource tierce.
-- Toute synchronisation future sera **facultative et explicite**.
-- Aucun enregistrement sans action explicite ; l'indicateur REC est toujours visible ; l'audio reste local. Selon le moteur, la *reconnaissance* peut être distante : c'est indiqué dans le panneau.
+LexNote est désormais **local-first et multi-utilisateur** :
+
+- chaque utilisateur crée son propre compte Supabase (email + mot de passe) ;
+- chaque compte possède un espace distinct, protégé par RLS côté PostgreSQL ;
+- matières, modules, séances, notes, transcriptions, marqueurs et ancrages sont liés au `user_id` authentifié ;
+- la frappe écrit d'abord dans une base IndexedDB **séparée par utilisateur**, puis une file de synchronisation pousse les changements vers Supabase ;
+- hors ligne, l'éditeur continue de fonctionner ; la file repart automatiquement au retour de la connexion ;
+- les fichiers audio restent sur l'appareil : seules leurs métadonnées et la transcription sont synchronisées ;
+- une divergence multi-appareils n'est jamais écrasée silencieusement : la version perdante est conservée dans le journal de conflits local ;
+- la suppression du compte passe par une Edge Function authentifiée et supprime en cascade les données cloud ;
+- aucun enregistrement micro ne démarre sans action explicite de l'utilisateur.
+
+Les anciennes données créées avant les comptes ne sont **jamais attribuées automatiquement** : l'onboarding propose explicitement de les importer ou de repartir de zéro. Les données de démonstration pures sont ignorées.
 
 ## Vérifications effectuées (V2 + refonte premium)
 
@@ -235,12 +245,69 @@ IA (résumé, restructuration, fiches, flashcards, quiz, vérification des artic
 
 La latence est mesurée de l'insertion au prochain rendu (≈ une image) : l'enregistrement n'a pas d'effet mesurable. Sans la fenêtre de 300 passages, le p95 à 3 h montait à ≈ 70 ms (mesure faite avant correction). Résultats d'une machine de développement sans écran réel : à re-mesurer sur votre Mac.
 
-## Roadmap IA
+## Architecture multi-utilisateur actuelle
 
-1. **V1.1** — import JSON, raccourci « nouveau CM » global, export Markdown/PDF/Word.
-2. **V2** — documents : import PDF/PowerPoint, reconnaissance du plan du professeur.
-3. **V3** — transcription (Whisper local / STT), avec consentement.
-4. **V4** — IA : fournisseur configurable (local ou cloud), commandes de la palette, sorties étiquetées *AI / Unverified*, vérification par sources.
-5. **V5** — résumés, cours restructuré, fiches, flashcards, quiz, recherche sémantique.
-6. **V6** — comptes et synchronisation facultative multi-appareils.
-7. **V7** — application macOS (Tauri), fenêtre Companion, raccourcis système globaux.
+### Supabase
+
+Le projet LexNote utilise un projet Supabase dédié, indépendant de REV-EM. Le schéma reproductible est versionné dans :
+
+`supabase/migrations/001_multiuser_core.sql`
+
+Tables principales :
+
+- `profiles`
+- `subjects`
+- `modules`
+- `course_sessions`
+- `transcript_sessions`
+- `transcript_segments`
+- `timeline_markers`
+- `note_anchors`
+- `capture_interruptions`
+- `sync_metadata`
+
+Les politiques RLS limitent chaque opération à `auth.uid()`. Des clés étrangères composites `(user_id, id)` empêchent également de relier une séance ou une transcription aux données d'un autre utilisateur.
+
+### Variables Vite / Vercel
+
+```env
+VITE_SUPABASE_URL=https://<projet>.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+```
+
+Ces variables sont publiques par conception (clé publishable) ; aucune clé `service_role` ne doit être exposée dans Vite ou Git.
+
+### Authentification
+
+Routes :
+
+- `/signup`
+- `/login`
+- `/forgot-password`
+- `/reset-password`
+
+Le profil comprend prénom, nom, établissement, année et citation. L'onboarding crée ensuite la première matière ou propose l'import explicite des anciennes notes locales.
+
+Pour les e-mails de confirmation / récupération, configurer dans Supabase Auth :
+
+- Site URL : `https://lex-note-svfr.vercel.app`
+- Redirect URLs : `https://lex-note-svfr.vercel.app/**`, plus `http://localhost:5173/**` et `http://localhost:4173/**` pour le développement.
+
+### Sessions académiques
+
+Un même modèle `CourseSession` gère :
+
+`CM · TD · TP · Cours · Séminaire · Atelier · Révision · Autre`
+
+Les modules sont facultatifs : une séance peut appartenir directement à une matière. CM, TD et TP sont numérotés indépendamment.
+
+## Prochaines étapes produit
+
+Le socle compte + local-first + synchronisation est maintenant en amont de la roadmap IA. Les prochains chantiers peuvent donc s'appuyer sur une identité et des données fiables :
+
+1. documents de cours (PDF / PPTX / DOCX / images) ;
+2. moteur de cours intelligent : notes + transcription + documents + provenance ;
+3. fiches de cours, cartes mentales, schémas et tableaux comparatifs ;
+4. flashcards, quiz et révision active ;
+5. intégration sécurisée REV-EM ↔ LexNote ;
+6. application macOS / Companion si utile.
