@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { computeDashboardStats, moduleProgress, pickResumeSession, shortDuration } from './stats';
 import { thumbFor, THUMB_KEYS } from './thumbs';
-import { greeting } from '@/store/profile';
+import { greeting } from '@/lib/greeting';
 import { createSession } from '@/domain/session';
 import type { CourseSession, Module, Subject } from '@/domain/types';
 
