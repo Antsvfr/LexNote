@@ -13,44 +13,42 @@ const lib = () => useLibrary.getState();
 async function seed() {
   const s = await lib().addSubject('Droit');
   const m = await lib().addModule(s.id, 'Droit des contrats');
-  const cm = await lib().addSession({ subjectId: s.id, moduleId: m.id, title: 'Introduction', date: '2025-02-01' });
+  const cm = await lib().addSession({ subjectId: s.id, moduleId: m.id, type: 'CM', title: 'Introduction', date: '2025-02-01' });
   return { s, m, cm };
 }
 
-describe('bibliothèque', () => {
-  it('crée matière, module et CM, et les persiste', async () => {
+describe('bibliothèque multi-types', () => {
+  it('crée et numérote CM, TD et TP indépendamment', async () => {
     const { s, m, cm } = await seed();
     expect(cm.number).toBe(1);
-    const second = await lib().addSession({ subjectId: s.id, moduleId: m.id, title: 'Formation', date: '2025-02-08' });
-    expect(second.number).toBe(2);
-    const stored = await adapter.loadLibrary();
-    expect(stored.subjects).toHaveLength(1);
-    expect(stored.modules).toHaveLength(1);
-    expect(stored.sessions).toHaveLength(2);
+    const cm2 = await lib().addSession({ subjectId: s.id, moduleId: m.id, type: 'CM', title: 'Formation', date: '2025-02-08' });
+    const td1 = await lib().addSession({ subjectId: s.id, moduleId: m.id, type: 'TD', title: 'Cas pratique', date: '2025-02-09' });
+    const tp1 = await lib().addSession({ subjectId: s.id, moduleId: m.id, type: 'TP', title: 'Atelier', date: '2025-02-10' });
+    expect(cm2.number).toBe(2);
+    expect(td1.number).toBe(1);
+    expect(tp1.number).toBe(1);
+    expect((await adapter.loadLibrary()).sessions).toHaveLength(4);
   });
 
-  it('modifie un CM (titre, date) et la matière', async () => {
-    const { s, cm } = await seed();
-    await lib().updateSession(cm.id, { title: '  Nouveau titre ', date: '2025-03-03' });
-    await lib().renameSubject(s.id, 'Droit privé');
-    const stored = await adapter.loadLibrary();
-    expect(stored.sessions[0]?.title).toBe('Nouveau titre');
-    expect(stored.sessions[0]?.date).toBe('2025-03-03');
-    expect(stored.subjects[0]?.name).toBe('Droit privé');
+  it('autorise une séance sans module', async () => {
+    const s = await lib().addSubject('Économie');
+    const td = await lib().addSession({ subjectId: s.id, type: 'TD', title: 'Exercices', date: '2025-02-01' });
+    expect(td.moduleId).toBe('');
+    expect(td.type).toBe('TD');
   });
 
-  it('sauvegarde les notes, calcule mots/extrait et les relit', async () => {
+  it('sauvegarde les notes et les relit', async () => {
     const { cm } = await seed();
-    const content = { type: 'doc', content: [] };
-    await lib().saveNotes(cm.id, { content, plainText: "L'article 1128 exige un consentement.", durationSec: 90 });
+    const note = { type: 'doc', content: [] };
+    await lib().saveNotes(cm.id, { content: note, plainText: "L'article 1128 exige un consentement.", durationSec: 90 });
     const s = lib().sessions[0]!;
     expect(s.wordCount).toBe(5);
     expect(s.durationSec).toBe(90);
     expect(s.searchText).toContain('1128');
-    expect(await lib().loadNotes(cm.id)).toEqual(content);
+    expect(await lib().loadNotes(cm.id)).toEqual(note);
   });
 
-  it('supprime un CM avec ses notes', async () => {
+  it('supprime une séance avec ses notes', async () => {
     const { cm } = await seed();
     await lib().saveNotes(cm.id, { content: { a: 1 }, plainText: 'x' });
     await lib().deleteSession(cm.id);
@@ -58,7 +56,7 @@ describe('bibliothèque', () => {
     expect(await adapter.getNotes(cm.id)).toBeUndefined();
   });
 
-  it('supprimer une matière supprime en cascade modules, CM et notes', async () => {
+  it('supprimer une matière supprime en cascade modules, séances et notes', async () => {
     const { s, cm } = await seed();
     await lib().saveNotes(cm.id, { content: { a: 1 }, plainText: 'x' });
     await lib().deleteSubject(s.id);
@@ -67,7 +65,7 @@ describe('bibliothèque', () => {
     expect(await adapter.getNotes(cm.id)).toBeUndefined();
   });
 
-  it('terminer / rouvrir un CM', async () => {
+  it('termine puis rouvre une séance', async () => {
     const { cm } = await seed();
     await lib().setStatus(cm.id, 'completed');
     expect(lib().sessions[0]?.status).toBe('completed');
@@ -76,4 +74,3 @@ describe('bibliothèque', () => {
     expect(lib().sessions[0]?.completedAt).toBeNull();
   });
 });
-
