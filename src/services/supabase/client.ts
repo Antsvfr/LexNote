@@ -140,3 +140,11 @@ export async function restPatch(
     body: JSON.stringify(patch),
   });
 }
+
+export async function deleteOwnAccount(accessToken: string): Promise<void> {
+  await supabaseFetch('/functions/v1/delete-account', {
+    method: 'POST',
+    accessToken,
+    body: JSON.stringify({ confirmation: 'SUPPRIMER' }),
+  });
+}
