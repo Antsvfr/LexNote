@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixture';
 import { FAKE_SPEECH_INIT, capIDB, createCm, mod, startRecording, trackErrors, waitSaved } from './helpers';
 
 test.beforeEach(async ({ page, browserName }) => {
