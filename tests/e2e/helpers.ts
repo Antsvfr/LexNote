@@ -19,10 +19,10 @@ export async function createCm(page: Page, opts: { subject?: string; module?: st
   const dlg = page.getByRole('dialog', { name: 'Nouvelle séance' });
   if (opts.type) await dlg.getByRole('button', { name: opts.type, exact: true }).click();
   if (opts.subject) {
-    await dlg.getByLabel('Matière').selectOption('__new__');
-    await dlg.getByLabel('Nom de la nouvelle matière').fill(opts.subject);
+    await dlg.locator('#cm-subject').selectOption('__new__');
+    await dlg.locator('input[aria-label="Nom de la nouvelle matière"]').fill(opts.subject);
   }
-  if (opts.module) await dlg.getByLabel('Nom du nouveau module').fill(opts.module);
+  if (opts.module) await dlg.locator('input[aria-label="Nom du nouveau module"]').fill(opts.module);
   await dlg.getByLabel(/^Titre/).fill(opts.title);
   await dlg.getByTestId('create-cm').click();
   await expect(page.getByTestId('editor')).toBeVisible();
