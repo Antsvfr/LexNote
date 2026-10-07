@@ -47,6 +47,7 @@ export async function bootstrapUser(userId: string): Promise<void> {
 
 export async function clearWorkspace(): Promise<void> {
   syncEngine?.dispose();
+  await captureManager.reset();
   syncEngine = null;
   activeUserId = null;
   storage = null;
