@@ -57,6 +57,20 @@ export const test = base.extend({
 
     await page.addInitScript((session) => {
       localStorage.setItem('lexnote.auth.session', JSON.stringify(session));
+      localStorage.setItem(
+        'lexnote.auth.profile.' + session.user.id,
+        JSON.stringify({
+          id: session.user.id,
+          email: session.user.email,
+          firstName: '',
+          lastName: '',
+          avatarUrl: null,
+          institution: '',
+          academicYear: '',
+          quote: 'Comprendre aujourd’hui, maîtriser demain.',
+          onboardingCompleted: true,
+        }),
+      );
     }, SESSION);
 
     await use(page);
