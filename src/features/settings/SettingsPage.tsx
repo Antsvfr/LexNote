@@ -3,6 +3,9 @@ import { Download, LogOut, Monitor, Moon, Save, Sun, UserRound } from 'lucide-re
 import { useLibrary } from '@/store/library';
 import { useUI, type ThemePref } from '@/store/ui';
 import { toast } from '@/store/toasts';
+import { promptText } from '@/components/confirm';
+import { deleteOwnAccount } from '@/services/supabase/client';
+import { clearWorkspace } from '@/bootstrap';
 import { captureManager } from '@/services/capture/manager';
 import { TranscriptionSettings } from './TranscriptionSettings';
 import { useAuth } from '@/store/auth';
@@ -53,6 +56,36 @@ export function SettingsPage() {
     }
   }
 
+  async function deleteAccount() {
+    const typed = await promptText({
+      title: 'Supprimer définitivement mon compte',
+      label: 'Tapez SUPPRIMER pour confirmer',
+      placeholder: 'SUPPRIMER',
+      confirmLabel: 'Supprimer définitivement',
+    });
+    if (typed !== 'SUPPRIMER') {
+      if (typed) toast.error('Confirmation incorrecte. Le compte n’a pas été supprimé.');
+      return;
+    }
+    const token = auth.session?.access_token;
+    if (!token) return toast.error('Session expirée. Reconnectez-vous.');
+    setSaving(true);
+    try {
+      // On efface d'abord les copies locales du compte courant. La suppression Auth
+      // cascade ensuite toutes les données cloud via les clés étrangères.
+      await lib.wipe();
+      await deleteOwnAccount(token);
+      await clearWorkspace();
+      await auth.signOut();
+      toast.success('Compte LexNote supprimé.');
+    } catch (err) {
+      console.error(err);
+      toast.error('Suppression impossible. Vos données cloud n’ont pas été considérées comme supprimées.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function exportJson() {
     try {
       const bundle = { ...(await lib.exportAll()), capture: await captureManager.exportAll().catch(() => []) };
@@ -86,6 +119,11 @@ export function SettingsPage() {
         <div className="row-actions">
           <button className="btn btn--primary" onClick={() => void saveProfile()} disabled={saving}><Save /> {saving ? 'Enregistrement…' : 'Enregistrer'}</button>
           <button className="btn btn--danger" onClick={() => void auth.signOut()}><LogOut /> Se déconnecter</button>
+        </div>
+        <div className="danger-zone">
+          <strong>Zone sensible</strong>
+          <p className="muted">La suppression du compte efface définitivement vos matières, séances, notes, transcriptions et métadonnées cloud. L’action est irréversible.</p>
+          <button className="btn btn--danger" onClick={() => void deleteAccount()} disabled={saving}>Supprimer mon compte</button>
         </div>
       </section>
 
