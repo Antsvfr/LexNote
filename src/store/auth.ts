@@ -25,6 +25,7 @@ export interface CloudProfile {
 
 type AuthStatus = 'loading' | 'anonymous' | 'authenticated';
 const SESSION_KEY = 'lexnote.auth.session';
+const profileKey = (userId: string) => 'lexnote.auth.profile.' + userId;
 const DEFAULT_QUOTE = 'Comprendre aujourd’hui, maîtriser demain.';
 
 function readSession(): SupabaseSession | null {
@@ -39,6 +40,18 @@ function saveSession(session: SupabaseSession | null) {
     if (session) localStorage.setItem(SESSION_KEY, JSON.stringify(session));
     else localStorage.removeItem(SESSION_KEY);
   } catch { /* session non persistée */ }
+}
+
+function readCachedProfile(userId: string): CloudProfile | null {
+  try {
+    const raw = localStorage.getItem(profileKey(userId));
+    return raw ? JSON.parse(raw) as CloudProfile : null;
+  } catch { return null; }
+}
+
+function cacheProfile(profile: CloudProfile | null) {
+  if (!profile) return;
+  try { localStorage.setItem(profileKey(profile.id), JSON.stringify(profile)); } catch { /* best effort */ }
 }
 
 interface AuthState {
@@ -135,12 +148,21 @@ export const useAuth = create<AuthState>((set, get) => ({
         set({ status: 'anonymous', session: null, profile: null, recoveryMode: false });
         return;
       }
-      if (session.expires_at * 1000 <= Date.now() + 60_000) {
+      const needsRefresh = session.expires_at * 1000 <= Date.now() + 60_000;
+      if (needsRefresh && navigator.onLine) {
         session = await refreshAuthSession(session.refresh_token);
         saveSession(session);
       }
-      const profile = await loadProfile(session);
-      scheduleRefresh(session);
+      let profile: CloudProfile;
+      try {
+        profile = navigator.onLine ? await loadProfile(session) : (readCachedProfile(session.user.id) ?? await loadProfile(session));
+        cacheProfile(profile);
+      } catch (profileErr) {
+        const cached = readCachedProfile(session.user.id);
+        if (!cached) throw profileErr;
+        profile = cached;
+      }
+      if (navigator.onLine && !needsRefresh) scheduleRefresh(session);
       set({ status: 'authenticated', session, profile, recoveryMode, error: null });
     } catch (err) {
       console.warn('[LexNote] session invalide', err);
@@ -155,6 +177,7 @@ export const useAuth = create<AuthState>((set, get) => ({
       const session = await signInWithPassword(email.trim(), password);
       saveSession(session);
       const profile = await loadProfile(session);
+      cacheProfile(profile);
       scheduleRefresh(session);
       set({ status: 'authenticated', session, profile, error: null });
     } catch (err) {
@@ -174,6 +197,7 @@ export const useAuth = create<AuthState>((set, get) => ({
       }
       saveSession(out.session);
       const profile = await loadProfile(out.session);
+      cacheProfile(profile);
       scheduleRefresh(out.session);
       set({ status: 'authenticated', session: out.session, profile });
       return 'authenticated';
@@ -216,7 +240,9 @@ export const useAuth = create<AuthState>((set, get) => ({
     if (patch.quote !== undefined) dbPatch.quote = patch.quote.trim();
     if (patch.onboardingCompleted !== undefined) dbPatch.onboarding_completed = patch.onboardingCompleted;
     await restPatch('profiles', 'id=eq.' + encodeURIComponent(session.user.id), dbPatch, session.access_token);
-    set({ profile: { ...current, ...patch } });
+    const next = { ...current, ...patch };
+    cacheProfile(next);
+    set({ profile: next });
   },
 
   async signOut() {
@@ -230,5 +256,12 @@ export const useAuth = create<AuthState>((set, get) => ({
 
   clearMessages() { set({ error: null, message: null }); },
 }));
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    const state = useAuth.getState();
+    if (state.status === 'authenticated') void state.initialize();
+  });
+}
 
 export { DEFAULT_QUOTE };
