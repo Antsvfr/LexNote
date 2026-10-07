@@ -30,12 +30,12 @@ export function SessionRow({ session: s, showContext = true }: Props) {
 
   async function remove() {
     const ok = await confirm({
-      title: 'Supprimer ce CM ?',
+      title: 'Supprimer ce séance ?',
       message: `« ${sessionLabel(s)} » et ses notes, transcription et audio seront définitivement supprimés de cet appareil.`,
       confirmLabel: 'Supprimer', danger: true,
     });
     if (!ok) return;
-    try { await deleteSession(s.id); toast.success('CM supprimé.'); } catch { /* toast déjà affiché */ }
+    try { await deleteSession(s.id); toast.success('Séance supprimé.'); } catch { /* toast déjà affiché */ }
   }
 
   return (
