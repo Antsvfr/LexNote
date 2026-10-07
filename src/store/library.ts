@@ -1,8 +1,7 @@
 import { create } from 'zustand';
 import type { CaptureSummary } from '@/domain/capture';
-import type { CourseSession, ISODate, LibrarySnapshot, Module, Subject } from '@/domain/types';
+import type { CourseSession, ISODate, LibrarySnapshot, Module, SessionType, Subject } from '@/domain/types';
 import { createModule, createSession, createSubject, nextSessionNumber } from '@/domain/session';
-import { computeDemoRemoval } from '@/domain/demo';
 import type { ChangeSet, StorageAdapter } from '@/services/storage/types';
 import { countWords, makeExcerpt } from '@/lib/text';
 import { nextSubjectColor } from '@/lib/palette';
@@ -23,19 +22,19 @@ interface LibraryState extends LibrarySnapshot {
   renameModule(id: string, name: string): Promise<void>;
   deleteModule(id: string): Promise<void>;
 
-  addSession(input: { subjectId: string; moduleId: string; title: string; date: ISODate; number?: number | null }): Promise<CourseSession>;
-  updateSession(id: string, patch: Partial<Pick<CourseSession, 'title' | 'number' | 'date' | 'moduleId' | 'subjectId' | 'thumbnail'>>): Promise<void>;
+  addSession(input: { subjectId: string; moduleId?: string; type: SessionType; title: string; date: ISODate; number?: number | null; startTime?: string; endTime?: string; teacher?: string; room?: string }): Promise<CourseSession>;
+  updateSession(id: string, patch: Partial<Pick<CourseSession, 'title' | 'number' | 'date' | 'moduleId' | 'subjectId' | 'thumbnail' | 'type' | 'startTime' | 'endTime' | 'teacher' | 'room'>>): Promise<void>;
   deleteSession(id: string): Promise<void>;
   saveNotes(id: string, input: { content: unknown; plainText: string; durationSec?: number }): Promise<void>;
   setDuration(id: string, durationSec: number): Promise<void>;
   setStatus(id: string, status: 'in_progress' | 'completed'): Promise<void>;
   setCaptureSummary(id: string, summary: CaptureSummary): Promise<void>;
 
-  removeDemoData(): Promise<void>;
   reload(): Promise<void>;
   loadNotes(id: string): Promise<unknown | undefined>;
   exportAll: StorageAdapter['exportAll'];
   wipe(): Promise<void>;
+  reset(): void;
 }
 
 let adapter: StorageAdapter | null = null;
@@ -135,7 +134,8 @@ export const useLibrary = create<LibraryState>((set, get) => {
 
     /* --- séances --- */
     async addSession(input) {
-      const number = input.number === undefined ? nextSessionNumber(get().sessions, input.moduleId) : input.number;
+      const numbered = ['CM', 'TD', 'TP'].includes(input.type);
+      const number = input.number === undefined && numbered ? nextSessionNumber(get().sessions, input.moduleId, input.type) : (input.number ?? null);
       const session = createSession({ ...input, number });
       set((s) => ({ sessions: [...s.sessions, session] }));
       await persist({ putSessions: [session] });
@@ -165,7 +165,6 @@ export const useLibrary = create<LibraryState>((set, get) => {
         searchText: plainText,
         durationSec: durationSec ?? cur.durationSec,
         updatedAt: t,
-        isDemo: undefined, // l'étudiant a écrit dedans : ce n'est plus une donnée de démo
       };
       set((s) => ({ sessions: replace(s.sessions, next) }));
       await persist({ putSessions: [next], putNotes: [{ sessionId: id, content, updatedAt: t }] });
@@ -196,19 +195,17 @@ export const useLibrary = create<LibraryState>((set, get) => {
       await persist({ putSessions: [next] });
     },
 
-    /* --- démo / données --- */
-    async removeDemoData() {
-      const changes = computeDemoRemoval(get());
-      await persist(changes);
-      await notifyRemoved(changes.deleteSessions ?? []);
-      await get().reload();
-    },
+    /* --- données --- */
     loadNotes: async (id) => (await db().getNotes(id))?.content,
     exportAll: () => db().exportAll(),
     async wipe() {
       await db().clearAll();
       for (const h of wipeHooks) { try { await h(); } catch (e) { console.error(e); } }
       set({ subjects: [], modules: [], sessions: [] });
+    },
+    reset() {
+      adapter = null;
+      set({ subjects: [], modules: [], sessions: [], ready: false, storageKind: null, persistent: false });
     },
   };
 });
