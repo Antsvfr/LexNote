@@ -86,7 +86,7 @@ export interface AIMeta {
 export interface CourseSession extends Entity {
   subjectId: ID;
   moduleId: ID;
-  type: SessionType;
+  type?: SessionType;
   number: number | null;
   title: string;
   date: ISODate;
