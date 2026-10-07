@@ -9,6 +9,7 @@ import { CaptureController, type CaptureDeps, type CaptureEvent } from './contro
 import { estimateStorage } from './quota';
 import { ChunkPlayer } from './playback';
 import { createCaptureStorage, type CaptureStorage } from './storage';
+import { enqueueCaptureCloud } from '@/services/sync/captureCloud';
 
 export const FLUSH_ANCHORS_EVENT = 'lexnote:flush-anchors';
 
@@ -112,11 +113,13 @@ class CaptureManager {
         break;
       }
       case 'segment':
+        enqueueCaptureCloud({ kind: 'segment', data: e.segment });
         this.index.add(e.segment);
         if (viewing) captureSet((s) => ({ segments: insertSorted(s.segments, e.segment) }));
         break;
       case 'interim': if (viewing) captureSet({ interim: e.text }); break;
       case 'marker':
+        enqueueCaptureCloud({ kind: 'marker', data: e.marker });
         if (viewing) captureSet((s) => ({
           markers: s.markers.some((m) => m.id === e.marker.id) ? s.markers.map((m) => (m.id === e.marker.id ? e.marker : m)) : insertByAt(s.markers, e.marker),
           lastMarkerId: s.markers.some((m) => m.id === e.marker.id) ? s.lastMarkerId : e.marker.id,
@@ -124,6 +127,7 @@ class CaptureManager {
         break;
       case 'markerRemoved': if (viewing) captureSet((s) => ({ markers: s.markers.filter((m) => m.id !== e.id) })); break;
       case 'interruption':
+        enqueueCaptureCloud({ kind: 'interruption', data: e.interruption });
         if (viewing) captureSet((s) => ({
           interruptions: s.interruptions.some((i) => i.id === e.interruption.id)
             ? s.interruptions.map((i) => (i.id === e.interruption.id ? e.interruption : i)) : [...s.interruptions, e.interruption],
@@ -133,6 +137,7 @@ class CaptureManager {
         if (viewing) captureSet((s) => ({ chunks: [...s.chunks.filter((x) => x.id !== e.chunk.id), e.chunk], failedChunks: c.chunks.filter((x) => x.transcription === 'failed').length }));
         break;
       case 'audioSession': {
+        enqueueCaptureCloud({ kind: 'audio', data: e.audioSession });
         if (viewing) captureSet({ audio: e.audioSession });
         const act = useCapture.getState().active;
         if (act?.sessionId === sessionId) captureSet({ active: { ...act, audio: e.audioSession } });
@@ -177,7 +182,9 @@ class CaptureManager {
   updateMarker(sessionId: string, id: string, patch: { reasons?: MarkerReason[]; note?: string }) { this.controllers.get(sessionId)?.updateMarker(id, patch); }
   removeMarker(sessionId: string, id: string) { this.controllers.get(sessionId)?.removeMarker(id); }
   recordAnchor(sessionId: string, input: { notePosition: number; textSnippet: string; at?: number }): NoteAnchor | null {
-    return this.controllers.get(sessionId)?.recordAnchor(input) ?? null;
+    const anchor = this.controllers.get(sessionId)?.recordAnchor(input) ?? null;
+    if (anchor) enqueueCaptureCloud({ kind: 'anchor', data: anchor });
+    return anchor;
   }
   async retryFailed(sessionId: string) { return (await this.controllers.get(sessionId)?.retryFailedChunks()) ?? 0; }
 
