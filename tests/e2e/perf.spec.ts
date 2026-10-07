@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { expect, test, E2E_USER_ID } from './fixture';
+import { expect, test } from './fixture';
 import { FAKE_SPEECH_INIT } from './helpers';
 
 /**
