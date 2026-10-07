@@ -9,6 +9,7 @@ import { useUI } from '@/store/ui';
 import { modKeyLabel } from '@/features/editor/commands';
 import { GlobalRecPill } from '@/features/capture/RecControls';
 import { useCreateSubject } from '@/features/library/useCreateSubject';
+import { useSyncStatus } from '@/store/sync';
 
 const navClass = ({ isActive }: { isActive: boolean }) => `nav__item${isActive ? ' is-active' : ''}`;
 
@@ -18,6 +19,7 @@ export function AppShell() {
   const persistent = useLibrary((s) => s.persistent);
   const { setPalette, navOpen, setNavOpen } = useUI();
   const createSubject = useCreateSubject();
+  const sync = useSyncStatus();
   const { pathname } = useLocation();
 
   // Le tiroir (tablette/mobile) se referme à chaque navigation.
@@ -35,14 +37,14 @@ export function AppShell() {
       <aside className="sidebar" aria-label="Navigation principale">
         <div className="brand">
           <LogoMark className="brand__mark" />
-          <div className="brand__text"><strong>LexNote</strong><small>Notes · CM · Droit</small></div>
+          <div className="brand__text"><strong>LexNote</strong><small>Notes · Séances · Révision</small></div>
           <button className="iconbtn brand__close" onClick={() => setNavOpen(false)} aria-label="Fermer la navigation"><X size={18} /></button>
         </div>
 
         <nav className="nav" aria-label="Sections">
           <NavLink to="/" end className={navClass}><Home /> Accueil</NavLink>
           <NavLink to="/subjects" className={navClass}><FolderTree /> Mes matières</NavLink>
-          <NavLink to="/sessions" className={navClass}><Library /> Mes CM</NavLink>
+          <NavLink to="/sessions" className={navClass}><Library /> Mes séances</NavLink>
           <NavLink to="/search" className={navClass}><Search /> Recherche</NavLink>
           <button className="nav__item" onClick={() => setPalette(true)} data-testid="nav-commands">
             <Command /> Commandes <kbd className="kbd-hint">{modKeyLabel} K</kbd>
@@ -70,9 +72,9 @@ export function AppShell() {
             <span className="revem__icon"><GraduationCap size={20} /></span>
             <span><strong>REV-EM</strong><small>Connexion bientôt disponible</small></span>
           </div>
-          <div className="sidebar__sync" title="Vos notes restent sur cet appareil. Aucune donnée n’est envoyée.">
-            <span className={`status-dot${persistent ? '' : ' is-warn'}`} aria-hidden />
-            {persistent ? 'Stockage local · hors ligne' : 'Stockage temporaire !'}
+          <div className="sidebar__sync" title="Vos notes sont enregistrées localement puis synchronisées avec votre espace personnel.">
+            <span className={`status-dot${sync.phase === 'error' || !persistent ? ' is-warn' : ''}`} aria-hidden />
+            {sync.phase === 'syncing' ? 'Synchronisation…' : sync.phase === 'offline' ? 'Hors ligne · sauvegarde locale' : sync.phase === 'error' ? 'Sync à réessayer' : 'Local + cloud · synchronisé'}
           </div>
           <NavLink to="/settings" className={navClass}><Settings /> Réglages</NavLink>
         </div>
@@ -90,7 +92,7 @@ export function AppShell() {
       <nav className="tabbar" aria-label="Navigation mobile">
         <NavLink to="/" end className={({ isActive }) => (isActive ? 'is-active' : '')}><Home />Accueil</NavLink>
         <NavLink to="/subjects" className={({ isActive }) => (isActive ? 'is-active' : '')}><FolderTree />Matières</NavLink>
-        <NavLink to="/sessions" className={({ isActive }) => (isActive ? 'is-active' : '')}><Library />CM</NavLink>
+        <NavLink to="/sessions" className={({ isActive }) => (isActive ? 'is-active' : '')}><Library />Séances</NavLink>
         <NavLink to="/search" className={({ isActive }) => (isActive ? 'is-active' : '')}><Search />Recherche</NavLink>
         <NavLink to="/settings" className={({ isActive }) => (isActive ? 'is-active' : '')}><Settings />Réglages</NavLink>
       </nav>
