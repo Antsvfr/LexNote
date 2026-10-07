@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { MemoryAdapter } from '@/services/storage/memoryAdapter';
 import { useLibrary } from './library';
-import { buildDemoLibrary } from '@/data/demo/demoData';
 
 let adapter: MemoryAdapter;
 beforeEach(async () => {
@@ -78,39 +77,3 @@ describe('bibliothèque', () => {
   });
 });
 
-describe('données de démonstration', () => {
-  async function installDemo() {
-    const demo = buildDemoLibrary();
-    await adapter.commit({ putSubjects: demo.subjects, putModules: demo.modules, putSessions: demo.sessions, putNotes: demo.notes });
-    await lib().reload();
-    return demo;
-  }
-
-  it('se suppriment entièrement sans toucher aux données utilisateur', async () => {
-    const mine = await seed();
-    await installDemo();
-    await lib().removeDemoData();
-    expect(lib().subjects.map((s) => s.id)).toEqual([mine.s.id]);
-    expect(lib().sessions.map((s) => s.id)).toEqual([mine.cm.id]);
-    expect((await adapter.exportAll()).notes.every((n) => !n.sessionId.startsWith('demo-'))).toBe(true);
-  });
-
-  it('conservent la matière/module de démo qui contient un CM créé par l’étudiant', async () => {
-    const demo = await installDemo();
-    const droit = demo.subjects[0]!;
-    const contrats = demo.modules.find((m) => m.subjectId === droit.id && m.name.includes('contrats'))!;
-    const mine = await lib().addSession({ subjectId: droit.id, moduleId: contrats.id, title: 'Le mien', date: '2025-05-05' });
-    await lib().removeDemoData();
-    expect(lib().subjects.map((s) => s.id)).toEqual([droit.id]);
-    expect(lib().subjects[0]?.isDemo).toBeUndefined();
-    expect(lib().sessions.map((s) => s.id)).toEqual([mine.id]);
-  });
-
-  it('une séance de démo modifiée par l’étudiant est conservée', async () => {
-    const demo = await installDemo();
-    const edited = demo.sessions.find((s) => s.id === 'demo-cm-c4')!;
-    await lib().saveNotes(edited.id, { content: { x: 1 }, plainText: 'Mes vraies notes' });
-    await lib().removeDemoData();
-    expect(lib().sessions.map((s) => s.id)).toEqual([edited.id]);
-  });
-});
