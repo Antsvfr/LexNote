@@ -24,7 +24,7 @@ export function SubjectPage() {
     const n = sessions.filter((s) => s.subjectId === subject!.id).length;
     const ok = await confirm({
       title: `Supprimer « ${subject!.name} » ?`,
-      message: `Cette matière, ses modules et ses ${n} CM seront définitivement supprimés de cet appareil.`,
+      message: `Cette matière, ses modules et ses ${n} séance seront définitivement supprimés de cet appareil.`,
       confirmLabel: 'Supprimer', danger: true,
     });
     if (!ok) return;
@@ -46,7 +46,7 @@ export function SubjectPage() {
           <button className="btn btn--sm" onClick={rename}><Pencil /> Renommer</button>
           <button className="btn btn--sm btn--danger" onClick={remove}><Trash2 /> Supprimer</button>
           <button className="btn btn--sm" onClick={newModule} data-testid="new-module"><Plus /> Module</button>
-          <button className="btn btn--sm btn--primary" onClick={() => openNewCm({ subjectId: subject.id })}><Plus /> CM</button>
+          <button className="btn btn--sm btn--primary" onClick={() => openNewCm({ subjectId: subject.id })}><Plus /> séance</button>
         </div>
       </header>
 
@@ -63,13 +63,13 @@ export function SubjectPage() {
                   if (name) await renameModule(m.id, name);
                 }}><Pencil /></button>
                 <button className="btn btn--ghost btn--sm btn--icon" aria-label={`Supprimer ${m.name}`} onClick={async () => {
-                  const ok = await confirm({ title: `Supprimer « ${m.name} » ?`, message: `Le module et ses ${list.length} CM seront supprimés de cet appareil.`, confirmLabel: 'Supprimer', danger: true });
+                  const ok = await confirm({ title: `Supprimer « ${m.name} » ?`, message: `Le module et ses ${list.length} séance seront supprimés de cet appareil.`, confirmLabel: 'Supprimer', danger: true });
                   if (ok) await deleteModule(m.id);
                 }}><Trash2 /></button>
-                <button className="btn btn--sm" onClick={() => openNewCm({ subjectId: subject.id, moduleId: m.id })}><Plus /> CM</button>
+                <button className="btn btn--sm" onClick={() => openNewCm({ subjectId: subject.id, moduleId: m.id })}><Plus /> séance</button>
               </div>
             </div>
-            {list.length === 0 ? <p className="muted" style={{ padding: '8px 0' }}>Aucun CM dans ce module.</p> : <ul className="panel rows">{list.map((s) => <SessionRow key={s.id} session={s} showContext={false} />)}</ul>}
+            {list.length === 0 ? <p className="muted" style={{ padding: '8px 0' }}>Aucune séance dans ce module.</p> : <ul className="panel rows">{list.map((s) => <SessionRow key={s.id} session={s} showContext={false} />)}</ul>}
           </section>
         );
       })}
