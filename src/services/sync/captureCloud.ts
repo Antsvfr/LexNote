@@ -1,5 +1,6 @@
 import type { AudioSession, Interruption, NoteAnchor, TimelineMarker, TranscriptSegment } from '@/domain/capture';
-import { restUpsert } from '@/services/supabase/client';
+import { restSelect, restUpsert } from '@/services/supabase/client';
+import type { CaptureStorage } from '@/services/capture/storage/types';
 import { useAuth } from '@/store/auth';
 
 type CaptureItem =
@@ -146,6 +147,102 @@ export async function flushCaptureCloud() {
     // La file reste intacte et sera retentée au prochain événement / retour en ligne.
   } finally {
     flushing = false;
+  }
+}
+
+
+export async function hydrateCaptureCloud(storage: CaptureStorage): Promise<void> {
+  if (!navigator.onLine) return;
+  const state = useAuth.getState();
+  const token = state.session?.access_token;
+  if (!token) return;
+
+  const [sessions, segments, markers, anchors, interruptions] = await Promise.all([
+    restSelect<Record<string, unknown>>('transcript_sessions', 'select=*&deleted_at=is.null', token),
+    restSelect<Record<string, unknown>>('transcript_segments', 'select=*&deleted_at=is.null&order=start_ms.asc', token),
+    restSelect<Record<string, unknown>>('timeline_markers', 'select=*&deleted_at=is.null&order=timestamp_ms.asc', token),
+    restSelect<Record<string, unknown>>('note_anchors', 'select=*&deleted_at=is.null&order=timestamp_ms.asc', token),
+    restSelect<Record<string, unknown>>('capture_interruptions', 'select=*&order=at_ms.asc', token),
+  ]);
+
+  for (const row of sessions) {
+    const meta = row.audio_metadata && typeof row.audio_metadata === 'object'
+      ? row.audio_metadata as Record<string, unknown>
+      : null;
+    if (!meta) continue;
+    const runs = Array.isArray(meta.runs) ? meta.runs as AudioSession['runs'] : [];
+    const a: AudioSession = {
+      id: String(row.course_session_id),
+      sessionId: String(row.course_session_id),
+      originAt: row.started_at ? new Date(String(row.started_at)).getTime() : Date.now(),
+      mimeType: String(meta.mimeType ?? 'audio/webm'),
+      bitsPerSecond: Number(meta.bitsPerSecond ?? 96000),
+      chunkMs: Number(meta.chunkMs ?? 30_000),
+      keepAudio: false, // les blobs audio restent volontairement sur l'appareil d'origine
+      providerId: row.provider ? String(row.provider) : null,
+      runs,
+      status: String(row.status ?? 'COMPLETED') as AudioSession['status'],
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+    };
+    await storage.putAudioSession(a);
+  }
+
+  const segs: TranscriptSegment[] = segments.map((row) => ({
+    id: String(row.id),
+    sessionId: String(row.course_session_id),
+    startMs: Number(row.start_ms ?? 0),
+    endMs: Number(row.end_ms ?? 0),
+    text: String(row.text ?? ''),
+    confidence: row.confidence == null ? undefined : Number(row.confidence),
+    provider: String(row.provider ?? 'cloud'),
+    status: String(row.status ?? 'final') === 'edited' ? 'edited' : 'final',
+    source: 'TRANSCRIPTION',
+    verification: 'UNVERIFIED',
+    createdAt: String(row.created_at),
+  }));
+  await storage.putSegments(segs);
+
+  for (const row of markers) {
+    const reasons = Array.isArray(row.reasons) ? row.reasons as TimelineMarker['reasons'] : [];
+    await storage.putMarker({
+      id: String(row.id),
+      sessionId: String(row.course_session_id),
+      atMs: Number(row.timestamp_ms ?? 0),
+      reasons,
+      note: row.note ? String(row.note) : undefined,
+      createdAt: String(row.created_at),
+    });
+  }
+
+  const anchorRows: NoteAnchor[] = anchors.map((row) => {
+    const pos = row.note_position && typeof row.note_position === 'object'
+      ? row.note_position as Record<string, unknown>
+      : {};
+    return {
+      id: String(row.id),
+      sessionId: String(row.course_session_id),
+      timestamp: Number(row.timestamp_ms ?? 0),
+      notePosition: Number(pos.position ?? 0),
+      textSnippet: String(pos.snippet ?? ''),
+      nearbyTranscriptSegmentIds: Array.isArray(row.nearby_transcript_segment_ids)
+        ? row.nearby_transcript_segment_ids.map(String)
+        : [],
+      createdAt: String(row.created_at),
+    };
+  });
+  await storage.putAnchors(anchorRows);
+
+  for (const row of interruptions) {
+    await storage.putInterruption({
+      id: String(row.id),
+      sessionId: String(row.course_session_id),
+      atMs: Number(row.at_ms ?? 0),
+      kind: String(row.kind ?? 'unknown') as Interruption['kind'],
+      message: String(row.message ?? ''),
+      recoverable: Boolean(row.recoverable),
+      resolvedAtMs: row.resolved_at_ms == null ? undefined : Number(row.resolved_at_ms),
+    });
   }
 }
 
