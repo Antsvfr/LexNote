@@ -157,6 +157,10 @@ Chaque séance a deux espaces : **Cours** (sources + cours reconstruit) et **Ré
 - **Fiabilité** : seules les affirmations `VERIFIED`/`SUPPORTED` avec source servent de réponses (flashcards, quiz) ; les distracteurs de QCM sont de vraies définitions d'autres notions du cours ; aucune relation, aucun critère, aucune date, aucune réponse n'est inventé. Matière insuffisante → message explicatif, pas de support médiocre.
 - **Versions** : modifier, dupliquer, supprimer, « revenir à la version générée », **régénérer**. Si un cours plus récent existe, bandeau « Le cours a été mis à jour » ; un support modifié à la main n'est **jamais écrasé** (une copie régénérée est créée ; le remplacement exige une confirmation).
 
+## Intégration avec REV-EM
+
+LexNote et REV-EM restent **indépendantes** (code, bases Supabase, comptes, clés) et ne communiqueront que par des contrats publics versionnés (`lexnote-revem/v1`, `src/integration/`). Architecture, source of truth, sécurité, erreurs, versionnement et hors-ligne : [`docs/REVEM_LEXNOTE_INTEGRATION.md`](docs/REVEM_LEXNOTE_INTEGRATION.md). Aucune fonction visible n'est encore construite.
+
 ## Stockage
 
 > (Les bases décrites ci-dessous sont désormais **par compte** : `lexnote-u-<id>`.)
