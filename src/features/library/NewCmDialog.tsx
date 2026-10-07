@@ -61,7 +61,7 @@ export function NewCmDialog() {
     try {
       const sid = creatingSubject ? (await addSubject(subjectName)).id : subjectId;
       let mid = moduleId;
-      if (creatingModule && moduleName.trim()) mid = (await addModule(sid, moduleName)).id;
+      if ((creatingModule || creatingSubject) && moduleName.trim()) mid = (await addModule(sid, moduleName)).id;
       const s = await addSession({
         subjectId: sid,
         moduleId: mid || undefined,
@@ -115,15 +115,28 @@ export function NewCmDialog() {
         {creatingSubject && <input className="input" aria-label="Nom de la nouvelle matière" placeholder="ex. Droit" value={subjectName} onChange={(e) => setSubjectName(e.target.value)} autoFocus />}
       </div>
 
-      {!creatingSubject && subjectId && (
+      {subjectId && (
         <div className="field">
           <label htmlFor="cm-module">Module <span className="muted">· facultatif</span></label>
-          <select id="cm-module" className="select" value={moduleId} onChange={(e) => setModuleId(e.target.value)}>
-            <option value="">Sans module</option>
-            {subjectModules.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-            <option value={NEW}>+ Nouveau module…</option>
-          </select>
-          {creatingModule && <input className="input" placeholder="ex. Droit des contrats" value={moduleName} onChange={(e) => setModuleName(e.target.value)} />}
+          {creatingSubject ? (
+            <input
+              id="cm-module"
+              className="input"
+              aria-label="Nom du nouveau module"
+              placeholder="ex. Droit des contrats"
+              value={moduleName}
+              onChange={(e) => setModuleName(e.target.value)}
+            />
+          ) : (
+            <>
+              <select id="cm-module" className="select" value={moduleId} onChange={(e) => setModuleId(e.target.value)}>
+                <option value="">Sans module</option>
+                {subjectModules.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                <option value={NEW}>+ Nouveau module…</option>
+              </select>
+              {creatingModule && <input className="input" aria-label="Nom du nouveau module" placeholder="ex. Droit des contrats" value={moduleName} onChange={(e) => setModuleName(e.target.value)} />}
+            </>
+          )}
         </div>
       )}
 
