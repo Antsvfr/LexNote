@@ -19,10 +19,10 @@ export function ModulePage() {
         <Link to="/subjects">Mes matières</Link> › {subject && <Link to={`/subjects/${subject.id}`}>{subject.name}</Link>} ›
       </nav>
       <header className="page__head">
-        <div><h1>{mod.name}</h1><p className="page__sub">{list.length} CM</p></div>
-        <button className="btn btn--primary" onClick={() => openNewCm({ subjectId: mod.subjectId, moduleId: mod.id })}><Plus /> Nouveau CM</button>
+        <div><h1>{mod.name}</h1><p className="page__sub">{list.length} séance</p></div>
+        <button className="btn btn--primary" onClick={() => openNewCm({ subjectId: mod.subjectId, moduleId: mod.id })}><Plus /> Nouvelle séance</button>
       </header>
-      {list.length === 0 ? <div className="panel empty"><strong>Aucun CM</strong>Créez la première séance de ce module.</div> : <ul className="panel rows">{list.map((s) => <SessionRow key={s.id} session={s} showContext={false} />)}</ul>}
+      {list.length === 0 ? <div className="panel empty"><strong>Aucune séance</strong>Créez la première séance de ce module.</div> : <ul className="panel rows">{list.map((s) => <SessionRow key={s.id} session={s} showContext={false} />)}</ul>}
     </div>
   );
 }
