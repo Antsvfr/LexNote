@@ -46,7 +46,7 @@ export function NewSessionDialog() {
 
   const subjectModules = useMemo(() => modules.filter((m) => m.subjectId === subjectId), [modules, subjectId]);
   const creatingSubject = subjectId === NEW;
-  const creatingModule = !creatingSubject && moduleId === NEW;
+  const creatingModule = moduleId === NEW;
   const number = !creatingSubject && subjectId ? nextSessionNumber(sessions, subjectId, type) : 1;
   const valid = !!(creatingSubject ? subjectName.trim() : subjectId) && !(creatingModule && !moduleName.trim()) && !!date;
 
@@ -55,7 +55,7 @@ export function NewSessionDialog() {
     setBusy(true);
     try {
       const sid = creatingSubject ? (await addSubject({ name: subjectName })).id : subjectId;
-      const mid = creatingModule ? (await addModule(sid, moduleName)).id : moduleId === NONE || creatingSubject ? null : moduleId;
+      const mid = creatingModule ? (await addModule(sid, moduleName)).id : moduleId === NONE ? null : moduleId;
       const s = await addSession({ subjectId: sid, moduleId: mid, type, title, date, startTime, endTime, teacher, room });
       close();
       navigate(`/session/${s.id}`);
@@ -90,7 +90,7 @@ export function NewSessionDialog() {
         {creatingSubject && <input className="input" aria-label="Nom de la nouvelle matière" placeholder="ex. Droit des contrats" value={subjectName} onChange={(e) => setSubjectName(e.target.value)} autoFocus />}
       </div>
 
-      {subjectId !== '' && !creatingSubject && (
+      {subjectId !== '' && (
         <div className="field">
           <label htmlFor="ns-module">Module <span className="muted">(facultatif)</span></label>
           <select id="ns-module" className="select" value={moduleId} onChange={(e) => setModuleId(e.target.value)}>

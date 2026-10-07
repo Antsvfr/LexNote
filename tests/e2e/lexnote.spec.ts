@@ -1,20 +1,24 @@
 import { expect, test } from '@playwright/test';
-import { createCm, mod, trackErrors, waitSaved } from './helpers';
+import { createCm, mod, signUp, trackErrors, waitSaved } from './helpers';
 
 test.describe('LexNote — parcours principal', () => {
-  test('accueil, navigation et données de démo, sans erreur console', async ({ page }) => {
+  test('première visite : connexion exigée, espace vide, onboarding, aucune donnée fictive', async ({ page }) => {
     const errors = trackErrors(page);
     await page.goto('/');
-    await expect(page.getByRole('heading', { name: /Bon cours/ })).toBeVisible();
-    await expect(page.getByText('données de démonstration')).toBeVisible();
-    await expect(page.getByTestId('continue-last')).toBeVisible();
+    await expect(page).toHaveURL(/\/login$/);
+    await signUp(page, { firstName: 'Anton' });
+    await expect(page.getByTestId('greeting')).toContainText('Anton');
+    await expect(page.getByTestId('empty-dashboard')).toBeVisible();
+    await expect(page.getByText('démonstration')).toHaveCount(0);
 
+    await page.getByTestId('create-first-subject').click();
+    await page.getByTestId('subject-name').fill('Droit des contrats');
+    await page.getByTestId('subject-save').click();
     await page.getByRole('link', { name: 'Mes matières' }).first().click();
     await expect(page.getByRole('heading', { name: 'Mes matières', level: 1 })).toBeVisible();
-    await page.getByRole('link', { name: /^Droit\b/ }).first().click();
-    await expect(page.getByRole('heading', { name: 'Droit des contrats' })).toBeVisible();
-    await page.getByRole('link', { name: 'Mes CM' }).first().click();
-    await expect(page.getByTestId('session-row').first()).toBeVisible();
+    await expect(page.getByTestId('subject-card')).toHaveCount(1);
+    await page.getByRole('link', { name: 'Mes séances' }).first().click();
+    await expect(page.getByTestId('session-row')).toHaveCount(0);
     expect(errors).toEqual([]);
   });
 
@@ -70,7 +74,7 @@ test.describe('LexNote — parcours principal', () => {
     await waitSaved(page);
     // Quitter immédiatement après la frappe : le flush de sortie doit tout enregistrer
     await page.keyboard.type(' dernier mot');
-    await page.getByRole('link', { name: /retour au module/i }).click();
+    await page.getByRole('link', { name: 'Quitter l’éditeur' }).click();
     await page.getByRole('link', { name: /Autosave/ }).first().click();
     await expect(page.locator('.note-prose')).toContainText('abc dernier mot');
   });
@@ -102,17 +106,6 @@ test.describe('LexNote — parcours principal', () => {
     await expect(page.locator('.note-editor--readonly')).toContainText('un deux trois quatre cinq');
   });
 
-  test('ouvrir un CM sans écrire ne le modifie pas (la démo reste supprimable)', async ({ page }) => {
-    await page.goto('/session/demo-cm-c3');
-    await expect(page.locator('.note-prose')).toContainText('Art. 1128');
-    await page.waitForTimeout(1200);
-    await page.goto('/');
-    await page.getByRole('button', { name: 'Supprimer la démo' }).click();
-    await page.getByRole('dialog').getByRole('button', { name: 'Supprimer la démo' }).click();
-    await page.goto('/sessions');
-    await expect(page.getByTestId('session-row')).toHaveCount(0);
-  });
-
   test('raccourcis clavier : blocs, gras, retrait, listes', async ({ page }) => {
     await page.goto('/');
     await createCm(page, { subject: 'Raccourcis', module: 'M', title: 'Clavier' });
@@ -142,18 +135,23 @@ test.describe('LexNote — parcours principal', () => {
     await page.keyboard.press(`${mod}+z`);
   });
 
-  test('recherche globale : matière, module, titre et contenu', async ({ page }) => {
+  test('recherche globale : matière, module, titre et contenu — limitée à MON espace', async ({ page }) => {
+    await page.goto('/');
+    await createCm(page, { subject: 'Économie', module: 'Marchés', title: 'Concurrence parfaite' });
+    await page.locator('.note-prose').click();
+    await page.keyboard.type('Le tableau de Poussin illustre la perspective');
+    await waitSaved(page);
     await page.goto('/search');
     const input = page.getByTestId('search-input');
     await input.fill('poussin');
-    await expect(page.getByTestId('search-results')).toContainText('Conditions de validité');
-    await input.fill('contrats');
-    await expect(page.getByTestId('search-results-subjects')).toContainText('Droit des contrats');
+    await expect(page.getByTestId('search-results')).toContainText('Concurrence parfaite');
+    await input.fill('marches');
+    await expect(page.getByTestId('search-results')).toContainText('Marchés');
     await input.fill('zzzzintrouvable');
     await expect(page.getByText('Aucun résultat')).toBeVisible();
   });
 
-  test('supprimer un CM puis une matière, et supprimer la démo', async ({ page }) => {
+  test('supprimer une séance puis une matière', async ({ page }) => {
     const errors = trackErrors(page);
     await page.goto('/');
     await createCm(page, { subject: 'À supprimer', module: 'M', title: 'Éphémère' });
@@ -171,16 +169,12 @@ test.describe('LexNote — parcours principal', () => {
     await expect(page).toHaveURL(/\/subjects$/);
     await expect(page.getByRole('link', { name: /À supprimer/ })).toHaveCount(0);
 
-    await page.goto('/');
-    await page.getByRole('button', { name: 'Supprimer la démo' }).click();
-    await page.getByRole('dialog').getByRole('button', { name: 'Supprimer la démo' }).click();
-    await expect(page.getByText('données de démonstration')).toHaveCount(0);
-    await page.goto('/sessions');
-    await expect(page.getByTestId('session-row')).toHaveCount(0);
     expect(errors).toEqual([]);
   });
 
   test('thème sombre persistant', async ({ page }) => {
+    await page.goto('/');
+    await signUp(page);
     await page.goto('/settings');
     await page.getByRole('radio', { name: 'Sombre' }).click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
@@ -203,6 +197,8 @@ test.describe('LexNote — parcours principal', () => {
 
 test.describe('responsive', () => {
   test('mobile : barre d’onglets, pas de scroll horizontal, consultation', async ({ page }) => {
+    await page.goto('/');
+    await createCm(page, { subject: 'Mobile', title: 'Mobile' });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
     await expect(page.locator('.tabbar')).toBeVisible();
@@ -216,6 +212,8 @@ test.describe('responsive', () => {
   });
 
   test('tablette : mise en page fluide', async ({ page }) => {
+    await page.goto('/');
+    await createCm(page, { subject: 'Tablette', title: 'Tablette' });
     await page.setViewportSize({ width: 820, height: 1180 });
     await page.goto('/');
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
@@ -228,6 +226,8 @@ test.describe('responsive', () => {
 test.describe('PWA', () => {
   test('manifest valide, icônes servies, service worker actif, fonctionne hors ligne', async ({ page, context }) => {
     const errors = trackErrors(page);
+    await page.goto('/');
+    await createCm(page, { subject: 'Hors ligne', title: 'Offline' });
     await page.goto('/');
     const href = await page.locator('link[rel="manifest"]').getAttribute('href');
     expect(href).toBeTruthy();
@@ -246,7 +246,7 @@ test.describe('PWA', () => {
 
     await context.setOffline(true);
     await page.goto('/sessions');
-    await expect(page.getByRole('heading', { name: 'Mes CM', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Mes séances', level: 1 })).toBeVisible();
     await page.getByTestId('session-row').first().getByRole('link').click();
     await expect(page.locator('body')).toContainText('LexNote');
     await context.setOffline(false);

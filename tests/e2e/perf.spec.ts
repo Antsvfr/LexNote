@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { FAKE_SPEECH_INIT } from './helpers';
+import { FAKE_SPEECH_INIT, createCm, engineFor, startRecording } from './helpers';
 
 /**
  * Charge : CM de 1 h / 2 h / 3 h avec notes volumineuses, transcription (un segment toutes les ~4 s),
@@ -8,13 +8,12 @@ import { FAKE_SPEECH_INIT } from './helpers';
  */
 const RESULTS: Record<string, unknown>[] = [];
 
-async function seed(page: Page, hours: number) {
+async function seed(page: Page, hours: number, sid: string) {
   // La base de capture doit déjà exister (créée par l'app) : sinon on en créerait une vide.
-  await page.waitForFunction(async () => (await indexedDB.databases()).some((d) => d.name === 'lexnote-capture'));
+  await page.waitForFunction(async () => (await indexedDB.databases()).some((d) => d.name?.startsWith('lexnote-capture-u-')));
   await page.waitForTimeout(300);
-  await page.evaluate(async (h) => {
+  await page.evaluate(async ([h, sid]) => {
     const open = (name: string) => new Promise<IDBDatabase>((res, rej) => { const r = indexedDB.open(name); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
-    const sid = 'demo-cm-c4';
     const durMs = h * 3600_000;
     const origin = Date.now() - durMs - 60_000;
     const words = ['consentement', 'contrat', 'article', 'obligation', 'dol', 'violence', 'erreur', 'validité', 'capacité', 'nullité', 'jurisprudence', 'professeur'];
@@ -23,7 +22,8 @@ async function seed(page: Page, hours: number) {
     // Notes : ≈ 8 000 mots par heure
     const paras = Array.from({ length: h * 570 }, (_, i) => ({ type: 'paragraph', content: [{ type: 'text', text: `${sentence(i)}.` }] }));
     const content = { type: 'doc', content: paras };
-    const nb = await open('lexnote');
+    const names = (await indexedDB.databases()).map((d) => d.name ?? '');
+    const nb = await open(names.find((n) => n.startsWith('lexnote-u-'))!);
     await new Promise<void>((res, rej) => {
       const tx = nb.transaction(['notes', 'sessions'], 'readwrite');
       tx.objectStore('notes').put({ sessionId: sid, content, updatedAt: new Date().toISOString() });
@@ -33,7 +33,7 @@ async function seed(page: Page, hours: number) {
     });
 
     // Capture : un segment toutes les 4 s (≈ 15 mots), 1 marqueur / 4 min, 1 ancrage / 5 s d'écriture
-    const cb = await open('lexnote-capture');
+    const cb = await open(names.find((n) => n.startsWith('lexnote-capture-u-'))!);
     const nSeg = Math.floor(durMs / 4000);
     await new Promise<void>((res, rej) => {
       const tx = cb.transaction(['audioSessions', 'segments', 'markers', 'anchors'], 'readwrite');
@@ -47,7 +47,7 @@ async function seed(page: Page, hours: number) {
       tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
     });
     return nSeg;
-  }, hours);
+  }, [hours, sid] as const);
 }
 
 async function typingLatency(page: Page, n = 80) {
@@ -73,13 +73,16 @@ for (const hours of [1, 2, 3]) {
   test(`charge — CM de ${hours} h`, async ({ page }) => {
     test.setTimeout(180_000);
     await page.addInitScript(FAKE_SPEECH_INIT);
-    await page.addInitScript(() => { localStorage.setItem('lexnote.recordingConsent', '1'); localStorage.setItem('lexnote.transcription', JSON.stringify({ keepAudio: true })); });
+    engineFor(page, { keepAudio: true });
+    await page.goto('/');
+    await createCm(page, { subject: 'Charge', title: 'Longue séance' });
+    const sid = page.url().split('/session/')[1]!.split(/[/?]/)[0]!;
     await page.goto('/');
     await expect(page.getByRole('heading', { name: /Bon cours/ })).toBeVisible();
-    const nSeg = await seed(page, hours);
+    const nSeg = await seed(page, hours, sid);
 
     const t0 = Date.now();
-    await page.goto('/session/demo-cm-c4');
+    await page.goto(`/session/${sid}`);
     await expect(page.locator('.note-prose p').first()).toBeVisible();
     await expect(page.getByTestId('tseg').first()).toBeAttached(); // (hors écran : le panneau suit le direct)
     const openMs = Date.now() - t0;
@@ -88,8 +91,7 @@ for (const hours of [1, 2, 3]) {
     const idle = await typingLatency(page);
 
     // Enregistrement actif + flux de segments très soutenu (≈ 4 par seconde, bien au-delà du réel)
-    await page.getByTestId('transcription-btn').click();
-    await expect(page.getByTestId('rec-pill')).toContainText(/REC/, { timeout: 10_000 });
+    await startRecording(page);
     await page.evaluate(() => { (window as any).__flood = setInterval(() => (window as any).__say('le professeur explique que le consentement doit être libre et éclairé'), 250); });
     await page.waitForTimeout(1500);
     const live = await typingLatency(page);

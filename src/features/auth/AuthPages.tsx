@@ -37,10 +37,9 @@ export function LoginPage() {
   const dest = useAlreadyIn();
   const [email, setEmail] = useState(''); const [password, setPassword] = useState('');
   const { busy, error, run } = useSubmit();
-  const navigate = useNavigate();
   if (dest) return <Navigate to={dest} replace />;
   const off = status === 'unconfigured';
-  const submit = (e: FormEvent) => { e.preventDefault(); void run(async () => { await signIn(email, password); navigate('/', { replace: true }); }); };
+  const submit = (e: FormEvent) => { e.preventDefault(); void run(async () => { await signIn(email, password); }); };
   return (
     <AuthLayout title="Content de vous revoir" subtitle="Connectez-vous pour retrouver vos matières et vos séances." footer={<>Pas encore de compte ? <Link to="/signup">Créer un compte</Link></>}>
       {off && <Unconfigured />}
@@ -61,7 +60,6 @@ export function SignupPage() {
   const [email, setEmail] = useState(''); const [pw, setPw] = useState(''); const [pw2, setPw2] = useState('');
   const { busy, error, setError, run } = useSubmit();
   const [confirm, setConfirm] = useState(false);
-  const navigate = useNavigate();
   if (dest) return <Navigate to={dest} replace />;
   const off = status === 'unconfigured';
   const submit = (e: FormEvent) => {
@@ -69,7 +67,7 @@ export function SignupPage() {
     if (!EMAIL_RE.test(email.trim())) return setError('Saisissez une adresse e-mail valide.');
     if (pw.length < 8) return setError('Le mot de passe doit contenir au moins 8 caractères.');
     if (pw !== pw2) return setError('Les deux mots de passe ne correspondent pas.');
-    void run(async () => { const r = await signUp(email, pw); if (r.needsConfirmation) setConfirm(true); else navigate('/', { replace: true }); });
+    void run(async () => { const r = await signUp(email, pw); if (r.needsConfirmation) setConfirm(true); });
   };
   if (confirm) {
     return (

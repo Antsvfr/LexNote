@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test';
-import { FAKE_SPEECH_INIT, capIDB, createCm, mod, startRecording, trackErrors, waitSaved } from './helpers';
+import { engineFor, FAKE_SPEECH_INIT, capIDB, createCm, mod, startRecording, trackErrors, waitSaved } from './helpers';
 
 test.beforeEach(async ({ page, browserName }) => {
   test.skip(browserName !== 'chromium', 'Micro simulé disponible uniquement sous Chromium');
   await page.addInitScript(FAKE_SPEECH_INIT);
-  await page.addInitScript(() => localStorage.setItem('lexnote.transcription', JSON.stringify({ chunkMs: 2000 })));
+  engineFor(page, { chunkMs: 2000 });
 });
 
 test.describe('transcription — permission et avertissement', () => {
@@ -216,7 +216,7 @@ test.describe('transcription — capture en direct', () => {
         body: JSON.stringify({ text: 'Le dol est une tromperie', segments: [{ start: 0.2, end: 1.5, text: ' Le dol est une tromperie', avg_logprob: -0.1 }] }),
       });
     });
-    await page.addInitScript(() => localStorage.setItem('lexnote.transcription', JSON.stringify({ chunkMs: 2000, providerId: 'openai-compatible', baseUrl: 'http://localhost:9999/v1', model: 'whisper-1' })));
+    engineFor(page, { chunkMs: 2000, providerId: 'openai-compatible', baseUrl: 'http://localhost:9999/v1', model: 'whisper-1' });
     await page.goto('/');
     await createCm(page, { subject: 'Whisper', module: 'M', title: 'Whisper' });
     await startRecording(page);

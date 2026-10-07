@@ -1,7 +1,7 @@
 # LexNote
 
 > L'assistant de prise de notes pour les cours magistraux — pensé pour le droit.
-> **Local-first** · **PWA installable** · **hors connexion** · aucune donnée envoyée sur Internet.
+> **Local-first** · **PWA installable** · **hors connexion** · comptes personnels · synchronisation chiffrée en transit (Supabase, RLS).
 
 LexNote est une application **totalement indépendante** (aucune dépendance à un autre projet). Cette V1 « Fondation » pose le socle technique, visuel et architectural : un vrai éditeur de CM, un stockage local robuste, et des emplacements propres pour la transcription, l'IA et la synchronisation — **sans simuler** ce qui n'existe pas encore.
 
@@ -43,7 +43,8 @@ npm run test:e2e     # tests bout en bout (Playwright, construit et sert l'app)
 ```
 
 Pour les tests e2e, Playwright doit trouver un Chromium. Si besoin : `CHROMIUM_PATH=/chemin/vers/chrome npm run test:e2e`.
-Variable d'environnement : `VITE_SEED_DEMO=false` désactive les données de démonstration au premier lancement.
+Variables d'environnement : `VITE_SUPABASE_URL` et `VITE_SUPABASE_ANON_KEY` (voir `.env.example` et `SUPABASE_SETUP.md`) ; `VITE_BACKEND=mock` pour un backend simulé (tests e2e, développement hors ligne).
+Les tests e2e construisent automatiquement l'application avec `VITE_BACKEND=mock` ; les tests de sécurité de la base (`tests/db`) tournent sur un vrai Postgres (PGlite) dans `npm test`.
 
 ## Architecture
 
@@ -77,22 +78,36 @@ Chaîne de persistance : **frappe → autosave (debounce 500 ms, max 4 s) → In
 src/
   domain/          Modèle de données et règles métier pures (legal.ts = fiabilité juridique)
   services/        Interfaces + implémentations (storage, ai, transcription, documents, search, sync)
-  store/           Stores Zustand (library, ui, toasts, editorBridge)
+  store/           Stores Zustand (auth, library, sync, ui, toasts, editorBridge)
   features/
+    auth/          Connexion, inscription, onboarding, garde des routes
     dashboard/     Accueil
-    library/       Matières, modules, liste des CM, dialogue « Nouveau CM »
+    library/       Matières, modules, liste des CM, dialogues « Nouvelle séance » et « Matière »
     editor/        Éditeur : extensions TipTap, barre d'actions, autosave, chrono, panneau assistant
     recap/         Page « Terminer le CM »
     search/        Recherche globale
     palette/       Palette de commandes (Cmd/Ctrl+K)
-    settings/      Thème, installation, export, démo
+    settings/      Compte, thème, installation, export
   components/      Primitives UI réutilisables (Modal, Toasts, Logo…)
-  data/            Données de démonstration — ISOLÉES, aucune logique applicative n'en dépend
   styles/          Tokens, base, UI, mise en page, pages, éditeur
-tests/e2e/         Parcours Playwright
+tests/e2e/         Parcours Playwright (backend simulé)
+tests/db/          Tests RLS sur un vrai Postgres (PGlite)
+supabase/          Migration SQL + Edge Function delete-account
 ```
 
+## Comptes, espaces personnels et synchronisation
+
+- **Comptes** : Supabase Auth (e-mail + mot de passe). **Projet Supabase dédié** à LexNote — voir [`SUPABASE_SETUP.md`](./SUPABASE_SETUP.md) (étapes manuelles, sécurité, check-list).
+- **Espace strictement personnel** : sécurité garantie **par la base** (RLS forcée, politiques par table, clés étrangères composites), testée sur un vrai Postgres (`tests/db`). Côté navigateur, chaque compte a ses propres bases IndexedDB (`lexnote-u-<id>`, `lexnote-capture-u-<id>`) ; la déconnexion ferme et vide tout.
+- **Local-first** : toute écriture va d'abord dans IndexedDB (jamais bloquée par le réseau), puis le moteur de synchronisation (`src/services/sync`) envoie les lignes « à synchroniser » (verrou optimiste par `version`, suppressions par pierres tombales, parents avant enfants) et reçoit les changements des autres appareils (curseur `server_updated_at`). Un conflit sur les notes **conserve les deux versions** — jamais d'écrasement silencieux.
+- **Aucune donnée de démonstration** : un nouvel utilisateur arrive sur un espace vide (onboarding en 3 étapes, facultatif).
+- **Séances génériques** : CM, TD, TP, Cours, Séminaire, Atelier, Révision, Autre partagent **un seul modèle** (`CourseSession.type`) et un seul éditeur — ajouter un type = une ligne dans `src/domain/sessionType.ts`. Une séance peut exister sans module.
+- **Audio** : jamais envoyé au cloud ; la transcription, les marqueurs et les ancrages, eux, sont synchronisés.
+- **Développement/tests sans Supabase** : `VITE_BACKEND=mock` (build ou dev) remplace Supabase par un serveur simulé dans le navigateur ; **absent des builds de production**.
+
 ## Stockage
+
+> (Les bases décrites ci-dessous sont désormais **par compte** : `lexnote-u-<id>`.)
 
 - **IndexedDB** (`lexnote`), 5 stores : `subjects`, `modules`, `sessions`, `notes`, `meta`.
 - Le **contenu des notes** (`notes`) est séparé des **métadonnées** (`sessions`, qui contiennent aussi mots, extrait et texte de recherche) : les listes restent légères même avec des centaines de CM.
@@ -168,7 +183,7 @@ Base **séparée** `lexnote-capture` : `audioSessions, chunks (métadonnées), c
 - **Contrôle** : `navigator.storage.estimate()` à chaque segment ; `Audio enregistré : 214 Mo · Espace disponible : …` dans le panneau et les Réglages. < 300 Mo libres (ou > 85 %) : avertissement. < 50 Mo ou `QuotaExceededError` : **l'audio cesse d'être conservé** (interruption « Stockage » consignée), la transcription texte et les notes continuent.
 - `navigator.storage.persist()` demandé au démarrage ; Réglages › **Stockage audio** : audio par CM, suppression de l'audio seul (transcription conservée).
 - Eviction : sans stockage persistant, le navigateur peut effacer les données sous pression (Safari purge agressivement après ~7 j sans usage hors PWA installée). Exportez régulièrement. Quotas typiques (non vérifiés ici) : Chrome ≈ 60 % du disque, Safari/Firefox plus restrictifs ; l'estimation est exposée quand l'API existe, sinon « inconnu ».
-- Suppression d'un CM / matière / module / démo / « tout effacer » → suppression de l'audio, de la transcription, des marqueurs et des ancrages. L'export JSON inclut transcriptions, marqueurs, ancrages (pas les fichiers audio).
+- Suppression d'un CM / matière / module / « tout supprimer » → suppression de l'audio, de la transcription, des marqueurs et des ancrages. L'export JSON inclut transcriptions, marqueurs, ancrages (pas les fichiers audio).
 
 ### Permissions
 Le micro n'est jamais demandé avant un clic. Première utilisation : avertissement (autorisation du professeur, règlement, droit applicable) → *Annuler* / *J'ai l'autorisation — continuer*. Refus : message explicite, notes intactes. Réafficher l'avertissement : Réglages.
@@ -202,7 +217,7 @@ Les binaires Firefox/WebKit ne sont pas téléchargeables dans l'environnement d
 Toute la V1, plus : transcription (Web Speech et Whisper par API/serveur local), segmentation audio, stockage audio contrôlé, marqueurs, timeline, ancrages notes↔transcription, réécoute (-10 s / ▶ / +10 s), reprise après interruption, mode Focus avec pastille REC, fin de CM avec récapitulatif complet (durée, audio, mots notes/transcription, marqueurs, interruptions + onglets Notes/Transcription/Timeline), recherche dans les transcriptions (ouvre le CM au bon passage), suppression en cascade, `CourseContext`.
 
 ## Préparé mais NON implémenté
-IA (résumé, restructuration, fiches, flashcards, quiz, vérification des articles/jurisprudence, assistant) · Whisper WASM/WebGPU · import de documents · synchronisation cloud/comptes · recherche sémantique · édition manuelle de la transcription.
+IA (résumé, restructuration, fiches, flashcards, quiz, vérification des articles/jurisprudence, assistant) · Whisper WASM/WebGPU · import de documents · connexion à REV-EM (architecture préparée, aucune donnée partagée) · recherche sémantique · édition manuelle de la transcription.
 
 ## Limites connues
 - Pas de vraie voix testée : Web Speech testé avec un faux moteur ; micro = bip simulé par Chromium.
@@ -215,9 +230,12 @@ IA (résumé, restructuration, fiches, flashcards, quiz, vérification des artic
 
 ## Principes de confidentialité
 
-- Les notes restent **sur l'appareil** (IndexedDB). Aucun upload, aucune télémétrie, aucune police ou ressource tierce.
-- Toute synchronisation future sera **facultative et explicite**.
+- Les notes sont d'abord **sur l'appareil** (IndexedDB), puis synchronisées avec **votre espace personnel** Supabase (RLS : personne d'autre n'y accède). L'audio ne quitte jamais l'appareil. Aucune télémétrie, aucune police ou ressource tierce.
 - Aucun enregistrement sans action explicite ; l'indicateur REC est toujours visible ; l'audio reste local. Selon le moteur, la *reconnaissance* peut être distante : c'est indiqué dans le panneau.
+
+## Vérifications effectuées (comptes + synchronisation)
+
+- `tsc --noEmit` et build de production OK (le build de production ne contient pas le backend simulé). **158 tests unitaires** (dont 14 tests RLS sur Postgres réel et 8 tests du moteur de synchronisation) · **49 tests e2e Chromium** (backend simulé : comptes, isolation A/B, hors ligne → synchronisation, « autre appareil », conflit, import des anciennes notes, suppression de compte, types de séances, non-régression complète, performance 1/2/3 h).
 
 ## Vérifications effectuées (V2 + refonte premium)
 

@@ -12,6 +12,8 @@ import type { Backend } from './index';
 
 const AUTH_KEY = 'lexnote-mock-auth';
 const CLOUD_KEY = 'lexnote-mock-cloud';
+/** Coupure du « serveur » persistante (survit aux rechargements) pour tester le hors ligne. */
+const DOWN_KEY = 'lexnote-mock-down';
 
 interface MockUser { id: string; email: string; password: string; confirmed: boolean }
 interface MockAuthState { users: MockUser[]; sessionUserId: string | null; profiles: Record<string, Profile> }
@@ -25,6 +27,7 @@ const uuid = () => crypto.randomUUID();
 
 export function createMockBackend(): Backend {
   const cloud = CloudDb.fromJSON((() => { try { return JSON.parse(localStorage.getItem(CLOUD_KEY) ?? 'null'); } catch { return null; } })());
+  Object.defineProperty(cloud, 'offline', { get: () => { try { return localStorage.getItem(DOWN_KEY) === '1'; } catch { return false; } }, set: () => undefined });
   cloud.onChange = () => localStorage.setItem(CLOUD_KEY, JSON.stringify(cloud));
   const listeners = new Set<(e: AuthEvent, u: AuthUser | null) => void>();
   const emit = (e: AuthEvent, u: AuthUser | null) => listeners.forEach((l) => l(e, u));
@@ -83,7 +86,7 @@ export function createMockBackend(): Backend {
   // Outils de test (jamais présents en production) : couper le « serveur », altérer une ligne, lire l'état.
   (window as unknown as { __lx: unknown }).__lx = {
     cloud,
-    setServerDown: (v: boolean) => { cloud.offline = v; },
+    setServerDown: (v: boolean) => { if (v) localStorage.setItem(DOWN_KEY, '1'); else localStorage.removeItem(DOWN_KEY); },
     rows: (table: string) => [...cloud.rows(table as never).values()],
     tamper: (table: string, id: string, patch: Record<string, unknown>) => {
       const r = cloud.rows(table as never).get(id);

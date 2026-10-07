@@ -32,7 +32,7 @@ export default defineConfig({
       : []),
   ],
   webServer: {
-    command: 'npm run build && npm run preview',
+    command: 'VITE_BACKEND=mock npm run build && npm run preview',
     url: 'http://localhost:4173',
     reuseExistingServer: !!process.env.REUSE_SERVER, // jamais de serveur périmé par défaut : le build est refait à chaque exécution
     timeout: 120_000,
