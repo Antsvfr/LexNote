@@ -69,8 +69,8 @@ const TYPE_LABELS: Record<SessionType, string> = {
 };
 
 export function sessionLabel(s: Pick<CourseSession, 'number' | 'title' | 'type'>): string {
-  const kind = TYPE_LABELS[s.type];
-  const n = s.number != null && ['CM', 'TD', 'TP'].includes(s.type) ? kind + ' ' + String(s.number).padStart(2, '0') : '';
+  const kind = TYPE_LABELS[s.type ?? 'CM'];
+  const n = s.number != null && ['CM', 'TD', 'TP'].includes((s.type ?? 'CM')) ? kind + ' ' + String(s.number).padStart(2, '0') : '';
   const t = s.title.trim();
   if (n && t) return n + ' — ' + t;
   return n || t || kind + ' sans titre';
@@ -78,7 +78,7 @@ export function sessionLabel(s: Pick<CourseSession, 'number' | 'title' | 'type'>
 
 export function nextSessionNumber(sessions: CourseSession[], moduleId: string | undefined, type: SessionType): number {
   const nums = sessions
-    .filter((s) => s.moduleId === (moduleId ?? '') && s.type === type)
+    .filter((s) => s.moduleId === (moduleId ?? '') && (s.type ?? 'CM') === type)
     .map((s) => s.number ?? 0);
   return (nums.length ? Math.max(...nums) : 0) + 1;
 }
