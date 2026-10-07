@@ -81,7 +81,6 @@ function rowSession(s: CourseSession, userId: string, notes?: NoteDocument): Rec
   };
 }
 
-const field = <T>(r: Record<string, unknown>, k: string, fallback: T): T => (r[k] == null ? fallback : r[k] as T);
 
 function fromSubject(r: Record<string, unknown>): Subject {
   return {
