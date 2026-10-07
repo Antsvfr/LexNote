@@ -71,10 +71,10 @@ export function SettingsPage() {
     if (!token) return toast.error('Session expirée. Reconnectez-vous.');
     setSaving(true);
     try {
-      // On efface d'abord les copies locales du compte courant. La suppression Auth
-      // cascade ensuite toutes les données cloud via les clés étrangères.
-      await lib.wipe();
+      // On supprime d'abord le compte distant. Tant que cette étape n'a pas réussi,
+      // les copies locales restent intactes afin d'éviter toute perte de données.
       await deleteOwnAccount(token);
+      await lib.wipe();
       await clearWorkspace();
       await auth.signOut();
       toast.success('Compte LexNote supprimé.');
