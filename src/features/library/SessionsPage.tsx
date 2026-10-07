@@ -26,8 +26,8 @@ export function SessionsPage() {
   return (
     <div className="page page-enter">
       <header className="page__head">
-        <div><h1>Mes CM</h1><p className="page__sub">{list.length} séance{list.length > 1 ? 's' : ''}</p></div>
-        <button className="btn btn--primary" onClick={() => openNewCm()}><Plus /> Nouveau CM</button>
+        <div><h1>Mes séances</h1><p className="page__sub">{list.length} séance{list.length > 1 ? 's' : ''}</p></div>
+        <button className="btn btn--primary" onClick={() => openNewCm()}><Plus /> Nouvelle séance</button>
       </header>
       <div className="filters">
         <div className="tabs" role="tablist" aria-label="Statut">
@@ -40,7 +40,7 @@ export function SessionsPage() {
         <label className="searchbox"><Search size={16} aria-hidden /><input aria-label="Filtrer par titre" placeholder="Filtrer par titre…" value={q} onChange={(e) => setQ(e.target.value)} /></label>
       </div>
       {list.length === 0
-        ? <div className="panel empty"><strong>Aucun CM</strong>Aucune séance ne correspond.</div>
+        ? <div className="panel empty"><strong>Aucune séance</strong>Aucune séance ne correspond.</div>
         : <ul className="panel rows" style={{ position: 'relative', zIndex: 1 }}>{list.map((s) => <SessionRow key={s.id} session={s} />)}</ul>}
     </div>
   );
