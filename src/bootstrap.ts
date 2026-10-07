@@ -1,21 +1,51 @@
 import { createStorage, requestPersistence, withSync } from '@/services/storage';
 import type { StorageAdapter } from '@/services/storage/types';
-import { seedDemoOnFirstRun } from '@/data/seed';
 import { useLibrary } from '@/store/library';
 import { captureManager } from '@/services/capture/manager';
+import { createCaptureStorage } from '@/services/capture/storage';
+import { CloudSyncEngine, type SyncEngine } from '@/services/sync';
 
 let storage: StorageAdapter | null = null;
+let rawStorage: StorageAdapter | null = null;
+let syncEngine: SyncEngine | null = null;
+let activeUserId: string | null = null;
+
 export const getStorage = (): StorageAdapter => {
   if (!storage) throw new Error('Stockage non initialisé');
   return storage;
 };
 
-/** Démarrage : ouvre le stockage local, installe la démo au premier lancement, charge la bibliothèque. */
-export async function bootstrap(): Promise<void> {
-  storage = withSync(await createStorage());
-  await seedDemoOnFirstRun(storage).catch((e) => console.warn('[LexNote] seed démo ignoré', e));
+export function currentWorkspaceUserId() {
+  return activeUserId;
+}
+
+export async function bootstrapUser(userId: string): Promise<void> {
+  if (activeUserId === userId && storage) return;
+
+  syncEngine?.dispose();
+  activeUserId = userId;
+
+  rawStorage = await createStorage(userId);
+  syncEngine = new CloudSyncEngine(userId, rawStorage);
+
+  // Les écritures locales restent prioritaires. On pousse d'abord la file hors-ligne,
+  // puis on fusionne les données distantes plus récentes, puis on expose l'adapter décoré.
+  await syncEngine.flush().catch(() => undefined);
+  await syncEngine.pull().catch(() => undefined);
+
+  storage = withSync(rawStorage, syncEngine);
   await useLibrary.getState().init(storage);
-  // La capture a sa propre base : si elle est indisponible, les notes fonctionnent quand même.
-  await captureManager.init().catch((e) => console.warn('[LexNote] capture indisponible', e));
+
+  // La capture (audio/transcription) a sa propre base, elle aussi isolée par utilisateur.
+  await captureManager.init(await createCaptureStorage(userId)).catch((e) => console.warn('[LexNote] capture indisponible', e));
   void requestPersistence();
+}
+
+export async function clearWorkspace(): Promise<void> {
+  syncEngine?.dispose();
+  syncEngine = null;
+  activeUserId = null;
+  storage = null;
+  rawStorage = null;
+  useLibrary.getState().reset();
 }
