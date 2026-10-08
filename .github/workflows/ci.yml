@@ -1,0 +1,32 @@
+name: LexNote CI
+
+# Chaîne officielle de PR empilées (#3 → #8 …) : la CI tourne sur TOUTE pull request, quelle que soit sa branche de base, et sur `main`.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test                      # Vitest : unitaires + Postgres réel (PGlite) : RLS, chaîne de migrations, réconciliation
+      - run: npm run build                 # build de production (sans backend simulé)
+      - run: node scripts/build-integration-bundle.mjs --check --revem /nonexistent   # le paquet d'intégration versionné correspond à src/integration
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e              # reconstruit en VITE_BACKEND=mock puis exécute Playwright (Chromium)

@@ -1,7 +1,6 @@
 # Mise en production — liaison REV-EM ⇄ LexNote
 
-> **État honnête de cette étape.** Tout ce qui peut être préparé et validé *hors* des projets Supabase l'est (code, migrations durcies, outils, audit SQL,
-> auto-test du test de bout en bout). **Rien n'a été appliqué ni déployé sur les vrais projets** : l'environnement de développement n'a ni accès réseau à
+> **État production partiel.** La réconciliation LexNote a été appliquée sur le vrai projet Supabase, les migrations officielles ont été appliquées, `verify-schema` = 13/13 et `verify-db` = 24/24. Les fonctions `delete-account`, `integration-link` et `integration-gateway` ont été déployées sur LexNote ; `integration-link` et `integration-gateway` ont aussi été déployées sur REV-EM. Les secrets `INTEGRATION_*`, les Redirect URLs Auth et le test réel A/B restent à finaliser. L'environnement Claude d'origine n'avait pas accès à
 > `*.supabase.co` / `api.supabase.com` / `vercel.app`, ni jeton Supabase, ni références de projet. Ce document est la procédure exacte pour le faire (≈ 30 min)
 > et pour prouver que « un vrai compte REV-EM peut être connecté à un vrai compte LexNote en production ».
 
@@ -22,11 +21,14 @@ export LEX_REF=…  REV_REF=…
 LexNote est une **chaîne de PR empilées** (chacune a pour base la précédente) :
 `main ← #3 comptes/sync ← #4 supports d'étude ← #6 moteur de cours ← #7 StudyArtifacts ← PR intégration`.
 **L'intégration dépend de #3 (Supabase/Auth/RLS) et de #7 (types `StudyArtifact` utilisés par les références)** : elle ne peut être fusionnée **qu'après** #3 → #4 → #6 → #7,
-dans cet ordre (GitHub reciblera chaque PR sur `main` quand sa base sera fusionnée et sa branche supprimée). La PR #5 (`chatgpt/lexnote-multiuser`, autre auteur, base `main`)
-**recoupe #3** (auth, sync, CM/TD/TP) : à trancher avant toute fusion — ne pas fusionner #3 et #5 ensemble.
+dans cet ordre (GitHub reciblera chaque PR sur `main` quand sa base sera fusionnée et sa branche supprimée). La PR #5 (`chatgpt/lexnote-multiuser`) est **SUPERSEDED** (décision validée) : elle ne sera jamais fusionnée ; elle peut être fermée sans perte (voir `docs/SCHEMA_RECONCILIATION.md` §1).
 La PR REV-EM est **indépendante** (base `main`) ; la déployer avant ou après LexNote est indifférent, les deux côtés restent fonctionnels seuls.
 
 ## 2. Migrations (une fois par projet)
+
+> **Le projet LexNote existant porte l'ancien schéma expérimental (PR #5, SUPERSEDED).** Ne lancez PAS `20261007…lexnote_init.sql` dessus : suivez d'abord
+> [`docs/SCHEMA_RECONCILIATION.md`](SCHEMA_RECONCILIATION.md) §3 (quarantaine `001` → les 7 migrations officielles ci-dessous → `002` profils → `verify-official-schema.sql`).
+> Pour un projet vierge, appliquer directement les 7 migrations. Il n'existe qu'**une** architecture : la chaîne #3 → #8.
 
 ```bash
 # LexNote — dépôt lexnote
@@ -37,7 +39,7 @@ node scripts/prod/supabase-admin.mjs verify-db --project $LEX_REF            # 2
 node scripts/prod/supabase-admin.mjs apply-sql --project $REV_REF --file ../rev-em/supabase/migrations/006_integration_links.sql --apply
 node scripts/prod/supabase-admin.mjs verify-db --project $REV_REF
 ```
-Prérequis : les migrations précédentes de chaque projet sont déjà appliquées (LexNote `…20261010…`, REV-EM `000`–`005`). Alternative sans l'outil : coller le SQL dans *SQL Editor*,
+Prérequis : les migrations précédentes de chaque projet sont déjà appliquées (LexNote `…20261007` à `…20261010…` — ou la réconciliation —, REV-EM `000`–`005`). Appliquer ensuite `20261012000000_fk_indexes.sql` puis `20261013000000_security_hardening.sql` sur LexNote. Contrôle global du schéma LexNote : `node scripts/prod/supabase-admin.mjs verify-schema --project $LEX_REF` (13 PASS). Alternative sans l'outil : coller le SQL dans *SQL Editor*,
 puis coller `scripts/prod/verify-db.sql`. `verify-db.sql` contrôle : 3 tables, RLS **et FORCE RLS**, grants (anon/PUBLIC/authenticated), colonnes de références illisibles, policies (`(select auth.uid())`),
 fonctions `SECURITY DEFINER` + `search_path` figé + droits d'exécution, contraintes d'unicité, index (dont clés étrangères), `ON DELETE CASCADE`, absence de colonne e-mail/jeton.
 Il est lui-même testé : vert sur les deux migrations, rouge quand on dégrade la sécurité (`tests/db/verify-db.test.ts`).

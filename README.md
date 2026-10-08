@@ -98,6 +98,7 @@ supabase/          Migration SQL + Edge Function delete-account
 ## Comptes, espaces personnels et synchronisation
 
 - **Comptes** : Supabase Auth (e-mail + mot de passe). **Projet Supabase dédié** à LexNote — voir [`SUPABASE_SETUP.md`](./SUPABASE_SETUP.md) (étapes manuelles, sécurité, check-list).
+- **Une seule architecture officielle** : la chaîne de PR #3 → #8 (client `supabase-js`, `SyncEngine` local-first, schéma `supabase/migrations/`). L'ancienne PR #5 est *supersédée* (jamais fusionnée) ; un projet qui porte son schéma se remet en conformité avec [`docs/SCHEMA_RECONCILIATION.md`](docs/SCHEMA_RECONCILIATION.md).
 - **Espace strictement personnel** : sécurité garantie **par la base** (RLS forcée, politiques par table, clés étrangères composites), testée sur un vrai Postgres (`tests/db`). Côté navigateur, chaque compte a ses propres bases IndexedDB (`lexnote-u-<id>`, `lexnote-capture-u-<id>`) ; la déconnexion ferme et vide tout.
 - **Local-first** : toute écriture va d'abord dans IndexedDB (jamais bloquée par le réseau), puis le moteur de synchronisation (`src/services/sync`) envoie les lignes « à synchroniser » (verrou optimiste par `version`, suppressions par pierres tombales, parents avant enfants) et reçoit les changements des autres appareils (curseur `server_updated_at`). Un conflit sur les notes **conserve les deux versions** — jamais d'écrasement silencieux.
 - **Aucune donnée de démonstration** : un nouvel utilisateur arrive sur un espace vide (onboarding en 3 étapes, facultatif).
