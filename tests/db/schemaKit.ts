@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
 
 export const MIGRATIONS_DIR = 'supabase/migrations';
-/** L'ordre EXACT et COMPLET de la chaîne officielle #3 → #8 (+ index de clés étrangères). Toute migration future s'ajoute ici. */
+/** L'ordre EXACT et COMPLET de la chaîne officielle #3 → #9 (+ hardening production). Toute migration future s'ajoute ici. */
 export const OFFICIAL_MIGRATIONS = [
   '20261007000000_lexnote_init.sql',
   '20261008000000_study_artifacts.sql',
@@ -11,6 +11,7 @@ export const OFFICIAL_MIGRATIONS = [
   '20261010000000_study_artifacts_from_course.sql',
   '20261011000000_integration_links.sql',
   '20261012000000_fk_indexes.sql',
+  '20261013000000_security_hardening.sql',
 ] as const;
 export const A = '11111111-1111-4111-8111-111111111111';
 export const B = '22222222-2222-4222-8222-222222222222';
