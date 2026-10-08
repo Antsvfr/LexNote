@@ -54,11 +54,11 @@ Deux Edge Functions : `integration-link` (appelée par le navigateur avec le JWT
 supabase functions deploy integration-link
 supabase functions deploy integration-gateway --no-verify-jwt     # la signature HMAC remplace le JWT, uniquement pour cette fonction
 supabase secrets set INTEGRATION_ENV=production INTEGRATION_KEY_ID=k1 INTEGRATION_KEY=<MÊME clé que REV-EM, ≥ 32 car., openssl rand -base64 48> \
-  INTEGRATION_SELF_APP_URL=https://<domaine officiel de LexNote>/ \
+  INTEGRATION_SELF_APP_URL=https://lex-note-svfr.vercel.app/ \
   INTEGRATION_PEER_APP_URL=https://antsvfr.github.io/REV-EM/ \
   INTEGRATION_PEER_GATEWAY_URL=https://<réf-projet-REV-EM>.supabase.co/functions/v1/integration-gateway
 ```
-La clé reste dans les secrets Supabase : **jamais** dans Vercel, dans le dépôt ni dans le navigateur. Détails : `docs/REVEM_LEXNOTE_INTEGRATION.md` §11.
+Procédure complète, vérifications et tests d'attaque : `docs/PRODUCTION_RUNBOOK.md`. La clé reste dans les secrets Supabase : **jamais** dans Vercel, dans le dépôt ni dans le navigateur. Détails : `docs/REVEM_LEXNOTE_INTEGRATION.md` §11.
 
 ### 2 ter. Moteur de cours distant (facultatif — sans lui, le moteur local est utilisé)
 

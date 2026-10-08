@@ -96,7 +96,9 @@ describe.each([['lexnote', U.lexA, U.lexB], ['revem', U.revemA, U.revemB]] as co
     const g = await db.query<{ grantee: string; privilege_type: string }>(`select grantee, privilege_type from information_schema.role_table_grants where table_name like 'integration\_%' and grantee in ('anon', 'PUBLIC')`);
     expect(g.rows).toEqual([]);
     const policies = await db.query<{ cmd: string; tablename: string }>(`select tablename, cmd from pg_policies where tablename like 'integration\_%'`);
-    expect(policies.rows).toEqual([{ tablename: 'integration_links', cmd: 'SELECT' }]);       // une seule policy, en lecture, sur la ligne de l'utilisateur
+    expect(policies.rows.sort((a, b) => a.tablename.localeCompare(b.tablename))).toEqual([{ tablename: 'integration_link_intents', cmd: 'ALL' }, { tablename: 'integration_links', cmd: 'SELECT' }, { tablename: 'integration_nonces', cmd: 'ALL' }]);   // lecture de SA ligne + refus explicite pour intentions / nonces
+    const pol = await db.query<{ qual: string }>(`select qual from pg_policies where tablename = 'integration_links'`);
+    expect(pol.rows[0]!.qual).toMatch(/SELECT auth\.uid\(\)/i);                               // initplan : (select auth.uid())
   });
   it('suppression du compte → liaisons, intentions supprimées en cascade (aucune donnée orpheline)', async () => {
     await db.query('delete from auth.users where id = $1', [B]);

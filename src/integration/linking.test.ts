@@ -4,7 +4,7 @@ import { KEY, EMAIL, U, makeWorld, type World } from './testkit';
 import { H } from './signing';
 import { handleGatewayRequest } from './gateway';
 import { findSecrets } from './security';
-import { INTEGRATION_VERSION, makeEnvelope, signRequest, readIntegrationConfig } from './index';
+import { INTEGRATION_VERSION, OFFICIAL_APP_URLS, PRODUCTION_ORIGINS, corsHeadersFor, makeEnvelope, signRequest, readBrowserOrigins, readIntegrationConfig } from './index';
 
 let w: World;
 beforeAll(async () => { w = await makeWorld(); }, 60_000);
@@ -361,8 +361,33 @@ describe('configuration des origines', () => {
   it('production : origines officielles ; développement : localhost autorisé, dont les ports connus', () => {
     const prod = read({})();
     expect(prod.selfOrigins).toEqual(['https://antsvfr.github.io']);
+    expect(readBrowserOrigins('lexnote', () => undefined)).toEqual(['https://lex-note-svfr.vercel.app']);                  // défaut = domaine officiel, sans variable
+    expect(readBrowserOrigins('revem', () => undefined)).toEqual(['https://antsvfr.github.io']);
+    expect(PRODUCTION_ORIGINS.lexnote).not.toContain('*'); expect(OFFICIAL_APP_URLS).toEqual({ lexnote: 'https://lex-note-svfr.vercel.app/', revem: 'https://antsvfr.github.io/REV-EM/' });
+    // production : localhost n'est jamais accepté, même sans variable ; développement : explicite
+    expect(readBrowserOrigins('lexnote', () => undefined).some((o) => o.includes('localhost'))).toBe(false);
+    expect(readBrowserOrigins('lexnote', (k) => ({ INTEGRATION_ENV: 'development' } as Record<string, string>)[k])).toEqual(expect.arrayContaining(['https://lex-note-svfr.vercel.app', 'http://localhost:5173', 'http://localhost:4173']));
+    expect(() => readBrowserOrigins('lexnote', (k) => ({ INTEGRATION_ALLOWED_ORIGINS: 'https://*' } as Record<string, string>)[k])).toThrow();
     const dev = read({ INTEGRATION_ENV: 'development', INTEGRATION_PEER_APP_URL: 'http://localhost:5173/', INTEGRATION_PEER_GATEWAY_URL: 'http://localhost:54321/functions/v1/integration-gateway' })();
     expect(dev.selfOrigins).toEqual(expect.arrayContaining(['https://antsvfr.github.io', 'http://localhost:8080']));
     expect(dev.selfOrigins.some((o) => o === '*')).toBe(false);
+  });
+});
+
+describe('CORS partagé (delete-account et fonctions d’intégration)', () => {
+  const origins = readBrowserOrigins('lexnote', () => undefined);
+  it('écho exact de l’origine officielle ; aucune autorisation pour le reste ; jamais « * »', () => {
+    expect(corsHeadersFor(origins, 'https://lex-note-svfr.vercel.app')['Access-Control-Allow-Origin']).toBe('https://lex-note-svfr.vercel.app');
+    for (const bad of ['https://evil.example', 'https://lex-note-svfr.vercel.app.evil.io', 'http://lex-note-svfr.vercel.app', 'http://localhost:5173', 'null', null]) expect(corsHeadersFor(origins, bad)['Access-Control-Allow-Origin']).toBeUndefined();
+    expect(Object.values(corsHeadersFor(origins, 'https://evil.example')).join(' ')).not.toContain('*');
+  });
+  it('delete-account : plus de joker, logique de suppression inchangée', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync('supabase/functions/delete-account/index.ts', 'utf8').replace(/\/\/.*$/gm, '');
+    expect(src).not.toMatch(/Allow-Origin['"]?\s*:\s*['"]\*['"]/);
+    expect(src).toContain('readBrowserOrigins(');
+    expect(src).toContain('asUser.auth.getUser()');                                   // identité issue du jeton
+    expect(src).toContain('admin.auth.admin.deleteUser(data.user.id)');               // supprime CET utilisateur uniquement
+    expect(src).not.toMatch(/req\.json\(|body\./);                                    // jamais d'identifiant fourni dans le corps
   });
 });

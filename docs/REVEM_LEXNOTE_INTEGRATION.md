@@ -359,7 +359,7 @@ fonctions `integration_*` en `SECURITY DEFINER` à `search_path` figé et réser
 ### 11.8 Domaines
 
 Centralisés dans `src/integration/config.ts` et les variables `INTEGRATION_*` : développement = `localhost` LexNote (5173/4173) et REV-EM (8080/3000) ;
-production = `https://antsvfr.github.io` (REV-EM) et l'URL fournie pour LexNote. Refusés : `*`, `http` hors développement, identifiants dans l'URL, `localhost` en production.
+production = `https://antsvfr.github.io` (REV-EM, app `https://antsvfr.github.io/REV-EM/`) et `https://lex-note-svfr.vercel.app` (LexNote), codés comme défauts de `PRODUCTION_ORIGINS` / `OFFICIAL_APP_URLS`. La même liste blanche (`readBrowserOrigins`) protège `delete-account`. Procédure de mise en production : `docs/PRODUCTION_RUNBOOK.md`. Refusés : `*`, `http` hors développement, identifiants dans l'URL, `localhost` en production.
 
 ### 11.9 Secrets (par projet Supabase, jamais dans un frontend)
 

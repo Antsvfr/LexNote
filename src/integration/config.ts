@@ -17,11 +17,16 @@ export const DEV_ORIGINS: Record<IntegrationApp, readonly string[]> = {
   lexnote: ['http://localhost:5173', 'http://localhost:4173', 'http://127.0.0.1:5173', 'http://127.0.0.1:4173'],
   revem: ['http://localhost:8080', 'http://localhost:3000', 'http://127.0.0.1:8080', 'http://127.0.0.1:3000'],
 };
-/**
- * Origines OFFICIELLES de production connues. REV-EM est publié sur GitHub Pages ; l'adresse officielle de LexNote n'est pas encore figée :
- * elle est fournie par `INTEGRATION_SELF_APP_URL` (LexNote) / `INTEGRATION_PEER_APP_URL` (REV-EM) — jamais devinée.
- */
-export const PRODUCTION_ORIGINS: Partial<Record<IntegrationApp, readonly string[]>> = { revem: ['https://antsvfr.github.io'] };
+/** Origines OFFICIELLES de production (seules origines navigateur acceptées en production, avec celles ajoutées explicitement par l'opérateur). */
+export const PRODUCTION_ORIGINS: Record<IntegrationApp, readonly string[]> = {
+  lexnote: ['https://lex-note-svfr.vercel.app'],
+  revem: ['https://antsvfr.github.io'],
+};
+/** URLs complètes officielles (avec chemin) : valeurs à poser dans INTEGRATION_SELF_APP_URL / INTEGRATION_PEER_APP_URL. */
+export const OFFICIAL_APP_URLS: Record<IntegrationApp, string> = {
+  lexnote: 'https://lex-note-svfr.vercel.app/',
+  revem: 'https://antsvfr.github.io/REV-EM/',
+};
 
 export interface IntegrationConfig {
   self: IntegrationApp;
@@ -57,6 +62,23 @@ export function checkOrigin(value: string, env: IntegrationEnvironment): string 
   return cfgError(`origine non sécurisée « ${u.origin} » (https requis${local ? ' ; localhost réservé au développement' : ''})`);
 }
 
+/**
+ * Origines NAVIGATEUR autorisées pour les fonctions appelées depuis le front de `self` (CORS, liste blanche stricte).
+ * Ne dépend d'aucune clé : utilisable par n'importe quelle Edge Function (ex. `delete-account`).
+ * production : origine officielle + INTEGRATION_SELF_APP_URL + INTEGRATION_ALLOWED_ORIGINS ; development : localhost explicite en plus.
+ */
+export function readBrowserOrigins(self: IntegrationApp, src: EnvSource): string[] {
+  const get = (k: string) => (src(k) ?? '').trim();
+  const env = (get('INTEGRATION_ENV') || 'production') as IntegrationEnvironment;
+  if (env !== 'development' && env !== 'production') cfgError('INTEGRATION_ENV doit valoir development ou production');
+  const out = new Set<string>();
+  for (const o of PRODUCTION_ORIGINS[self]) out.add(checkOrigin(o, env));
+  if (get('INTEGRATION_SELF_APP_URL')) out.add(checkOrigin(new URL(get('INTEGRATION_SELF_APP_URL')).origin, env));
+  for (const o of get('INTEGRATION_ALLOWED_ORIGINS').split(/[\s,]+/).filter(Boolean)) out.add(checkOrigin(o, env));
+  if (env === 'development') for (const o of DEV_ORIGINS[self]) out.add(o);
+  return [...out];
+}
+
 export function readIntegrationConfig(self: IntegrationApp, src: EnvSource): IntegrationConfig {
   const get = (k: string) => (src(k) ?? '').trim();
   const req = (k: string) => get(k) || cfgError(`variable ${k} manquante`);
@@ -72,10 +94,7 @@ export function readIntegrationConfig(self: IntegrationApp, src: EnvSource): Int
   checkOrigin(gw.origin, env);
   if (gw.search || gw.hash) cfgError('URL de passerelle avec paramètres');
 
-  const extra = get('INTEGRATION_ALLOWED_ORIGINS').split(/[\s,]+/).filter(Boolean);
-  const selfOrigins = new Set<string>([checkOrigin(selfAppUrl.origin, env), ...extra.map((o) => checkOrigin(o, env))]);
-  if (env === 'development') for (const o of DEV_ORIGINS[self]) selfOrigins.add(o);
-  else for (const o of PRODUCTION_ORIGINS[self] ?? []) selfOrigins.add(checkOrigin(o, env));
+  const selfOrigins = new Set<string>(readBrowserOrigins(self, src));
 
   const keyId = req('INTEGRATION_KEY_ID');
   const keys: Record<string, string> = {};
@@ -93,4 +112,10 @@ export function readIntegrationConfig(self: IntegrationApp, src: EnvSource): Int
 }
 
 /** CORS : renvoie l'origine SI elle est autorisée, sinon null. Jamais de joker, jamais d'écho aveugle. */
-export const allowedBrowserOrigin = (cfg: IntegrationConfig, origin: string | null): string | null => (origin && cfg.selfOrigins.includes(origin) ? origin : null);
+export const allowedBrowserOrigin = (cfg: Pick<IntegrationConfig, 'selfOrigins'>, origin: string | null): string | null => (origin && cfg.selfOrigins.includes(origin) ? origin : null);
+
+/** En-têtes CORS pour une réponse à un navigateur : écho EXACT d'une origine autorisée, sinon aucun en-tête d'autorisation. Jamais « * ». */
+export function corsHeadersFor(origins: readonly string[], origin: string | null): Record<string, string> {
+  const base = { 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS', Vary: 'Origin' };
+  return origin && origins.includes(origin) ? { 'Access-Control-Allow-Origin': origin, ...base } : base;
+}
