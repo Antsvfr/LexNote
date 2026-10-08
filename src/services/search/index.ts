@@ -1,5 +1,6 @@
 import type { CourseSession, LibrarySnapshot, Module, Subject } from '@/domain/types';
 import { normalize } from '@/lib/text';
+import { sessionLabel } from '@/domain/session';
 
 export type SearchHitKind = 'subject' | 'module' | 'session';
 export type MatchField = 'name' | 'title' | 'content';
@@ -72,10 +73,10 @@ export class TextSearchProvider implements SearchProvider {
       }
     }
     for (const s of lib.sessions) {
-      const mod = modules.get(s.moduleId);
+      const mod = s.moduleId ? modules.get(s.moduleId) : undefined;
       const subj = subjects.get(s.subjectId);
       const context = [subj?.name, mod?.name].filter(Boolean).join(' › ');
-      const label = s.number != null ? `CM ${String(s.number).padStart(2, '0')} — ${s.title}` : s.title;
+      const label = sessionLabel(s);
       const titleNorm = normalize(label);
       if (all(titleNorm)) {
         hits.push({ kind: 'session', id: s.id, title: label, context, snippet: s.excerpt, matchedIn: 'title', score: 90, href: `/session/${s.id}` });

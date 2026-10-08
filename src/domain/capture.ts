@@ -39,8 +39,10 @@ export interface RecordingRun {
 }
 
 export interface AudioSession {
-  /** = id du CM (une seule AudioSession par CM). */
+  /** = id de la séance (une seule AudioSession par séance). */
   id: string;
+  userId?: string;
+  dirty?: boolean;
   sessionId: string;
   /** Epoch ms du premier démarrage. */
   originAt: number;
@@ -77,6 +79,8 @@ export interface AudioChunk {
 
 export interface TranscriptSegment {
   id: string;
+  userId?: string;
+  dirty?: boolean;
   sessionId: string;
   startMs: number;
   endMs: number;
@@ -103,6 +107,8 @@ export const MARKER_REASONS: { id: MarkerReason; label: string }[] = [
 
 export interface TimelineMarker {
   id: string;
+  userId?: string;
+  dirty?: boolean;
   sessionId: string;
   atMs: number;
   reasons: MarkerReason[];
@@ -123,6 +129,8 @@ export type InterruptionKind =
 
 export interface Interruption {
   id: string;
+  userId?: string;
+  dirty?: boolean;
   sessionId: string;
   atMs: number;
   kind: InterruptionKind;
@@ -135,6 +143,8 @@ export interface Interruption {
 /** Lien métadonnée « mes notes ↔ ce que disait le professeur ». Jamais écrit dans le texte des notes. */
 export interface NoteAnchor {
   id: string;
+  userId?: string;
+  dirty?: boolean;
   sessionId: string;
   /** Instant d'écriture (ms CM). */
   timestamp: number;

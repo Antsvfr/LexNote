@@ -1,8 +1,9 @@
 import { useEffect, useMemo } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { Command, FolderTree, GraduationCap, Home, Library, Plus, Search, Settings, X } from 'lucide-react';
+import { Brain, Command, FolderTree, GraduationCap, Home, Library, Plus, Search, Settings, X } from 'lucide-react';
 import { LogoMark } from './Logo';
 import { AppHeader } from './AppHeader';
+import { SyncIndicator } from './SyncIndicator';
 import { SubjectDot } from './SubjectDot';
 import { useLibrary } from '@/store/library';
 import { useUI } from '@/store/ui';
@@ -42,7 +43,8 @@ export function AppShell() {
         <nav className="nav" aria-label="Sections">
           <NavLink to="/" end className={navClass}><Home /> Accueil</NavLink>
           <NavLink to="/subjects" className={navClass}><FolderTree /> Mes matières</NavLink>
-          <NavLink to="/sessions" className={navClass}><Library /> Mes CM</NavLink>
+          <NavLink to="/sessions" className={navClass}><Library /> Mes séances</NavLink>
+          <NavLink to="/supports" className={navClass} data-testid="nav-supports"><Brain /> Mes supports</NavLink>
           <NavLink to="/search" className={navClass}><Search /> Recherche</NavLink>
           <button className="nav__item" onClick={() => setPalette(true)} data-testid="nav-commands">
             <Command /> Commandes <kbd className="kbd-hint">{modKeyLabel} K</kbd>
@@ -57,7 +59,7 @@ export function AppShell() {
           {sorted.length === 0 && <p className="muted" style={{ padding: '0 12px', fontSize: 13 }}>Aucune matière pour l’instant.</p>}
           {sorted.map((s) => (
             <NavLink key={s.id} to={`/subjects/${s.id}`} className={(p) => `${navClass(p)} subject-link`}>
-              <SubjectDot color={s.color} />
+              <SubjectDot color={s.color} icon={s.icon} />
               <span className="truncate">{s.name}</span>
               <span className="count">{counts.get(s.id) ?? 0}</span>
             </NavLink>
@@ -70,9 +72,10 @@ export function AppShell() {
             <span className="revem__icon"><GraduationCap size={20} /></span>
             <span><strong>REV-EM</strong><small>Connexion bientôt disponible</small></span>
           </div>
-          <div className="sidebar__sync" title="Vos notes restent sur cet appareil. Aucune donnée n’est envoyée.">
+          <SyncIndicator />
+          <div className="sidebar__sync" title="Vos notes sont d’abord enregistrées sur cet appareil, puis synchronisées avec votre compte.">
             <span className={`status-dot${persistent ? '' : ' is-warn'}`} aria-hidden />
-            {persistent ? 'Stockage local · hors ligne' : 'Stockage temporaire !'}
+            {persistent ? 'Enregistré sur cet appareil' : 'Stockage temporaire !'}
           </div>
           <NavLink to="/settings" className={navClass}><Settings /> Réglages</NavLink>
         </div>
@@ -90,7 +93,7 @@ export function AppShell() {
       <nav className="tabbar" aria-label="Navigation mobile">
         <NavLink to="/" end className={({ isActive }) => (isActive ? 'is-active' : '')}><Home />Accueil</NavLink>
         <NavLink to="/subjects" className={({ isActive }) => (isActive ? 'is-active' : '')}><FolderTree />Matières</NavLink>
-        <NavLink to="/sessions" className={({ isActive }) => (isActive ? 'is-active' : '')}><Library />CM</NavLink>
+        <NavLink to="/sessions" className={({ isActive }) => (isActive ? 'is-active' : '')}><Library />Séances</NavLink>
         <NavLink to="/search" className={({ isActive }) => (isActive ? 'is-active' : '')}><Search />Recherche</NavLink>
         <NavLink to="/settings" className={({ isActive }) => (isActive ? 'is-active' : '')}><Settings />Réglages</NavLink>
       </nav>

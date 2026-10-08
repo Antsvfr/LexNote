@@ -11,6 +11,8 @@ import type { StorageInfo } from './quota';
 import type { CaptureStorage } from './storage/types';
 
 export interface CaptureDeps {
+  /** Propriétaire des données capturées. */
+  userId?: string;
   storage: CaptureStorage;
   getUserMedia: (c: MediaStreamConstraints) => Promise<MediaStream>;
   MediaRecorderCtor?: typeof MediaRecorder;
@@ -168,7 +170,7 @@ export class CaptureController {
     if (!this.audio) {
       const t = new Date(now).toISOString();
       this.audio = {
-        id: this.sessionId, sessionId: this.sessionId, originAt: now, mimeType: '', bitsPerSecond: DEFAULT_BITS_PER_SECOND,
+        id: this.sessionId, userId: this.deps.userId, sessionId: this.sessionId, originAt: now, mimeType: '', bitsPerSecond: DEFAULT_BITS_PER_SECOND,
         chunkMs: deps.chunkMs ?? DEFAULT_CHUNK_MS, keepAudio: settings.keepAudio, providerId: null, runs: [],
         status: 'STARTING', createdAt: t, updatedAt: t,
       };
@@ -303,7 +305,7 @@ export class CaptureController {
   mark(reasons: MarkerReason[] = [], note?: string): TimelineMarker | null {
     if (!this.audio || this.status !== 'RECORDING') return null;
     const marker: TimelineMarker = {
-      id: newId('mk'), sessionId: this.sessionId, atMs: this.cmNow(), reasons, note, createdAt: new Date(this.deps.now()).toISOString(),
+      id: newId('mk'), userId: this.deps.userId, sessionId: this.sessionId, atMs: this.cmNow(), reasons, note, createdAt: new Date(this.deps.now()).toISOString(),
     };
     this.markers = [...this.markers, marker].sort((a, b) => a.atMs - b.atMs);
     this.emit({ type: 'marker', marker });
@@ -331,7 +333,7 @@ export class CaptureController {
     if (!this.audio || this.status !== 'RECORDING') return null;
     const ts = input.at !== undefined ? Math.max(0, input.at - this.audio.originAt) : this.cmNow();
     const anchor: NoteAnchor = {
-      id: newId('an'), sessionId: this.sessionId, timestamp: ts, notePosition: input.notePosition,
+      id: newId('an'), userId: this.deps.userId, sessionId: this.sessionId, timestamp: ts, notePosition: input.notePosition,
       textSnippet: input.textSnippet.slice(0, 120), nearbyTranscriptSegmentIds: nearbySegmentIds(this.segments, ts),
       createdAt: new Date(this.deps.now()).toISOString(),
     };
@@ -376,7 +378,7 @@ export class CaptureController {
     const text = d.text.trim();
     if (!text) return;
     const seg: TranscriptSegment = {
-      id: newId('seg'), sessionId: this.sessionId, startMs: d.startMs, endMs: Math.max(d.endMs, d.startMs), text,
+      id: newId('seg'), userId: this.deps.userId, sessionId: this.sessionId, startMs: d.startMs, endMs: Math.max(d.endMs, d.startMs), text,
       confidence: d.confidence, provider: this.provider?.id ?? this.audio?.providerId ?? 'unknown',
       status: 'final', source: 'TRANSCRIPTION', verification: 'UNVERIFIED', createdAt: new Date(this.deps.now()).toISOString(),
     };
@@ -531,7 +533,7 @@ export class CaptureController {
 
   private async addInterruption(kind: InterruptionKind, message: string, recoverable: boolean, atMs?: number) {
     if (!this.audio) return;
-    const it: Interruption = { id: newId('int'), sessionId: this.sessionId, atMs: atMs ?? this.cmNow(), kind, message, recoverable };
+    const it: Interruption = { id: newId('int'), userId: this.deps.userId, sessionId: this.sessionId, atMs: atMs ?? this.cmNow(), kind, message, recoverable };
     this.interruptions = [...this.interruptions, it];
     if (kind === 'provider' || kind === 'network') this.openProviderInterruption = it;
     this.emit({ type: 'interruption', interruption: it });
@@ -581,7 +583,7 @@ export class CaptureController {
     if (gap > (this.deps.sleepGapMs ?? 5000)) {
       const at = this.cmNow() - gap;
       const it: Interruption = {
-        id: newId('int'), sessionId: this.sessionId, atMs: at, kind: 'system-sleep', recoverable: true, resolvedAtMs: this.cmNow(),
+        id: newId('int'), userId: this.deps.userId, sessionId: this.sessionId, atMs: at, kind: 'system-sleep', recoverable: true, resolvedAtMs: this.cmNow(),
         message: `Mise en veille détectée (~${Math.round(gap / 1000)} s sans enregistrement).`,
       };
       this.interruptions = [...this.interruptions, it];

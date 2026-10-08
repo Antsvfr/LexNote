@@ -1,7 +1,7 @@
 # LexNote
 
 > L'assistant de prise de notes pour les cours magistraux — pensé pour le droit.
-> **Local-first** · **PWA installable** · **hors connexion** · aucune donnée envoyée sur Internet.
+> **Local-first** · **PWA installable** · **hors connexion** · comptes personnels · synchronisation chiffrée en transit (Supabase, RLS).
 
 LexNote est une application **totalement indépendante** (aucune dépendance à un autre projet). Cette V1 « Fondation » pose le socle technique, visuel et architectural : un vrai éditeur de CM, un stockage local robuste, et des emplacements propres pour la transcription, l'IA et la synchronisation — **sans simuler** ce qui n'existe pas encore.
 
@@ -43,7 +43,8 @@ npm run test:e2e     # tests bout en bout (Playwright, construit et sert l'app)
 ```
 
 Pour les tests e2e, Playwright doit trouver un Chromium. Si besoin : `CHROMIUM_PATH=/chemin/vers/chrome npm run test:e2e`.
-Variable d'environnement : `VITE_SEED_DEMO=false` désactive les données de démonstration au premier lancement.
+Variables d'environnement : `VITE_SUPABASE_URL` et `VITE_SUPABASE_ANON_KEY` (voir `.env.example` et `SUPABASE_SETUP.md`) ; `VITE_BACKEND=mock` pour un backend simulé (tests e2e, développement hors ligne).
+Les tests e2e construisent automatiquement l'application avec `VITE_BACKEND=mock` ; les tests de sécurité de la base (`tests/db`) tournent sur un vrai Postgres (PGlite) dans `npm test`.
 
 ## Architecture
 
@@ -77,22 +78,92 @@ Chaîne de persistance : **frappe → autosave (debounce 500 ms, max 4 s) → In
 src/
   domain/          Modèle de données et règles métier pures (legal.ts = fiabilité juridique)
   services/        Interfaces + implémentations (storage, ai, transcription, documents, search, sync)
-  store/           Stores Zustand (library, ui, toasts, editorBridge)
+  store/           Stores Zustand (auth, library, sync, ui, toasts, editorBridge)
   features/
+    auth/          Connexion, inscription, onboarding, garde des routes
     dashboard/     Accueil
-    library/       Matières, modules, liste des CM, dialogue « Nouveau CM »
+    library/       Matières, modules, liste des CM, dialogues « Nouvelle séance » et « Matière »
     editor/        Éditeur : extensions TipTap, barre d'actions, autosave, chrono, panneau assistant
     recap/         Page « Terminer le CM »
     search/        Recherche globale
     palette/       Palette de commandes (Cmd/Ctrl+K)
-    settings/      Thème, installation, export, démo
+    settings/      Compte, thème, installation, export
   components/      Primitives UI réutilisables (Modal, Toasts, Logo…)
-  data/            Données de démonstration — ISOLÉES, aucune logique applicative n'en dépend
   styles/          Tokens, base, UI, mise en page, pages, éditeur
-tests/e2e/         Parcours Playwright
+tests/e2e/         Parcours Playwright (backend simulé)
+tests/db/          Tests RLS sur un vrai Postgres (PGlite)
+supabase/          Migration SQL + Edge Function delete-account
 ```
 
+## Comptes, espaces personnels et synchronisation
+
+- **Comptes** : Supabase Auth (e-mail + mot de passe). **Projet Supabase dédié** à LexNote — voir [`SUPABASE_SETUP.md`](./SUPABASE_SETUP.md) (étapes manuelles, sécurité, check-list).
+- **Espace strictement personnel** : sécurité garantie **par la base** (RLS forcée, politiques par table, clés étrangères composites), testée sur un vrai Postgres (`tests/db`). Côté navigateur, chaque compte a ses propres bases IndexedDB (`lexnote-u-<id>`, `lexnote-capture-u-<id>`) ; la déconnexion ferme et vide tout.
+- **Local-first** : toute écriture va d'abord dans IndexedDB (jamais bloquée par le réseau), puis le moteur de synchronisation (`src/services/sync`) envoie les lignes « à synchroniser » (verrou optimiste par `version`, suppressions par pierres tombales, parents avant enfants) et reçoit les changements des autres appareils (curseur `server_updated_at`). Un conflit sur les notes **conserve les deux versions** — jamais d'écrasement silencieux.
+- **Aucune donnée de démonstration** : un nouvel utilisateur arrive sur un espace vide (onboarding en 3 étapes, facultatif).
+- **Séances génériques** : CM, TD, TP, Cours, Séminaire, Atelier, Révision, Autre partagent **un seul modèle** (`CourseSession.type`) et un seul éditeur — ajouter un type = une ligne dans `src/domain/sessionType.ts`. Une séance peut exister sans module.
+- **Audio** : jamais envoyé au cloud ; la transcription, les marqueurs et les ancrages, eux, sont synchronisés.
+- **Développement/tests sans Supabase** : `VITE_BACKEND=mock` (build ou dev) remplace Supabase par un serveur simulé dans le navigateur ; **absent des builds de production**.
+
+## Intelligent Course Engine (espace « Cours »)
+
+Dans chaque séance, **Cours** réunit : *Notes · Transcription · Sources · Cours reconstruit*. Le moteur exploite ensemble les notes, la transcription, les marqueurs, les NoteAnchors et les documents importés (PDF, PowerPoint .pptx, Word .docx, texte ; images acceptées mais **sans OCR** pour l'instant) et reconstruit un cours structuré **sans jamais perdre la provenance**.
+
+```
+Sources → Extraction → Normalisation → Context Builder → Structure Analyzer → Course Generator → Validation → GeneratedCourse
+```
+
+| Étape | Code (`src/services/engine`) |
+|---|---|
+| Extraction (une interface `DocumentExtractor` par format, remplaçable) | `extractors/` (pdf.js chargé à la demande, fflate pour .docx/.pptx) |
+| Normalisation (en-têtes/pieds de page, doublons) | `normalize.ts` |
+| Morceaux + emplacements exacts (`SourceChunk`, `SourceLocation` : page, slide, plage temporelle, segments, passage de notes, ancrage, marqueur) | `chunking.ts` |
+| Index BM25 (sélection du contexte, corroboration, rattachement) — base d'un futur RAG | `sourceIndex.ts` |
+| Connaissances (`CourseKnowledgeUnit` : définitions, articles, arrêts, dates, chiffres, formules, exemples, points d'examen, méthodes, raisonnements, ambiguïtés, passages incomplets, contradictions) | `analyzer.ts` (interface `KnowledgeAnalyzer`) |
+| Corroboration, confiance, conflits | `context.ts` (`CourseContextBuilder`) |
+| Plan issu des sources (titres des notes, slides, sinon découpage de la transcription) | `structure.ts` |
+| Rédaction (reprise de textes sources, aucune prose inventée) | `generator.ts` |
+| Validation (schéma strict, citations exactes, garde juridique) | `validator.ts` |
+| Moteurs interchangeables (local / distant), repli | `provider.ts`, `pipeline.ts` |
+
+- **Provenance** : chaque bloc porte ses `SourceReference` (extrait exact + emplacement). Composant réutilisable `SourceBadge` (« Notes », « Transcription 00:34:12 », « PDF p. 18 », « Slide 24 », « Notes + transcription »…) ; au clic, popover détaillé et lien **Ouvrir la source** (notes surlignées, transcription au bon instant, document à la bonne page).
+- **Fiabilité** : `VERIFIED` (corroboré par ≥ 2 sources indépendantes) · `SUPPORTED` · `UNCERTAIN` (source fragile, ou date/chiffre absent des autres sources qui traitent du sujet, ou référence entendue seulement à l'oral) · `CONFLICTING` (deux sources, deux valeurs : les deux sont montrées, aucune n'est tranchée) · `MISSING_SOURCE` (« Information non vérifiée dans les sources »). **Aucun article, arrêt, date ou citation n'est jamais reconstitué** : ils sont repris littéralement ou absents ; la validation dégrade tout ce qui ne figure pas dans les sources citées, quel que soit le moteur.
+- **Sources intactes** : le cours est un artefact **séparé et versionné** (`GeneratedCourse` : `courseVersion`, `generatedAt`, `engineVersion`, `sourceSnapshot`) ; régénérer crée une nouvelle version, les anciennes sont conservées. Le fichier original d'un document reste **sur l'appareil** ; seuls son texte analysé et le cours sont synchronisés (tables `source_documents`, `generated_courses`, RLS).
+- **Performance** : morceaux bornés, index, déduplication, analyse mémorisée par empreinte (traitement incrémental : relancer sans changement = 0 analyse), traitement par lots sans geler l'interface ; séance de 3 h de transcription testée.
+- **Moteur IA** : abstrait (`CourseEngineProvider`). Livré : moteur **local** déterministe (aucune IA, hors-ligne). Un moteur **distant** s'active avec `VITE_ENGINE_URL` (Edge Function `supabase/functions/course-engine`, **clé du modèle uniquement côté serveur**, prompts hors du frontend). Sa sortie JSON repasse par la même validation. Si le moteur est injoignable : message clair, repli local au choix, **les notes ne sont jamais affectées**.
+
+## Réviser — StudyArtifacts dérivés du cours reconstruit
+
+```
+Course Sources → Course Context → Reconstructed Course (GeneratedCourse) → StudyArtifacts
+```
+
+Chaque séance a deux espaces : **Cours** (sources + cours reconstruit) et **Réviser** (`/session/:id/review`, bibliothèque de supports). Rien n'est généré automatiquement : « Créer une fiche / carte mentale / schéma / tableau / chronologie / méthode / flashcards / quiz » (ou une phrase dans la palette `Ctrl/⌘ K` : « Compare erreur, dol et violence »).
+
+| Support | Contenu | Réglages |
+|---|---|---|
+| Fiche | rubriques alimentées par le cours (définitions, articles, jurisprudence, exemples, points examen, chiffres…) | Express / Standard / Complète ; partie du cours |
+| Carte mentale | titres du cours + blocs typés ; interactive (zoom, déplacement, repli, clic → sources) | profondeur 1–5, orientation |
+| Schéma | processus, raisonnement (« si… alors »), hiérarchie, relations citées | type auto-suggéré ou choisi |
+| Tableau comparatif | uniquement des notions **réellement comparables** (sous-parties sœurs) × critères renseignés | notions choisies |
+| Chronologie | dates du cours (un numéro d'article n'est pas une date) | partie du cours |
+| Méthode | objectif, étapes, questions du cours, erreurs signalées, checklist cochable | partie du cours |
+| Flashcards | question · réponse · difficulté · concept · source | 10 / 20 / 30 / personnalisé |
+| Quiz | QCM, vrai/faux, question courte ; bonne réponse + explication + source ; score | nombre, niveau, types |
+
+**Architecture** (`src/services/study`, `src/domain/study.ts`, `src/features/study`, `src/features/review`) :
+- **Pas de second moteur** : un artefact est une transformation déterministe d'une *version précise* du cours reconstruit (`courseTree.ts` → `generators.ts` → validation zod). Il réutilise les `SourceReference` des blocs du cours : le même `SourceBadge` s'affiche partout (« Pourquoi cette flashcard ? → Notes → PDF p. 14 → Transcription 01:02:32 »).
+- `StudyArtifact` : `id`, `type`, `sourceSessionIds` (séance), `courseId` + `courseVersion`, `sourceSnapshot`, `engineVersion`, `settings`, `content` (modifiable), `generatedContent` (jamais modifié), `provenance`, `generation`, `userEdited`, dates. Synchronisé comme le reste (`study_artifacts`, RLS ; migration `20261010000000_study_artifacts_from_course.sql`).
+- **Fiabilité** : seules les affirmations `VERIFIED`/`SUPPORTED` avec source servent de réponses (flashcards, quiz) ; les distracteurs de QCM sont de vraies définitions d'autres notions du cours ; aucune relation, aucun critère, aucune date, aucune réponse n'est inventé. Matière insuffisante → message explicatif, pas de support médiocre.
+- **Versions** : modifier, dupliquer, supprimer, « revenir à la version générée », **régénérer**. Si un cours plus récent existe, bandeau « Le cours a été mis à jour » ; un support modifié à la main n'est **jamais écrasé** (une copie régénérée est créée ; le remplacement exige une confirmation).
+
+## Intégration avec REV-EM
+
+LexNote et REV-EM restent **indépendantes** (code, bases Supabase, comptes, clés) et ne communiqueront que par des contrats publics versionnés (`lexnote-revem/v1`, `src/integration/`). Architecture, source of truth, sécurité, erreurs, versionnement et hors-ligne : [`docs/REVEM_LEXNOTE_INTEGRATION.md`](docs/REVEM_LEXNOTE_INTEGRATION.md). Aucune fonction visible n'est encore construite.
+
 ## Stockage
+
+> (Les bases décrites ci-dessous sont désormais **par compte** : `lexnote-u-<id>`.)
 
 - **IndexedDB** (`lexnote`), 5 stores : `subjects`, `modules`, `sessions`, `notes`, `meta`.
 - Le **contenu des notes** (`notes`) est séparé des **métadonnées** (`sessions`, qui contiennent aussi mots, extrait et texte de recherche) : les listes restent légères même avec des centaines de CM.
@@ -168,7 +239,7 @@ Base **séparée** `lexnote-capture` : `audioSessions, chunks (métadonnées), c
 - **Contrôle** : `navigator.storage.estimate()` à chaque segment ; `Audio enregistré : 214 Mo · Espace disponible : …` dans le panneau et les Réglages. < 300 Mo libres (ou > 85 %) : avertissement. < 50 Mo ou `QuotaExceededError` : **l'audio cesse d'être conservé** (interruption « Stockage » consignée), la transcription texte et les notes continuent.
 - `navigator.storage.persist()` demandé au démarrage ; Réglages › **Stockage audio** : audio par CM, suppression de l'audio seul (transcription conservée).
 - Eviction : sans stockage persistant, le navigateur peut effacer les données sous pression (Safari purge agressivement après ~7 j sans usage hors PWA installée). Exportez régulièrement. Quotas typiques (non vérifiés ici) : Chrome ≈ 60 % du disque, Safari/Firefox plus restrictifs ; l'estimation est exposée quand l'API existe, sinon « inconnu ».
-- Suppression d'un CM / matière / module / démo / « tout effacer » → suppression de l'audio, de la transcription, des marqueurs et des ancrages. L'export JSON inclut transcriptions, marqueurs, ancrages (pas les fichiers audio).
+- Suppression d'un CM / matière / module / « tout supprimer » → suppression de l'audio, de la transcription, des marqueurs et des ancrages. L'export JSON inclut transcriptions, marqueurs, ancrages (pas les fichiers audio).
 
 ### Permissions
 Le micro n'est jamais demandé avant un clic. Première utilisation : avertissement (autorisation du professeur, règlement, droit applicable) → *Annuler* / *J'ai l'autorisation — continuer*. Refus : message explicite, notes intactes. Réafficher l'avertissement : Réglages.
@@ -202,7 +273,7 @@ Les binaires Firefox/WebKit ne sont pas téléchargeables dans l'environnement d
 Toute la V1, plus : transcription (Web Speech et Whisper par API/serveur local), segmentation audio, stockage audio contrôlé, marqueurs, timeline, ancrages notes↔transcription, réécoute (-10 s / ▶ / +10 s), reprise après interruption, mode Focus avec pastille REC, fin de CM avec récapitulatif complet (durée, audio, mots notes/transcription, marqueurs, interruptions + onglets Notes/Transcription/Timeline), recherche dans les transcriptions (ouvre le CM au bon passage), suppression en cascade, `CourseContext`.
 
 ## Préparé mais NON implémenté
-IA (résumé, restructuration, fiches, flashcards, quiz, vérification des articles/jurisprudence, assistant) · Whisper WASM/WebGPU · import de documents · synchronisation cloud/comptes · recherche sémantique · édition manuelle de la transcription.
+IA (résumé, restructuration, fiches, flashcards, quiz, vérification des articles/jurisprudence, assistant) · Whisper WASM/WebGPU · import de documents · connexion à REV-EM (architecture préparée, aucune donnée partagée) · recherche sémantique · édition manuelle de la transcription.
 
 ## Limites connues
 - Pas de vraie voix testée : Web Speech testé avec un faux moteur ; micro = bip simulé par Chromium.
@@ -215,9 +286,16 @@ IA (résumé, restructuration, fiches, flashcards, quiz, vérification des artic
 
 ## Principes de confidentialité
 
-- Les notes restent **sur l'appareil** (IndexedDB). Aucun upload, aucune télémétrie, aucune police ou ressource tierce.
-- Toute synchronisation future sera **facultative et explicite**.
+- Les notes sont d'abord **sur l'appareil** (IndexedDB), puis synchronisées avec **votre espace personnel** Supabase (RLS : personne d'autre n'y accède). L'audio ne quitte jamais l'appareil. Aucune télémétrie, aucune police ou ressource tierce.
 - Aucun enregistrement sans action explicite ; l'indicateur REC est toujours visible ; l'audio reste local. Selon le moteur, la *reconnaissance* peut être distante : c'est indiqué dans le panneau.
+
+## Vérifications effectuées (moteur de cours)
+
+- `tsc`, build de production (sans backend simulé) : OK. **281 tests unitaires/DB** (dont 70 pour le moteur : extracteurs PDF/PPTX/DOCX réels, chunking, provenance, conflits, non-invention, incrémental, validation, versions, isolation, hors-ligne) · **77 tests e2e Chromium** (dont le scénario complet matière → séance → notes → transcription + document → cours → consultation d'une source → rechargement).
+
+## Vérifications effectuées (comptes + synchronisation)
+
+- `tsc --noEmit` et build de production OK (le build de production ne contient pas le backend simulé). **158 tests unitaires** (dont 14 tests RLS sur Postgres réel et 8 tests du moteur de synchronisation) · **49 tests e2e Chromium** (backend simulé : comptes, isolation A/B, hors ligne → synchronisation, « autre appareil », conflit, import des anciennes notes, suppression de compte, types de séances, non-régression complète, performance 1/2/3 h).
 
 ## Vérifications effectuées (V2 + refonte premium)
 

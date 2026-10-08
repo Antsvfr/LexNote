@@ -83,10 +83,12 @@ describe.each(factories)('CaptureStorage contract — %s', (_n, make) => {
 });
 
 describe('IndexedDB capture — indépendante de la base des notes', () => {
-  it('utilise une base distincte (lexnote-capture) : saturer l’audio ne peut pas toucher les notes', async () => {
-    const { CAPTURE_DB_NAME } = await import('./idb');
-    expect(CAPTURE_DB_NAME).toBe('lexnote-capture');
-    expect(CAPTURE_DB_NAME).not.toBe('lexnote');
+  it('utilise une base distincte PAR COMPTE : saturer l’audio ne peut pas toucher les notes, ni un autre compte', async () => {
+    const { captureDbName } = await import('./idb');
+    const { userDbName } = await import('../../storage/indexedDbAdapter');
+    expect(captureDbName('a')).toBe('lexnote-capture-u-a');
+    expect(captureDbName('a')).not.toBe(userDbName('a'));
+    expect(captureDbName('a')).not.toBe(captureDbName('b'));
   });
   it('persiste après réouverture', async () => {
     const name = `reopen-${Math.random().toString(36).slice(2)}`;

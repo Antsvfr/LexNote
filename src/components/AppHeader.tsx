@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, ChevronDown, Menu as MenuIcon, Moon, Search, Settings, Sun, GraduationCap, HardDrive } from 'lucide-react';
+import { Bell, ChevronDown, LogOut, Menu as MenuIcon, Moon, Search, Settings, Sun, GraduationCap, HardDrive } from 'lucide-react';
 import { Menu } from './Menu';
 import { useUI } from '@/store/ui';
-import { useProfile } from '@/store/profile';
+import { useAuth } from '@/store/auth';
 import { estimateStorage, type StorageInfo } from '@/services/capture/quota';
 import { formatBytes } from '@/domain/capture';
 import { modKeyLabel } from '@/features/editor/commands';
@@ -12,11 +12,14 @@ import { modKeyLabel } from '@/features/editor/commands';
 export function AppHeader() {
   const navigate = useNavigate();
   const { theme, setTheme, setPalette, setNavOpen } = useUI();
-  const firstName = useProfile((p) => p.firstName);
+  const profile = useAuth((s) => s.profile);
+  const signOut = useAuth((s) => s.signOut);
+  const firstName = profile?.firstName || profile?.email || '';
   const [q, setQ] = useState('');
   const [info, setInfo] = useState<StorageInfo | null>(null);
   const dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   const initial = (firstName.trim()[0] ?? 'L').toUpperCase();
+  const logout = async () => { await signOut(); navigate('/login', { replace: true }); };
 
   useEffect(() => { void estimateStorage().then(setInfo); }, []);
   const lowStorage = info?.level === 'low' || info?.level === 'critical';
@@ -68,6 +71,8 @@ export function AppHeader() {
               <button className="menu__item" role="menuitem" onClick={() => { close(); navigate('/settings'); }}><Settings />Profil et réglages</button>
               <button className="menu__item" role="menuitem" onClick={() => { close(); setTheme(dark ? 'light' : 'dark'); }}>{dark ? <Sun /> : <Moon />}Thème {dark ? 'clair' : 'sombre'}</button>
               <div className="menu__sep" />
+              <div className="menu__label" style={{ textTransform: 'none', letterSpacing: 0 }} data-testid="account-email">{profile?.email}</div>
+              <button className="menu__item" role="menuitem" onClick={() => { close(); void logout(); }} data-testid="logout"><LogOut />Se déconnecter</button>
               <div className="menu__item" aria-disabled="true" style={{ cursor: 'default', opacity: 0.6 }}><GraduationCap />REV-EM · connexion bientôt disponible</div>
             </>
           )}

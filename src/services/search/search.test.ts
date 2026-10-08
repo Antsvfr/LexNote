@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { TextSearchProvider } from './index';
-import { buildDemoLibrary } from '@/data/demo/demoData';
+import { mod, sess, subj } from '@/test/fixtures';
 
-const lib = buildDemoLibrary();
+const eco = subj('Économie', 'green');
+const droit = subj('Droit', 'indigo');
+const contrats = mod(droit.id, 'Droit des contrats');
+const formation = { ...sess({ subjectId: droit.id, moduleId: contrats.id, title: 'La formation du contrat' }), searchText: 'La formation du contrat. Le tableau de Poussin illustre le consentement.' };
+const lib = { subjects: [eco, droit], modules: [contrats], sessions: [formation] };
 const search = (q: string) => new TextSearchProvider().search(q, lib);
 
 describe('recherche globale', () => {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Home, FolderTree, Library, Search, Settings, Plus, Moon, Sun, Focus, FileText, Mic, Pause, Play, Square, Star, type LucideIcon } from 'lucide-react';
+import { Brain, Home, FolderTree, Library, Search, Settings, Plus, Moon, Sun, Focus, FileText, Mic, Pause, Play, Square, Star, type LucideIcon } from 'lucide-react';
 import { REQUEST_RECORD_EVENT } from '@/features/capture/useCaptureShortcuts';
 import { SHORTCUT_MARK, SHORTCUT_RECORD } from '@/features/capture/RecControls';
 import { captureManager } from '@/services/capture/manager';
@@ -11,6 +11,10 @@ import { useLibrary } from '@/store/library';
 import { EDITOR_COMMANDS, formatShortcut, modKeyLabel } from '@/features/editor/commands';
 import { searchService } from '@/services/search';
 import { normalize } from '@/lib/text';
+import { interpretStudyCommand } from '@/services/study/engine';
+import { runStudyIntent } from '@/services/study/command';
+import { ARTIFACT_LABELS } from '@/domain/study';
+import { toast } from '@/store/toasts';
 
 interface Item {
   id: string;
@@ -26,7 +30,7 @@ interface Item {
 
 /** Palette de commandes (Cmd/Ctrl + K) : navigation, blocs juridiques, mise en forme. Les commandes IA sont listées mais désactivées. */
 export function CommandPalette() {
-  const { paletteOpen, setPalette, openNewCm, theme, setTheme, focus, setFocus } = useUI();
+  const { paletteOpen, setPalette, openNewSession, theme, setTheme, focus, setFocus } = useUI();
   const editor = useEditorBridge((s) => s.editor);
   const navigate = useNavigate();
   const { pathname } = useLocation();
@@ -63,10 +67,18 @@ export function CommandPalette() {
   const items = useMemo<Item[]>(() => {
     const go = (to: string) => () => navigate(to);
     const nav: Item[] = [
-      { id: 'nav.new', label: 'Nouveau CM', group: 'Aller à', icon: Plus, run: () => openNewCm() },
+      { id: 'nav.new', label: 'Nouvelle séance', group: 'Aller à', icon: Plus, keywords: 'cm td tp cours', run: () => openNewSession() },
+      { id: 'nav.new.cm', label: 'Nouveau CM', group: 'Aller à', icon: Plus, run: () => openNewSession({ type: 'CM' }) },
+      { id: 'nav.new.td', label: 'Nouveau TD', group: 'Aller à', icon: Plus, run: () => openNewSession({ type: 'TD' }) },
+      { id: 'nav.new.tp', label: 'Nouveau TP', group: 'Aller à', icon: Plus, run: () => openNewSession({ type: 'TP' }) },
+      ...(sessionIdInUrl || /^\/session\/[^/]+\/(recap|course|review)$/.test(pathname) ? [{ id: 'course.open', label: 'Ouvrir le Cours (sources et cours reconstruit)', group: 'Aller à', icon: Brain, keywords: 'cours reconstruit sources documents pdf', run: () => navigate(`/session/${sessionIdInUrl ?? /^\/session\/([^/]+)/.exec(pathname)?.[1]}/course`) } as Item] : []),
+      { id: 'study.new', label: 'Créer un support…', group: 'Supports', icon: Brain, keywords: 'fiche carte mentale schema tableau flashcards quiz chronologie resume', run: () => useUI.getState().openSupportDialog({ sessionId: sessionIdInUrl ?? /^\/session\/([^/]+)\/(?:recap|course|review)$/.exec(pathname)?.[1] }) },
+      ...(sessionIdInUrl || /^\/session\/[^/]+\/(recap|course|review)$/.test(pathname) ? [{ id: 'review.open', label: 'Ouvrir Réviser (supports du cours)', group: 'Aller à', icon: Brain, keywords: 'reviser revision fiches flashcards quiz', run: () => navigate(`/session/${sessionIdInUrl ?? /^\/session\/([^/]+)/.exec(pathname)?.[1]}/review`) } as Item] : []),
+      { id: 'study.list', label: 'Mes supports', group: 'Aller à', icon: Brain, keywords: 'fiches cartes mentales schemas', run: go('/supports') },
+      { id: 'nav.new.subject', label: 'Nouvelle matière', group: 'Aller à', icon: Plus, run: () => useUI.getState().openSubjectDialog() },
       { id: 'nav.home', label: 'Accueil', group: 'Aller à', icon: Home, run: go('/') },
       { id: 'nav.subjects', label: 'Mes matières', group: 'Aller à', icon: FolderTree, run: go('/subjects') },
-      { id: 'nav.sessions', label: 'Mes CM', group: 'Aller à', icon: Library, run: go('/sessions') },
+      { id: 'nav.sessions', label: 'Mes séances', group: 'Aller à', icon: Library, run: go('/sessions') },
       { id: 'nav.search', label: 'Recherche', group: 'Aller à', icon: Search, run: go('/search') },
       { id: 'nav.settings', label: 'Réglages', group: 'Aller à', icon: Settings, run: go('/settings') },
       { id: 'app.theme', label: theme === 'dark' ? 'Passer en thème clair' : 'Passer en thème sombre', group: 'Affichage', icon: theme === 'dark' ? Sun : Moon, keywords: 'theme mode sombre clair', run: () => setTheme(theme === 'dark' ? 'light' : 'dark') },
@@ -93,7 +105,7 @@ export function CommandPalette() {
         ]
       : [];
     return [...ed, ...nav];
-  }, [inEditor, editor, focus, theme, navigate, openNewCm, setTheme, setFocus, capStatus, sessionIdInUrl]);
+  }, [inEditor, editor, focus, theme, navigate, openNewSession, setTheme, setFocus, capStatus, sessionIdInUrl]);
 
   const results = useMemo<Item[]>(() => {
     const tokens = normalize(query).split(/\s+/).filter(Boolean);
@@ -105,8 +117,15 @@ export function CommandPalette() {
           id: `hit.${h.id}`, label: h.title, group: 'CM', icon: FileText, keywords: h.context, run: () => navigate(h.href),
         }))
       : [];
-    return [...matched, ...sessions];
-  }, [items, query, lib, navigate]);
+    // Demande en langage naturel → même moteur de supports que le panneau « Créer un support ».
+    const intent = query.trim().split(/\s+/).length >= 2 ? interpretStudyCommand(query) : null;
+    const sid = sessionIdInUrl ?? /^\/session\/([^/]+)\/recap$/.exec(pathname)?.[1];
+    const study: Item[] = intent ? [{
+      id: 'study.cmd', label: `Créer : ${ARTIFACT_LABELS[intent.type]}${intent.sectionQuery ? ` — ${intent.sectionQuery}` : ''}${intent.compare ? ` — ${intent.compare.join(', ')}` : ''}`, group: 'Supports', icon: Brain,
+      run: () => { void runStudyIntent(intent, sid).then((a) => { toast.success('Support créé.'); navigate(`/supports/${a.id}`); }).catch((e: Error) => toast.error(e.message)); },
+    }] : [];
+    return [...study, ...matched, ...sessions];
+  }, [items, query, lib, navigate, pathname, sessionIdInUrl]);
 
   useEffect(() => setActive(0), [query]);
   useEffect(() => { listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' }); }, [active]);

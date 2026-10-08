@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { IndexedDbAdapter } from './indexedDbAdapter';
 import { MemoryAdapter } from './memoryAdapter';
 import type { StorageAdapter } from './types';
-import { createModule, createSession, createSubject } from '@/domain/session';
+import { mod as mkMod, sess, subj } from '@/test/fixtures';
 
 /** Le même contrat doit être respecté par TOUS les adaptateurs (mémoire, IndexedDB, futur cloud). */
 const factories: [string, () => Promise<StorageAdapter>][] = [
@@ -15,9 +15,9 @@ describe.each(factories)('StorageAdapter contract — %s', (_name, make) => {
   beforeEach(async () => { db = await make(); });
 
   const fixture = () => {
-    const subject = createSubject('Droit', 'indigo');
-    const mod = createModule(subject.id, 'Droit des contrats');
-    const session = createSession({ subjectId: subject.id, moduleId: mod.id, title: 'Formation', number: 2, date: '2025-01-01' });
+    const subject = subj();
+    const mod = mkMod(subject.id, 'Droit des contrats');
+    const session = sess({ subjectId: subject.id, moduleId: mod.id, title: 'Formation', number: 2 });
     return { subject, mod, session };
   };
 
@@ -63,7 +63,7 @@ describe('IndexedDB — réouverture (simule un redémarrage du navigateur)', ()
   it('retrouve les données après fermeture / réouverture de la base', async () => {
     const name = `reopen-${Math.random().toString(36).slice(2)}`;
     const first = await IndexedDbAdapter.open(name);
-    const s = createSession({ subjectId: 'a', moduleId: 'b', title: 'Persistant', number: 1, date: '2025-01-01' });
+    const s = sess({ subjectId: 'a', moduleId: 'b', title: 'Persistant' });
     await first.commit({ putSessions: [s], putNotes: [{ sessionId: s.id, content: { hello: 'monde' }, updatedAt: 'x' }] });
 
     const second = await IndexedDbAdapter.open(name); // nouvelle connexion
