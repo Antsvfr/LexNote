@@ -132,26 +132,34 @@ Sources → Extraction → Normalisation → Context Builder → Structure Analy
 - **Performance** : morceaux bornés, index, déduplication, analyse mémorisée par empreinte (traitement incrémental : relancer sans changement = 0 analyse), traitement par lots sans geler l'interface ; séance de 3 h de transcription testée.
 - **Moteur IA** : abstrait (`CourseEngineProvider`). Livré : moteur **local** déterministe (aucune IA, hors-ligne). Un moteur **distant** s'active avec `VITE_ENGINE_URL` (Edge Function `supabase/functions/course-engine`, **clé du modèle uniquement côté serveur**, prompts hors du frontend). Sa sortie JSON repasse par la même validation. Si le moteur est injoignable : message clair, repli local au choix, **les notes ne sont jamais affectées**.
 
-## Supports d'étude (fiches, cartes mentales, schémas…)
+## Réviser — StudyArtifacts dérivés du cours reconstruit
 
-Depuis un cours : **Créer un support** (page de la séance, palette `Ctrl/⌘ K`, ou une phrase comme « Compare erreur, dol et violence »). Rien n'est généré automatiquement.
+```
+Course Sources → Course Context → Reconstructed Course (GeneratedCourse) → StudyArtifacts
+```
 
-| Support | Contenu | Personnalisation |
+Chaque séance a deux espaces : **Cours** (sources + cours reconstruit) et **Réviser** (`/session/:id/review`, bibliothèque de supports). Rien n'est généré automatiquement : « Créer une fiche / carte mentale / schéma / tableau / chronologie / méthode / flashcards / quiz » (ou une phrase dans la palette `Ctrl/⌘ K` : « Compare erreur, dol et violence »).
+
+| Support | Contenu | Réglages |
 |---|---|---|
-| Fiche de cours | Plan · Définitions · Articles · Jurisprudences · Exemples · Points examen · À vérifier (ou « Notions » hors droit) — **uniquement les rubriques que le cours alimente** | Express / Standard / Complète ; rubriques à inclure ; sources ; partie du cours |
-| Résumé express | une ligne par partie du cours | — |
-| Carte mentale | structure réelle du cours (titres, définitions, articles, arrêts) | simple (≤ 15 nœuds) / standard (≤ 30) / détaillée ; horizontale, radiale, verticale |
-| Schéma | processus, hiérarchie, comparaison, relations, chronologie, raisonnement (« si… alors ») ; type suggéré automatiquement, modifiable | partie du cours |
-| Tableau comparatif | notions proches (sous-titres frères) × critères (définition, articles, jurisprudence…) | notions choisies |
-| Chronologie · Flashcards · Quiz | dates citées · recto/verso · auto-test de rappel | partie du cours |
+| Fiche | rubriques alimentées par le cours (définitions, articles, jurisprudence, exemples, points examen, chiffres…) | Express / Standard / Complète ; partie du cours |
+| Carte mentale | titres du cours + blocs typés ; interactive (zoom, déplacement, repli, clic → sources) | profondeur 1–5, orientation |
+| Schéma | processus, raisonnement (« si… alors »), hiérarchie, relations citées | type auto-suggéré ou choisi |
+| Tableau comparatif | uniquement des notions **réellement comparables** (sous-parties sœurs) × critères renseignés | notions choisies |
+| Chronologie | dates du cours (un numéro d'article n'est pas une date) | partie du cours |
+| Méthode | objectif, étapes, questions du cours, erreurs signalées, checklist cochable | partie du cours |
+| Flashcards | question · réponse · difficulté · concept · source | 10 / 20 / 30 / personnalisé |
+| Quiz | QCM, vrai/faux, question courte ; bonne réponse + explication + source ; score | nombre, niveau, types |
 
-**Architecture** (`src/services/study`, `src/domain/study.ts`, `src/features/study`) :
-- un seul modèle `StudyArtifact` (`type`, `content` structuré, `aiContent` = version générée, `sourceHash`, `userEdited`, `sourceSessionIds[]` — multi-séances prévu) synchronisé comme le reste (table `study_artifacts`, RLS) ;
-- `outline.ts` extrait le plan du cours (titres, blocs juridiques, listes) → `generators.ts` produit des structures **validées par des schémas stricts (zod)** ; chaque élément porte un **extrait exact** du cours (`sources`) ;
-- **aucune invention** : rubrique absente du cours = rubrique absente du support ; une flèche n'existe que si le cours l'indique (ordre, structure, « si… alors », citation) ; sinon refus explicite (« aucune étape détectée… ») ou schéma vide à construire soi-même ;
-- cartes et schémas : SVG maison (arbre / graphe en couches, sans dépendance) — zoom, déplacement, repli, recherche, plein écran, édition (renommer, ajouter, supprimer, déplacer), tactile ; exports **SVG / PNG ×3 / Markdown / impression (PDF)** ;
-- versions : le contenu est modifiable ; « Revenir à la version générée » ; si le cours change, bandeau « Le cours a été mis à jour » — la mise à jour **ne remplace jamais** un support modifié (copie mise à jour) ;
-- l'extraction est **locale (sans IA)**. Un `StudyProvider` IA peut être branché (`setStudyProvider`) : sa sortie JSON passe par les mêmes schémas puis par `guardAiContent` (un élément sans extrait vérifiable dans le cours est écarté ou marqué « incertain »). Aucun moteur IA n'est branché dans cette version.
+**Architecture** (`src/services/study`, `src/domain/study.ts`, `src/features/study`, `src/features/review`) :
+- **Pas de second moteur** : un artefact est une transformation déterministe d'une *version précise* du cours reconstruit (`courseTree.ts` → `generators.ts` → validation zod). Il réutilise les `SourceReference` des blocs du cours : le même `SourceBadge` s'affiche partout (« Pourquoi cette flashcard ? → Notes → PDF p. 14 → Transcription 01:02:32 »).
+- `StudyArtifact` : `id`, `type`, `sourceSessionIds` (séance), `courseId` + `courseVersion`, `sourceSnapshot`, `engineVersion`, `settings`, `content` (modifiable), `generatedContent` (jamais modifié), `provenance`, `generation`, `userEdited`, dates. Synchronisé comme le reste (`study_artifacts`, RLS ; migration `20261010000000_study_artifacts_from_course.sql`).
+- **Fiabilité** : seules les affirmations `VERIFIED`/`SUPPORTED` avec source servent de réponses (flashcards, quiz) ; les distracteurs de QCM sont de vraies définitions d'autres notions du cours ; aucune relation, aucun critère, aucune date, aucune réponse n'est inventé. Matière insuffisante → message explicatif, pas de support médiocre.
+- **Versions** : modifier, dupliquer, supprimer, « revenir à la version générée », **régénérer**. Si un cours plus récent existe, bandeau « Le cours a été mis à jour » ; un support modifié à la main n'est **jamais écrasé** (une copie régénérée est créée ; le remplacement exige une confirmation).
+
+## Intégration avec REV-EM
+
+LexNote et REV-EM restent **indépendantes** (code, bases Supabase, comptes, clés) et ne communiqueront que par des contrats publics versionnés (`lexnote-revem/v1`, `src/integration/`). Architecture, source of truth, sécurité, erreurs, versionnement et hors-ligne : [`docs/REVEM_LEXNOTE_INTEGRATION.md`](docs/REVEM_LEXNOTE_INTEGRATION.md). Aucune fonction visible n'est encore construite.
 
 ## Stockage
 

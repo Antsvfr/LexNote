@@ -44,6 +44,8 @@ const DEF_RE = [
   /^(?:on appelle|on nomme|on désigne par)\s+([\p{L}'’ -]{2,60}?)\s+(.{12,})$/iu,
   /^(?:le |la |les |l['’])?([\p{L}'’ -]{2,50}?)\s+(?:est|sont|désigne|signifie|correspond à|consiste en|se définit comme)\s+(?:le |la |les |l['’]|un |une |des |du |de la )?(.{15,})$/iu,
 ];
+/** Une question ou une hypothèse (« Quelle est… ? », « Si … est … ») n'est pas une définition. */
+const NOT_DEF_RE = /\?\s*$|^(?:si|quand|lorsque|lorsqu['’]|quelle?s?|quel|comment|pourquoi|est-ce|que|qu['’])\b/i;
 const isYearOfArticle = (text: string, idx: number) => /(?:art(?:icles?)?\.?|n°|[LRD]\.)\s*$/i.test(text.slice(Math.max(0, idx - 12), idx)) || /^[-–]\d/.test(text.slice(idx + 4, idx + 6));
 
 export const RULES_VERSION = 'rules-3';
@@ -88,7 +90,7 @@ export class RuleBasedAnalyzer implements KnowledgeAnalyzer {
       for (const m of st.matchAll(BIB_RE)) add({ type: 'reference', label: m[0].trim().slice(0, 80), quote: st });
       // --- définitions (hors blocs déjà typés)
       if (!kind || kind === 'paragraph' || kind === 'list') {
-        for (const re of DEF_RE) { const m = re.exec(st); if (m && m[1]!.split(/\s+/).length <= 6 && st.length <= 420) { add({ type: 'definition', label: m[1]!.trim(), quote: st }); break; } }
+        if (!NOT_DEF_RE.test(st.trim())) for (const re of DEF_RE) { const m = re.exec(st); if (m && m[1]!.split(/\s+/).length <= 6 && st.length <= 420) { add({ type: 'definition', label: m[1]!.trim(), quote: st }); break; } }
       }
       if (EXAMPLE.test(st) && kind !== 'example') add({ type: 'example', quote: st });
       if (REASON.test(st) && st.length >= 40) add({ type: 'reasoning', quote: st });

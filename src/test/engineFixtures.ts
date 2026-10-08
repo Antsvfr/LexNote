@@ -43,3 +43,35 @@ export function material(over: Partial<CourseMaterial> & { notes?: unknown } = {
     ...over,
   } as CourseMaterial;
 }
+
+import type { GeneratedCourse } from '@/domain/course';
+import { runCourseEngine } from '@/services/engine/pipeline';
+
+/** Cours riche : trois vices du consentement, une méthode numérotée, des dates, une condition « si… alors ». */
+export function richMaterial(over: Partial<CourseMaterial> = {}): CourseMaterial {
+  const notes = { type: 'doc', content: [
+    H(1, 'Formation du contrat'), P('Le contrat se forme par la rencontre des volontés.'),
+    H(2, 'Consentement'), P('Le consentement doit être libre et éclairé.'),
+    H(3, 'Erreur'), LB('definition', 'Erreur : fausse représentation de la réalité.'), LB('article', 'Art. 1132 : l’erreur de droit ou de fait est une cause de nullité.'), LB('example', 'Par exemple, l’acheteur croit acquérir un tableau authentique.'),
+    H(3, 'Dol'), LB('definition', 'Dol : manœuvres destinées à tromper le cocontractant.'), LB('article', 'Art. 1137 : le dol est le fait pour un contractant d’obtenir le consentement par des manœuvres.'),
+    LB('caselaw', 'Cass. civ. 3e, 15 janvier 2002 : réticence dolosive.'), LB('important', 'Le dol peut être commis par un tiers.'),
+    H(3, 'Violence'), LB('definition', 'Violence : contrainte qui inspire la crainte d’un mal considérable.'), LB('article', 'Art. 1140 : il y a violence lorsqu’une partie s’engage sous la pression d’une contrainte.'),
+    H(2, 'Capacité'), P('Toute personne peut contracter sauf incapacité.'), LB('important', 'Les mineurs non émancipés sont incapables.'),
+    H(1, 'Méthode du cas pratique'), P('Attention, ne confondez pas les faits et la qualification. Quelle est la règle applicable ?'),
+    OL('Identifier les faits pertinents', 'Qualifier juridiquement', 'Formuler le problème de droit', 'Énoncer la règle', 'Appliquer aux faits', 'Conclure'),
+    H(1, 'Histoire de la réforme'), P('Le Code civil a été promulgué en 1804.'), P('L’ordonnance du 10 février 2016 réforme le droit des contrats.'), P('La loi de ratification date de 2018.'),
+    H(1, 'Régime'), P('Si le consentement est vicié, alors le contrat est annulable.'),
+  ] };
+  return {
+    sessionId: 's1', sessionTitle: 'Droit des contrats', outline: buildOutline('s1', 'Droit des contrats', notes),
+    segments: [seg('g1', 3_752_000, 'Le dol, ce sont des manœuvres destinées à tromper le cocontractant, article 1137 du code civil.')], markers: [], anchors: [],
+    documents: [doc({ name: 'cours.pdf', units: [{ index: 14, text: 'Dol : manœuvres destinées à tromper le cocontractant. Art. 1137 du Code civil.' }, { index: 15, text: 'Violence : contrainte qui inspire la crainte d’un mal considérable. Art. 1140.' }] })],
+    ...over,
+  } as CourseMaterial;
+}
+
+/** Cours reconstruit (version `v`) produit par le VRAI moteur de cours à partir d'une matière de test. */
+export async function courseOf(m: CourseMaterial = richMaterial(), v = 1): Promise<GeneratedCourse> {
+  const run = await runCourseEngine(m);
+  return { id: `course-${v}`, userId: 'u', sessionId: m.sessionId, courseVersion: v, generatedAt: '2026-10-07T10:00:00.000Z', engineVersion: run.engineVersion, providerId: run.providerId, providerLabel: run.providerLabel, sourceSnapshot: run.snapshot, content: run.content, createdAt: 'x', updatedAt: 'x' };
+}

@@ -107,15 +107,17 @@ export const interruptionFromRow = (r: RemoteRow): Interruption => ({
 /* ---------------- study_artifacts ---------------- */
 export const artifactToRow = (a: StudyArtifact): RemoteRow => ({
   id: a.id, user_id: a.userId, type: a.type, title: a.title, subject_id: a.subjectId, source_session_ids: a.sourceSessionIds, scope: a.scope,
-  options: a.options, content: a.content, ai_content: a.aiContent, source_hash: a.sourceHash, user_edited: a.userEdited, generated_by: a.generatedBy,
+  settings: a.settings, content: a.content, generated_content: a.generatedContent, user_edited: a.userEdited,
+  course_id: a.courseId, course_version: a.courseVersion, source_snapshot: a.sourceSnapshot, engine_version: a.engineVersion, provenance: a.provenance, generation: a.generation,
   created_at: a.createdAt, updated_at: a.updatedAt, deleted_at: null,
 });
 export const artifactFromRow = (r: RemoteRow): StudyArtifact => ({
   id: r.id, userId: String(r.user_id), type: (ARTIFACT_TYPES as readonly string[]).includes(String(r.type)) ? (r.type as StudyArtifact['type']) : 'COURSE_SHEET',
   title: String(r.title), subjectId: (r.subject_id as string | null) ?? null, sourceSessionIds: (r.source_session_ids as string[]) ?? [],
-  scope: (r.scope as StudyArtifact['scope']) ?? null, options: (r.options as Record<string, unknown>) ?? {},
-  content: r.content as ArtifactContent, aiContent: (r.ai_content as ArtifactContent | null) ?? null, sourceHash: String(r.source_hash ?? ''),
-  userEdited: !!r.user_edited, generatedBy: (r.generated_by as StudyArtifact['generatedBy']) ?? null,
+  scope: (r.scope as StudyArtifact['scope']) ?? null, settings: (r.settings as StudyArtifact['settings']) ?? {},
+  content: r.content as ArtifactContent, generatedContent: (r.generated_content as ArtifactContent | null) ?? null, userEdited: !!r.user_edited,
+  courseId: String(r.course_id ?? ''), courseVersion: Number(r.course_version ?? 1), sourceSnapshot: (r.source_snapshot as StudyArtifact['sourceSnapshot']) ?? { sources: [], hash: '' },
+  engineVersion: String(r.engine_version ?? ''), provenance: r.provenance as StudyArtifact['provenance'], generation: Number(r.generation ?? 1),
   createdAt: String(r.created_at), updatedAt: String(r.updated_at), version: r.version,
 });
 

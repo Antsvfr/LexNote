@@ -3,7 +3,6 @@
  * C'est la SEULE porte d'entrée des générateurs : tout ce qu'un support affiche vient d'ici (donc du cours réel).
  */
 import type { NoteBlockKind } from '@/domain/legal';
-import type { ArtifactSource } from '@/domain/study';
 
 export type BlockKind = NoteBlockKind | 'paragraph' | 'list' | 'step';
 
@@ -123,18 +122,3 @@ export function scopeText(sec: OutlineSection): string {
   return [sec.title, ...sec.blocks.map((b) => b.text), ...sec.children.map(scopeText)].join('\n');
 }
 export const scopeHash = (sec: OutlineSection) => hashText(scopeText(sec));
-
-export function sourceOfBlock(sessionId: string, b: OutlineBlock): ArtifactSource {
-  return { sessionId, headingPath: b.headingPath, quote: b.text.slice(0, 500), kind: b.kind, origin: 'USER_NOTE' };
-}
-export function sourceOfSection(sessionId: string, s: OutlineSection): ArtifactSource {
-  const first = s.blocks[0];
-  return { sessionId, headingPath: s.path, quote: (first?.text ?? s.title).slice(0, 500), origin: 'USER_NOTE' };
-}
-
-export function firstSentence(text: string, max = 160): string {
-  const m = text.match(/^(.+?[.!?;])(\s|$)/);
-  const s = (m?.[1] ?? text).trim();
-  return s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s;
-}
-export const truncate = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s);

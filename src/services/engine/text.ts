@@ -48,3 +48,10 @@ export const formatMs = (ms: number): string => {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(x).padStart(2, '0')}`;
 };
 export const quoteOf = (text: string, start: number, end: number, max = 600) => text.slice(start, Math.min(end, start + max)).trim();
+
+export function firstSentence(text: string, max = 160): string {
+  const m = text.match(/^(.+?[.!?;])(\s|$)/);
+  const s = (m?.[1] ?? text).trim();
+  return s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s;
+}
+export const truncate = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s);

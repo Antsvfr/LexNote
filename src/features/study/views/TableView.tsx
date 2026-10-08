@@ -31,7 +31,7 @@ export function TableView({ content, onChange, showSources }: P) {
         </tbody>
       </table>
       <button className="btn btn--sm no-print" onClick={() => upd((x) => { x.rows.push({ id: newId(), label: 'Nouveau critère', cells: Object.fromEntries(x.columns.map((c) => [c.id, { text: '', sources: [] }])) }); })}><Plus /> Ajouter une ligne</button>
-      {showSources && sel && <div className="cmp__src no-print"><strong>Source de la cellule sélectionnée</strong><Sources sources={cell?.sources ?? []} empty="Cellule vide ou ajoutée par vous : aucune source dans le cours." /></div>}
+      {showSources && sel && <div className="cmp__src no-print"><strong>Source de la cellule sélectionnée</strong><Sources sources={cell?.sources ?? []} confidence={cell?.confidence} empty="Cellule vide ou ajoutée par vous : aucune source dans le cours." /></div>}
     </div>
   );
 }

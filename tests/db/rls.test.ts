@@ -33,6 +33,7 @@ beforeAll(async () => {
   await db.exec(readFileSync('supabase/migrations/20261007000000_lexnote_init.sql', 'utf8'));
   await db.exec(readFileSync('supabase/migrations/20261008000000_study_artifacts.sql', 'utf8'));
   await db.exec(readFileSync('supabase/migrations/20261009000000_course_engine.sql', 'utf8'));
+  await db.exec(readFileSync('supabase/migrations/20261010000000_study_artifacts_from_course.sql', 'utf8'));
   await db.exec(`insert into auth.users values ('${A}', 'a@test.fr'), ('${B}', 'b@test.fr');`);
 });
 
@@ -152,10 +153,12 @@ describe('Row Level Security — supports d\'étude', () => {
     const del = (await as(B, () => q('delete from study_artifacts where id = $1', [uuid(900)]))) as { affectedRows: number };
     expect(del.affectedRows).toBe(0);
   });
-  it('usurpation de user_id refusée ; anon bloqué ; type inconnu refusé', async () => {
+  it('usurpation de user_id refusée ; anon bloqué ; type inconnu refusé (METHOD accepté)', async () => {
     await expect(as(B, () => q(`insert into study_artifacts (id, user_id, type, title, content) values ($1, $2, 'QUIZ', 'x', '{}')`, [uuid(902), A]))).rejects.toThrow();
     await expect(as(null, () => q('select * from study_artifacts'))).rejects.toThrow();
     await expect(as(A, () => q(`insert into study_artifacts (id, type, title, content) values ($1, 'AUTRE', 'x', '{}')`, [uuid(903)]))).rejects.toThrow();
+    await as(A, () => q(`insert into study_artifacts (id, type, title, content, course_id, generation) values ($1, 'METHOD', 'Méthode', '{}', $2, 2)`, [uuid(905), uuid(906)]));
+    expect(((await as(B, () => q('select id from study_artifacts where id = $1', [uuid(905)]))) as { rows: unknown[] }).rows).toHaveLength(0);
   });
   it('un support ne peut pas être rattaché à la matière d\'un autre utilisateur', async () => {
     await as(A, () => insertSubject(uuid(910), 'Matière de A'));
