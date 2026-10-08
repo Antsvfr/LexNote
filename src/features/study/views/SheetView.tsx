@@ -2,6 +2,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { newId } from '@/lib/ids';
 import { SHEET_SECTION_LABELS, type SheetContent } from '@/domain/study';
+import { describeLocation } from '@/services/engine/sourceLabels';
 import { Sources } from './Sources';
 
 interface P { content: SheetContent; onChange(c: SheetContent): void; showSources: boolean }
@@ -27,8 +28,8 @@ export function SheetView({ content, onChange, showSources }: P) {
                   {showSources && <button className="link" onClick={() => setOpen(open === it.id ? null : it.id)} aria-expanded={open === it.id}>Source</button>}
                   <button className="iconbtn" aria-label="Supprimer l’élément" onClick={() => setSec(sec.id, (s) => { s.items = s.items.filter((i) => i.id !== it.id); })}><Trash2 size={13} /></button>
                 </span>
-                {showSources && open === it.id && <Sources sources={it.sources} />}
-                {showSources && it.sources[0] && <small className="sheet__src print-only">{it.sources[0].headingPath.join(' › ')}</small>}
+                {showSources && open === it.id && <Sources sources={it.sources} confidence={it.confidence} />}
+                {showSources && it.sources[0] && <small className="sheet__src print-only">{describeLocation(it.sources[0].location)}</small>}
               </li>
             ))}
           </ul>

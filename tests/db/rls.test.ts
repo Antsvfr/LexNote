@@ -32,6 +32,8 @@ beforeAll(async () => {
   `);
   await db.exec(readFileSync('supabase/migrations/20261007000000_lexnote_init.sql', 'utf8'));
   await db.exec(readFileSync('supabase/migrations/20261008000000_study_artifacts.sql', 'utf8'));
+  await db.exec(readFileSync('supabase/migrations/20261009000000_course_engine.sql', 'utf8'));
+  await db.exec(readFileSync('supabase/migrations/20261010000000_study_artifacts_from_course.sql', 'utf8'));
   await db.exec(`insert into auth.users values ('${A}', 'a@test.fr'), ('${B}', 'b@test.fr');`);
 });
 
@@ -151,13 +153,43 @@ describe('Row Level Security — supports d\'étude', () => {
     const del = (await as(B, () => q('delete from study_artifacts where id = $1', [uuid(900)]))) as { affectedRows: number };
     expect(del.affectedRows).toBe(0);
   });
-  it('usurpation de user_id refusée ; anon bloqué ; type inconnu refusé', async () => {
+  it('usurpation de user_id refusée ; anon bloqué ; type inconnu refusé (METHOD accepté)', async () => {
     await expect(as(B, () => q(`insert into study_artifacts (id, user_id, type, title, content) values ($1, $2, 'QUIZ', 'x', '{}')`, [uuid(902), A]))).rejects.toThrow();
     await expect(as(null, () => q('select * from study_artifacts'))).rejects.toThrow();
     await expect(as(A, () => q(`insert into study_artifacts (id, type, title, content) values ($1, 'AUTRE', 'x', '{}')`, [uuid(903)]))).rejects.toThrow();
+    await as(A, () => q(`insert into study_artifacts (id, type, title, content, course_id, generation) values ($1, 'METHOD', 'Méthode', '{}', $2, 2)`, [uuid(905), uuid(906)]));
+    expect(((await as(B, () => q('select id from study_artifacts where id = $1', [uuid(905)]))) as { rows: unknown[] }).rows).toHaveLength(0);
   });
   it('un support ne peut pas être rattaché à la matière d\'un autre utilisateur', async () => {
     await as(A, () => insertSubject(uuid(910), 'Matière de A'));
     await expect(as(B, () => q(`insert into study_artifacts (id, type, title, content, subject_id) values ($1, 'QUIZ', 'x', '{}', $2)`, [uuid(904), uuid(910)]))).rejects.toThrow();
+  });
+});
+
+describe('Row Level Security — moteur de cours (documents, cours reconstruits)', () => {
+  const session = (id: string) => q(`insert into course_sessions (id, subject_id, type, title, date) values ($1, $2, 'CM', 't', '2026-01-01')`, [id, uuid(950)]);
+  const doc = (id: string, sid: string) => q(`insert into source_documents (id, session_id, name) values ($1, $2, 'cours.pdf')`, [id, sid]);
+  const course = (id: string, sid: string, v = 1) => q(`insert into generated_courses (id, session_id, course_version, generated_at, source_snapshot, content) values ($1, $2, $3, now(), '{}', '{}')`, [id, sid, v]);
+  beforeAll(async () => {
+    await as(A, async () => { await insertSubject(uuid(950), 'Matière A2'); await session(uuid(951)); });
+    await as(B, async () => { await insertSubject(uuid(952), 'Matière B2'); await q(`insert into course_sessions (id, subject_id, type, title, date) values ($1, $2, 'CM', 't', '2026-01-01')`, [uuid(953), uuid(952)]); });
+  });
+  it('isolation des documents et des cours (lecture, modification, suppression)', async () => {
+    await as(A, async () => { await doc(uuid(960), uuid(951)); await course(uuid(961), uuid(951)); });
+    expect(((await as(B, () => q('select id from source_documents'))) as { rows: unknown[] }).rows).toHaveLength(0);
+    expect(((await as(B, () => q('select id from generated_courses'))) as { rows: unknown[] }).rows).toHaveLength(0);
+    expect(((await as(B, () => q(`update source_documents set name = 'x' where id = $1`, [uuid(960)]))) as { affectedRows: number }).affectedRows).toBe(0);
+    expect(((await as(B, () => q('delete from generated_courses where id = $1', [uuid(961)]))) as { affectedRows: number }).affectedRows).toBe(0);
+  });
+  it('B ne peut pas rattacher un document ou un cours à la séance de A ; anon bloqué', async () => {
+    await expect(as(B, () => doc(uuid(962), uuid(951)))).rejects.toThrow();
+    await expect(as(B, () => course(uuid(963), uuid(951)))).rejects.toThrow();
+    await expect(as(null, () => q('select * from source_documents'))).rejects.toThrow();
+    await expect(as(null, () => q('select * from generated_courses'))).rejects.toThrow();
+  });
+  it('plusieurs versions d’un cours coexistent (aucune écrasée) ; statut invalide refusé', async () => {
+    await as(A, async () => { await course(uuid(964), uuid(951), 2); await course(uuid(965), uuid(951), 3); });
+    expect(((await as(A, () => q('select course_version from generated_courses order by course_version'))) as { rows: { course_version: number }[] }).rows.map((r) => r.course_version)).toEqual([1, 2, 3]);
+    await expect(as(A, () => q(`insert into source_documents (id, session_id, name, status) values ($1, $2, 'x', 'bizarre')`, [uuid(966), uuid(951)]))).rejects.toThrow();
   });
 });

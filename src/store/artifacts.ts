@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { ArtifactContent, StudyArtifact } from '@/domain/study';
 import type { StorageAdapter } from '@/services/storage/types';
 import { newId } from '@/lib/ids';
+import { provenanceOf, type GeneratedDraft } from '@/services/study/engine';
 
 interface ArtifactsState {
   items: StudyArtifact[];
@@ -16,7 +17,7 @@ interface ArtifactsState {
   /** Revient à la version générée. */
   restoreGenerated(id: string): Promise<void>;
   /** Remplace par une nouvelle génération (le contenu précédent est perdu : l'appelant a confirmé ou fait une copie). */
-  replaceGenerated(id: string, draft: Pick<StudyArtifact, 'content' | 'sourceHash' | 'generatedBy' | 'title'>): Promise<void>;
+  replaceGenerated(id: string, draft: GeneratedDraft): Promise<void>;
   duplicate(id: string, title?: string): Promise<StudyArtifact | undefined>;
   remove(id: string): Promise<void>;
   removeForSubject(subjectId: string): Promise<void>;
@@ -49,12 +50,17 @@ export const useArtifacts = create<ArtifactsState>((set, get) => {
       await put({ ...cur, title: title.trim(), updatedAt: stamp() });
     },
     async restoreGenerated(id) {
-      const cur = find(id); if (!cur?.aiContent) return;
-      await put({ ...cur, content: structuredClone(cur.aiContent), userEdited: false, updatedAt: stamp() });
+      const cur = find(id); if (!cur?.generatedContent) return;
+      await put({ ...cur, content: structuredClone(cur.generatedContent), userEdited: false, updatedAt: stamp() });
     },
     async replaceGenerated(id, d) {
       const cur = find(id); if (!cur) return;
-      await put({ ...cur, title: cur.userEdited ? cur.title : d.title, content: d.content, aiContent: structuredClone(d.content), sourceHash: d.sourceHash, generatedBy: d.generatedBy, userEdited: false, updatedAt: stamp() });
+      const c = d.course;
+      await put({
+        ...cur, title: cur.userEdited ? cur.title : d.title, content: d.content, generatedContent: structuredClone(d.content), settings: d.settings, scope: d.scope ?? cur.scope,
+        courseId: c.id, courseVersion: c.courseVersion, sourceSnapshot: c.sourceSnapshot, engineVersion: c.engineVersion, provenance: provenanceOf(c),
+        generation: cur.generation + 1, userEdited: false, updatedAt: stamp(),
+      });
     },
     async duplicate(id, title) {
       const cur = find(id); if (!cur) return undefined;

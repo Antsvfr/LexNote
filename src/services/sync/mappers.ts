@@ -1,5 +1,6 @@
 import type { AudioSession, Interruption, NoteAnchor, TimelineMarker, TranscriptSegment } from '@/domain/capture';
 import type { CourseSession, Module, Subject } from '@/domain/types';
+import type { GeneratedCourse, SourceDocument } from '@/domain/course';
 import { ARTIFACT_TYPES, type ArtifactContent, type StudyArtifact } from '@/domain/study';
 import { isSessionType } from '@/domain/sessionType';
 import type { RemoteRow } from './types';
@@ -106,14 +107,43 @@ export const interruptionFromRow = (r: RemoteRow): Interruption => ({
 /* ---------------- study_artifacts ---------------- */
 export const artifactToRow = (a: StudyArtifact): RemoteRow => ({
   id: a.id, user_id: a.userId, type: a.type, title: a.title, subject_id: a.subjectId, source_session_ids: a.sourceSessionIds, scope: a.scope,
-  options: a.options, content: a.content, ai_content: a.aiContent, source_hash: a.sourceHash, user_edited: a.userEdited, generated_by: a.generatedBy,
+  settings: a.settings, content: a.content, generated_content: a.generatedContent, user_edited: a.userEdited,
+  course_id: a.courseId, course_version: a.courseVersion, source_snapshot: a.sourceSnapshot, engine_version: a.engineVersion, provenance: a.provenance, generation: a.generation,
   created_at: a.createdAt, updated_at: a.updatedAt, deleted_at: null,
 });
 export const artifactFromRow = (r: RemoteRow): StudyArtifact => ({
   id: r.id, userId: String(r.user_id), type: (ARTIFACT_TYPES as readonly string[]).includes(String(r.type)) ? (r.type as StudyArtifact['type']) : 'COURSE_SHEET',
   title: String(r.title), subjectId: (r.subject_id as string | null) ?? null, sourceSessionIds: (r.source_session_ids as string[]) ?? [],
-  scope: (r.scope as StudyArtifact['scope']) ?? null, options: (r.options as Record<string, unknown>) ?? {},
-  content: r.content as ArtifactContent, aiContent: (r.ai_content as ArtifactContent | null) ?? null, sourceHash: String(r.source_hash ?? ''),
-  userEdited: !!r.user_edited, generatedBy: (r.generated_by as StudyArtifact['generatedBy']) ?? null,
+  scope: (r.scope as StudyArtifact['scope']) ?? null, settings: (r.settings as StudyArtifact['settings']) ?? {},
+  content: r.content as ArtifactContent, generatedContent: (r.generated_content as ArtifactContent | null) ?? null, userEdited: !!r.user_edited,
+  courseId: String(r.course_id ?? ''), courseVersion: Number(r.course_version ?? 1), sourceSnapshot: (r.source_snapshot as StudyArtifact['sourceSnapshot']) ?? { sources: [], hash: '' },
+  engineVersion: String(r.engine_version ?? ''), provenance: r.provenance as StudyArtifact['provenance'], generation: Number(r.generation ?? 1),
+  createdAt: String(r.created_at), updatedAt: String(r.updated_at), version: r.version,
+});
+
+/* ---------------- source_documents (le fichier original n'est JAMAIS envoyé : seulement les métadonnées et le texte analysé) ---------------- */
+export const documentToRow = (d: SourceDocument): RemoteRow => ({
+  id: d.id, user_id: d.userId, session_id: d.sessionId, name: d.name, mime: d.mime, format: d.format, size: d.size, status: d.status, error: d.error ?? null,
+  unit_label: d.unitLabel, unit_count: d.count ?? null, word_count: d.wordCount, extractor_id: d.extractorId ?? null, extraction: d.extraction, file_hash: d.fileHash,
+  added_at: d.addedAt, analyzed_at: d.analyzedAt ?? null, created_at: d.createdAt, updated_at: d.updatedAt, deleted_at: null,
+});
+export const documentFromRow = (r: RemoteRow): SourceDocument => ({
+  id: r.id, userId: String(r.user_id), sessionId: String(r.session_id), name: String(r.name), mime: String(r.mime ?? ''), format: (r.format as SourceDocument['format']) ?? 'other',
+  size: Number(r.size ?? 0), status: (r.status as SourceDocument['status']) ?? 'ready', error: orUndef(r.error as string), unitLabel: (r.unit_label as SourceDocument['unitLabel']) ?? 'page',
+  count: (r.unit_count as number | null) ?? undefined, wordCount: Number(r.word_count ?? 0), extractorId: orUndef(r.extractor_id as string),
+  extraction: (r.extraction as SourceDocument['extraction']) ?? null, fileHash: String(r.file_hash ?? ''), addedAt: String(r.added_at), analyzedAt: orUndef(r.analyzed_at as string),
+  createdAt: String(r.created_at), updatedAt: String(r.updated_at), version: r.version,
+});
+
+/* ---------------- generated_courses ---------------- */
+export const courseToRow = (c: GeneratedCourse): RemoteRow => ({
+  id: c.id, user_id: c.userId, session_id: c.sessionId, course_version: c.courseVersion, generated_at: c.generatedAt, engine_version: c.engineVersion,
+  provider_id: c.providerId, provider_label: c.providerLabel, source_snapshot: c.sourceSnapshot, content: c.content,
+  created_at: c.createdAt, updated_at: c.updatedAt, deleted_at: null,
+});
+export const courseFromRow = (r: RemoteRow): GeneratedCourse => ({
+  id: r.id, userId: String(r.user_id), sessionId: String(r.session_id), courseVersion: Number(r.course_version ?? 1), generatedAt: String(r.generated_at),
+  engineVersion: String(r.engine_version ?? ''), providerId: String(r.provider_id ?? ''), providerLabel: String(r.provider_label ?? ''),
+  sourceSnapshot: r.source_snapshot as GeneratedCourse['sourceSnapshot'], content: r.content as GeneratedCourse['content'],
   createdAt: String(r.created_at), updatedAt: String(r.updated_at), version: r.version,
 });

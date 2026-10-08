@@ -28,6 +28,8 @@ const PARENT: Partial<Record<RemoteTable, { col: string; table: RemoteTable }[]>
   modules: [{ col: 'subject_id', table: 'subjects' }],
   course_sessions: [{ col: 'subject_id', table: 'subjects' }, { col: 'module_id', table: 'modules' }],
   study_artifacts: [{ col: 'subject_id', table: 'subjects' }],
+  source_documents: [{ col: 'session_id', table: 'course_sessions' }],
+  generated_courses: [{ col: 'session_id', table: 'course_sessions' }],
   transcript_sessions: [{ col: 'session_id', table: 'course_sessions' }],
   transcript_segments: [{ col: 'session_id', table: 'course_sessions' }],
   timeline_markers: [{ col: 'session_id', table: 'course_sessions' }],

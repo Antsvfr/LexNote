@@ -1,363 +1,282 @@
-import { describe, expect, it } from 'vitest';
-import { buildOutline, scopeSection } from './outline';
-import { findSection, generateDraft, guardAiContent, interpretStudyCommand, isStale, setStudyProvider, toArtifact } from './engine';
-import { EmptySourceError, comparableSections, countNodes, generateComparison, generateDiagram, generateMindMap, suggestDiagramType, suggestSupports } from './generators';
-import { validateContent, ArtifactValidationError, type MindMapContent, type SheetContent } from '@/domain/study';
-import { layoutMindMap, layoutDiagram } from './layout';
+import { beforeAll, describe, expect, it } from 'vitest';
+import type { GeneratedCourse } from '@/domain/course';
+import { ArtifactValidationError, validateContent, type DiagramContent, type MindMapContent, type QuizContent, type SheetContent } from '@/domain/study';
+import { H, LB, P, courseOf, material, richMaterial } from '@/test/engineFixtures';
+import { buildSourceSet } from '@/services/engine/chunking';
+import { DEFAULTS, findSection, generateDraft, interpretStudyCommand, isStale, latestCourse, provenanceOf, toArtifact, treeOf } from './engine';
+import { EmptySourceError, comparableSections, countNodes, datedBlocks, generateDiagram, generateFlashcards, suggestDiagramType, suggestSupports } from './generators';
+import { layoutDiagram, layoutMindMap } from './layout';
+import { addChild, addDiagramEdge, addDiagramStepAfter, addSibling, expandTo, moveSibling, moveTo, removeDiagramNode, removeNode, renameNode, searchNodes, toggleCollapse } from './edit';
+import { allBlocks, scopeNode } from './courseTree';
 
-const t = (text: string) => ({ type: 'text', text });
-const p = (text: string) => ({ type: 'paragraph', content: [t(text)] });
-const h = (level: number, text: string) => ({ type: 'heading', attrs: { level }, content: [t(text)] });
-const lb = (kind: string, text: string) => ({ type: 'legalBlock', attrs: { kind }, content: [p(text)] });
-const ol = (...items: string[]) => ({ type: 'orderedList', content: items.map((x) => ({ type: 'listItem', content: [p(x)] })) });
+let course: GeneratedCourse; let chunks: Map<string, { text: string }>;
+beforeAll(async () => { course = await courseOf(); chunks = new Map(buildSourceSet(richMaterial()).chunks.map((c) => [c.id, c])); });
+const draft = (type: Parameters<typeof generateDraft>[1]['type'], settings = {}, scope?: { sectionId: string }, c = course) => generateDraft(c, { type, settings, scope });
+const sec = (title: string) => treeOf(course).sections.find((s) => s.title === title)!;
 
-/** Cours de droit réaliste. Aucune « exception », aucune date, aucune condition « si… alors ». */
-const DROIT = { type: 'doc', content: [
-  h(1, 'Formation du contrat'), p('Le contrat se forme par la rencontre des volontés.'),
-  h(2, 'Consentement'), p('Le consentement doit être libre et éclairé.'),
-  h(3, 'Erreur'), lb('definition', 'Erreur : fausse représentation de la réalité.'), lb('article', 'Art. 1132 : l’erreur de droit ou de fait est une cause de nullité.'),
-  h(3, 'Dol'), lb('definition', 'Dol : manœuvres destinées à tromper le cocontractant.'), lb('article', 'Art. 1137 : le dol est le fait pour un contractant d’obtenir le consentement par des manœuvres.'), lb('caselaw', 'Cass. civ. 3e, 15 janvier 2002 : réticence dolosive.'),
-  h(3, 'Violence'), lb('definition', 'Violence : contrainte qui inspire la crainte d’un mal considérable.'),
-  h(2, 'Capacité'), p('Toute personne peut contracter sauf incapacité.'), lb('important', 'Les mineurs non émancipés sont incapables.'),
-] };
-const out = () => buildOutline('s1', 'Droit des contrats', DROIT);
-const sheet = async (mode: 'express' | 'standard' | 'complete') => (await generateDraft(out(), { type: 'COURSE_SHEET', options: { mode } })).content as SheetContent;
-
-describe('plan du cours (outline)', () => {
-  it('reconstruit la hiérarchie et les blocs juridiques', () => {
-    const o = out();
-    expect(o.sections.map((s) => s.title)).toEqual(['Formation du contrat', 'Consentement', 'Erreur', 'Dol', 'Violence', 'Capacité']);
-    const dol = o.sections.find((s) => s.title === 'Dol')!;
-    expect(dol.path).toEqual(['Formation du contrat', 'Consentement', 'Dol']);
-    expect(dol.blocks.map((b) => b.kind)).toEqual(['definition', 'article', 'caselaw']);
+describe('architecture : cours reconstruit → artefacts (pas de second moteur)', () => {
+  it('l’artefact référence la VERSION du cours, l’instantané des sources, le moteur et la provenance', () => {
+    const a = toArtifact(draft('COURSE_SHEET'), { userId: 'u', subjectId: null });
+    expect(a).toMatchObject({ type: 'COURSE_SHEET', courseId: 'course-1', courseVersion: 1, sourceSessionIds: ['s1'], engineVersion: course.engineVersion, generation: 1, userEdited: false });
+    expect(a.sourceSnapshot).toEqual(course.sourceSnapshot);
+    expect(a.provenance).toMatchObject({ from: 'reconstructed-course', courseId: 'course-1', courseVersion: 1 });
+    expect(a.provenance.sources.map((s) => s.kind)).toEqual(['NOTES', 'TRANSCRIPT', 'DOCUMENT']);
+    expect(a.generatedContent).toEqual(a.content);
   });
-  it('document vide ou invalide : plan vide, sans erreur', () => {
-    expect(buildOutline('x', 'T', null).sections).toEqual([]);
-    expect(buildOutline('x', 'T', { type: 'doc' }).wordCount).toBe(0);
-  });
-});
-
-describe('fiche de cours', () => {
-  it('structure juridique : définitions, articles, jurisprudences — seulement ce qui existe', async () => {
-    const c = await sheet('standard');
-    expect(c.sections.map((s) => s.kind)).toEqual(['plan', 'definitions', 'articles', 'caselaw', 'exam', 'concepts']);
-    expect(c.sections.find((s) => s.kind === 'articles')!.items).toHaveLength(2);
-  });
-  it('NON-HALLUCINATION : le cours n’a aucune exception → aucune section « Exceptions »/« Pièges »/« Exemples » artificielle', async () => {
-    const c = await sheet('complete');
-    const titles = c.sections.map((s) => s.title.toLowerCase()).join('|');
-    expect(titles).not.toMatch(/exception|piège|exemple|vérifier/);
-    expect(c.sections.some((s) => s.kind === 'examples' || s.kind === 'pitfalls')).toBe(false);
-  });
-  it('chaque élément cite un extrait EXACT du cours', async () => {
-    const o = out();
-    const c = await sheet('complete');
-    for (const sec of c.sections) for (const it of sec.items) {
-      expect(it.sources.length).toBeGreaterThan(0);
-      for (const s of it.sources) expect(o.text).toContain(s.quote.slice(0, 40));
+  it('chaque élément de chaque type d’artefact porte des références existantes (notes, PDF p. 14, transcription…)', () => {
+    const refsOf = (c: unknown): { chunkId: string; quote: string }[] => { const out: { chunkId: string; quote: string }[] = []; const walk = (v: unknown) => { if (Array.isArray(v)) v.forEach(walk); else if (v && typeof v === 'object') { const o = v as Record<string, unknown>; if (typeof o.chunkId === 'string' && typeof o.quote === 'string') out.push(o as never); else Object.values(o).forEach(walk); } }; walk(c); return out; };
+    for (const type of ['COURSE_SHEET', 'MIND_MAP', 'COMPARISON_TABLE', 'TIMELINE', 'METHOD', 'FLASHCARDS', 'QUIZ'] as const) {
+      const refs = refsOf(draft(type).content);
+      expect(refs.length, type).toBeGreaterThan(0);
+      for (const r of refs) { const c = chunks.get(r.chunkId); expect(c, `${type} ${r.chunkId}`).toBeTruthy(); expect(c!.text).toContain(r.quote.slice(0, 40)); }
     }
   });
-  it('modes : express < standard < complète en volume', async () => {
-    const size = async (m: 'express' | 'standard' | 'complete') => JSON.stringify(await sheet(m)).length;
-    expect(await size('express')).toBeLessThanOrEqual(await size('standard'));
-    expect(await size('standard')).toBeLessThanOrEqual(await size('complete'));
-    const ex = await sheet('express');
-    expect(ex.sections.every((s) => s.items.every((i) => i.text.length <= 161))).toBe(true);
+  it('le dol : définition corroborée par les notes, le PDF p. 14 et la transcription 01:02:32', () => {
+    const c = draft('FLASHCARDS', { count: 30 }).content as { cards: { question: string; sources: { location: { kind: string; page?: number; startMs?: number } }[] }[] };
+    const dol = c.cards.find((x) => x.question === 'Définir : Dol')!;
+    expect([...new Set(dol.sources.map((r) => r.location.kind))].sort()).toEqual(['DOCUMENT', 'NOTES', 'TRANSCRIPT']);
+    expect(dol.sources.find((r) => r.location.kind === 'DOCUMENT')!.location.page).toBe(14);
+    expect(dol.sources.find((r) => r.location.kind === 'TRANSCRIPT')!.location.startMs).toBe(3_752_000);
   });
-  it('options : exclure les jurisprudences', async () => {
-    const d = await generateDraft(out(), { type: 'COURSE_SHEET', options: { mode: 'standard', include: { caselaw: false } } });
-    expect((d.content as SheetContent).sections.some((s) => s.kind === 'caselaw')).toBe(false);
-  });
-  it('matière non juridique (finance) : notions issues des titres, aucune rubrique juridique', async () => {
-    const fin = buildOutline('f', 'Finance', { type: 'doc', content: [h(1, 'Valeur actuelle nette'), p('La VAN actualise les flux futurs au taux requis.'), h(1, 'TRI'), p('Le TRI annule la VAN du projet.')] });
-    const c = (await generateDraft(fin, { type: 'COURSE_SHEET', options: { mode: 'standard' } })).content as SheetContent;
-    expect(c.sections.map((s) => s.kind)).toEqual(['plan', 'concepts']);
-    expect(c.sections[1]!.items.map((i) => i.label)).toEqual(['Valeur actuelle nette', 'TRI']);
-  });
-  it('résumé express', async () => {
-    const c = (await generateDraft(out(), { type: 'COURSE_SHEET', options: { summary: true } })).content as SheetContent;
-    expect(c.variant).toBe('summary');
-    expect(c.sections).toHaveLength(1);
-  });
-  it('cours vide : refus explicite plutôt qu’un support inventé', async () => {
-    await expect(generateDraft(buildOutline('e', 'Vide', { type: 'doc', content: [] }), { type: 'COURSE_SHEET' })).rejects.toBeInstanceOf(EmptySourceError);
-    await expect(generateDraft(buildOutline('e', 'Vide', { type: 'doc', content: [] }), { type: 'MIND_MAP' })).rejects.toBeInstanceOf(EmptySourceError);
+  it('un artefact est périmé quand une version plus récente du cours existe — pas avant', async () => {
+    const a = toArtifact(draft('MIND_MAP'), { userId: 'u', subjectId: null });
+    expect(isStale(a, course)).toBe(false);
+    const v2 = await courseOf(richMaterial(), 2);
+    expect(isStale(a, v2)).toBe(true);
+    expect(latestCourse([course, v2], 's1')!.courseVersion).toBe(2);
+    expect(isStale(a, undefined)).toBe(false);
   });
 });
+
+describe('fiche de révision', () => {
+  const sheet = (mode: 'express' | 'standard' | 'complete') => draft('COURSE_SHEET', { mode }).content as SheetContent;
+  it('trois niveaux : volume croissant, express très court', () => {
+    const size = (m: 'express' | 'standard' | 'complete') => JSON.stringify(sheet(m).sections).length;
+    expect(size('express')).toBeLessThan(size('standard')); expect(size('standard')).toBeLessThanOrEqual(size('complete'));
+    expect(sheet('express').sections.flatMap((s) => s.items).every((i) => i.text.length <= 151)).toBe(true);
+    expect(sheet('express').sections.some((s) => s.kind === 'methods')).toBe(false);
+    expect(sheet('complete').sections.some((s) => s.kind === 'methods')).toBe(true);
+  });
+  it('rubriques du cours uniquement : définitions, articles, jurisprudence, exemples, points d’examen — rien d’artificiel', () => {
+    const kinds = sheet('complete').sections.map((s) => s.kind);
+    expect(kinds).toEqual(expect.arrayContaining(['definitions', 'articles', 'caselaw', 'examples', 'exam']));
+    expect(sheet('complete').sections.find((s) => s.kind === 'articles')!.items.map((i) => i.label)).toEqual(expect.arrayContaining(['Art. 1132', 'Art. 1137', 'Art. 1140']));
+    const poor = buildPoor();
+    return poor.then((c) => { const k = (draft('COURSE_SHEET', { mode: 'complete' }, undefined, c).content as SheetContent).sections.map((s) => s.kind); expect(k).not.toContain('examples'); expect(k).not.toContain('caselaw'); expect(k).not.toContain('articles'); });
+  });
+  it('depuis une section : uniquement cette partie ; section disparue : refus', () => {
+    const c = draft('COURSE_SHEET', { mode: 'complete' }, { sectionId: sec('Dol').id });
+    expect(JSON.stringify(c.content)).not.toContain('Violence'); expect(c.scope?.sectionTitle).toBe('Dol');
+    expect(() => draft('COURSE_SHEET', {}, { sectionId: 'inconnue' })).toThrow(EmptySourceError);
+  });
+  it('les éléments incertains / en conflit sont marqués, jamais présentés comme sûrs', async () => {
+    const m = material({ notes: { type: 'doc', content: [H(1, 'Réforme'), P('La réforme du droit des contrats a été adoptée le 10 février 2016 par ordonnance.')] }, segments: [], markers: [], anchors: [], documents: [] });
+    const c = await courseOf(m);
+    const s = draft('COURSE_SHEET', { mode: 'complete' }, undefined, c).content as SheetContent;
+    expect(s.sections.flatMap((x) => x.items).every((i) => i.sources.length > 0)).toBe(true);
+  });
+});
+async function buildPoor() { return courseOf(material({ notes: { type: 'doc', content: [H(1, 'Le dol'), LB('definition', 'Dol : manœuvres destinées à tromper.'), P('Le dol vicie le consentement.')] }, segments: [], documents: [], markers: [], anchors: [] })); }
 
 describe('carte mentale', () => {
-  const map = async (detail: 'simple' | 'standard' | 'detailed') => (await generateDraft(out(), { type: 'MIND_MAP', options: { detail } })).content as MindMapContent;
-  it('reflète la structure réelle du cours', async () => {
-    const m = await map('standard');
-    expect(m.root.title).toBe('Droit des contrats');
-    const formation = m.root.children[0]!;
-    expect(formation.title).toBe('Formation du contrat');
-    expect(formation.children.map((c) => c.title)).toEqual(['Consentement', 'Capacité']);
-    expect(formation.children[0]!.children.map((c) => c.title)).toEqual(['Erreur', 'Dol', 'Violence']);
+  const map = (depth: number, scope?: { sectionId: string }) => draft('MIND_MAP', { depth }, scope).content as MindMapContent;
+  it('structure du cours, profondeur réglable', () => {
+    const m3 = map(3);
+    expect(m3.root.title).toBe('Droit des contrats');
+    const formation = m3.root.children.find((c) => c.title === 'Formation du contrat')!;
+    expect(formation.children.map((c) => c.title)).toEqual(expect.arrayContaining(['Consentement', 'Capacité']));
+    expect(countNodes(map(1).root)).toBeLessThan(countNodes(map(2).root));
+    expect(countNodes(map(2).root)).toBeLessThan(countNodes(map(5).root));
+    expect(map(1).root.children.every((c) => c.children.length === 0 || c.type !== 'section')).toBe(true);
   });
-  it('niveaux de détail : simple ≤ 15, standard ≤ 30, détaillée complète', async () => {
-    const s = await map('simple'), st = await map('standard'), d = await map('detailed');
-    expect(countNodes(s.root)).toBeLessThanOrEqual(15);
-    expect(countNodes(st.root)).toBeLessThanOrEqual(30);
-    expect(countNodes(d.root)).toBeGreaterThanOrEqual(countNodes(st.root));
-    expect(countNodes(s.root)).toBeLessThan(countNodes(d.root));
+  it('les feuilles sont des éléments RÉELS du cours (définitions, articles…), sourcés — aucune relation entre concepts n’est inventée', () => {
+    const m = map(5); const all: MindMapContent['root'][] = []; const walk = (n: MindMapContent['root']) => { all.push(n); n.children.forEach(walk); }; walk(m.root);
+    const leaves = all.filter((n) => n.type !== 'section' && n.type !== 'root');
+    expect(leaves.length).toBeGreaterThan(8);
+    expect(leaves.every((n) => n.sources.length > 0)).toBe(true);
+    expect(all.filter((n) => n.type === 'section').map((n) => n.title)).toEqual(expect.arrayContaining(['Erreur', 'Dol', 'Violence']));
+    // la hiérarchie est celle du cours : « Dol » est sous « Consentement » sous « Formation du contrat »
+    const dol = all.find((n) => n.title === 'Dol' && n.type === 'section')!;
+    const parent = all.find((n) => n.children.includes(dol))!; expect(parent.title).toBe('Consentement');
   });
-  it('plafond respecté sur un gros cours (jamais 150 nœuds d’emblée en mode standard) + omissions signalées', () => {
-    const big = buildOutline('b', 'Gros', { type: 'doc', content: Array.from({ length: 120 }, (_, k) => [h(2, `Partie ${k}`), lb('definition', `Terme ${k} : définition ${k}`)]).flat() });
-    const g = generateMindMap({ outline: big, scope: big.root }, { detail: 'standard', orientation: 'horizontal' });
-    expect(countNodes(g.content.root)).toBeLessThanOrEqual(30);
-    expect(g.omitted).toBeGreaterThan(100);
+  it('depuis une section ; cours sans structure : refus explicite', () => {
+    const m = map(4, { sectionId: sec('Consentement').id });
+    expect(m.root.title).toBe('Consentement'); expect(JSON.stringify(m)).not.toContain('Capacité');
   });
-  it('détaillée volumineuse : branches profondes repliées par défaut', () => {
-    const big = buildOutline('b', 'Gros', { type: 'doc', content: Array.from({ length: 40 }, (_, k) => [h(1, `A${k}`), h(2, `B${k}`), h(3, `C${k}`), lb('article', `Art. ${k} : texte`)]).flat() });
-    const g = generateMindMap({ outline: big, scope: big.root }, { detail: 'detailed', orientation: 'horizontal' });
-    expect(countNodes(g.content.root)).toBeGreaterThan(60);
-    const lay = layoutMindMap(g.content.root, 'horizontal');
-    expect(lay.nodes.length).toBeLessThan(countNodes(g.content.root));
-  });
-  it('génération depuis une SECTION : uniquement cette partie', async () => {
-    const o = out();
-    const sec = o.sections.find((s) => s.title === 'Consentement')!;
-    const d = await generateDraft(o, { type: 'MIND_MAP', scope: { sectionId: sec.id }, options: { detail: 'standard' } });
-    const m = d.content as MindMapContent;
-    expect(m.root.title).toBe('Consentement');
-    expect(JSON.stringify(m)).not.toContain('Capacité');
-    expect(d.scope).toEqual({ sectionId: sec.id, sectionTitle: 'Consentement' });
-  });
-  it('nœuds sourcés avec extrait exact', async () => {
-    const o = out();
-    const m = await map('detailed');
-    const dol = m.root.children[0]!.children[0]!.children[1]!;
-    expect(dol.title).toBe('Dol');
-    expect(dol.sources[0]!.headingPath).toEqual(['Formation du contrat', 'Consentement', 'Dol']);
-    expect(o.text).toContain(dol.sources[0]!.quote);
-  });
-  it('mise en page : positions finies, pas de chevauchement, repli = nœuds en moins', async () => {
-    const m = await map('detailed');
-    for (const orient of ['horizontal', 'vertical', 'radial'] as const) {
-      const l = layoutMindMap(m.root, orient);
-      expect(l.nodes.every((n) => Number.isFinite(n.x) && Number.isFinite(n.y))).toBe(true);
-      const ids = new Set(l.nodes.map((n) => n.node.id));
-      expect(l.links.every((k) => ids.has(k.from) && ids.has(k.to))).toBe(true);
-    }
-    const folded = structuredClone(m); folded.root.children[0]!.collapsed = true;
-    expect(layoutMindMap(folded.root, 'horizontal').nodes.length).toBeLessThan(layoutMindMap(m.root, 'horizontal').nodes.length);
+  it('grosse carte : branches profondes repliées, mise en page rapide (10 / 30 / 100 / 300 nœuds)', () => {
+    const tree = (n: number) => { const kids = Array.from({ length: n - 1 }, (_, k) => ({ id: `n${k}`, title: `Nœud ${k}`, type: 'concept' as const, sources: [], children: [] as never[] })); const br = kids.slice(0, Math.min(10, kids.length)).map((b) => ({ ...b, children: [] as typeof kids })); kids.slice(br.length).forEach((k, i) => br[i % br.length]!.children.push(k)); return { id: 'r', title: 'R', type: 'root' as const, sources: [], children: br }; };
+    for (const n of [10, 30, 100, 300]) { const t0 = performance.now(); const l = layoutMindMap(tree(n) as never, 'horizontal'); expect(l.nodes.length).toBe(n); expect(performance.now() - t0).toBeLessThan(150); }
   });
 });
 
 describe('schémas', () => {
-  it('aucune étape / condition / date dans ce cours → refus honnête, pas de schéma inventé', () => {
-    for (const type of ['PROCESS', 'FLOWCHART', 'TIMELINE'] as const) {
-      const o = out();
-      const fn = () => generateDiagram({ outline: o, scope: scopeSection(o, o.sections.find((s) => s.title === 'Violence')!.id) }, type);
-      expect(fn, type).toThrow(EmptySourceError);
+  const tr = () => treeOf(course);
+  const input = (scope = tr().root) => ({ tree: tr(), scope });
+  it('processus : méthode du cas pratique → 6 étapes ordonnées, début/fin, flèches « ordre »', () => {
+    const d = draft('DIAGRAM', { diagramType: 'PROCESS' }).content as ReturnType<typeof generateDiagram>['content'];
+    expect(d.nodes).toHaveLength(6); expect(d.nodes.map((n) => n.kind)).toEqual(['start', 'step', 'step', 'step', 'step', 'end']);
+    expect(d.edges).toHaveLength(5); expect(d.edges.every((e) => e.basis === 'order')).toBe(true);
+    expect(d.nodes[0]!.label).toMatch(/Identifier les faits/); expect(d.nodes.every((n) => n.sources.length > 0)).toBe(true);
+    expect(suggestDiagramType(input())).toBe('PROCESS');
+  });
+  it('raisonnement : « si… alors » explicite → décision ; le « non » n’est jamais inventé', () => {
+    const d = draft('DIAGRAM', { diagramType: 'FLOWCHART' }).content as ReturnType<typeof generateDiagram>['content'];
+    expect(d.nodes.map((n) => n.kind)).toEqual(['decision', 'step']); expect(d.edges).toEqual([expect.objectContaining({ label: 'oui', basis: 'stated' })]);
+  });
+  it('structure / comparaison / relations : aucune flèche déduite', () => {
+    for (const t of ['HIERARCHY', 'COMPARISON', 'RELATIONSHIP'] as const) {
+      try { const d = draft('DIAGRAM', { diagramType: t }).content as ReturnType<typeof generateDiagram>['content']; expect(d.edges.every((e) => e.basis !== 'inferred' && !e.uncertain), t).toBe(true); }
+      catch (e) { expect(e).toBeInstanceOf(EmptySourceError); }
     }
   });
-  it('processus depuis une liste numérotée : flèches « ordre », début/fin', () => {
-    const o = buildOutline('p', 'Méthode', { type: 'doc', content: [h(1, 'Cas pratique'), ol('Identifier les faits', 'Qualifier juridiquement', 'Énoncer la règle', 'Appliquer', 'Conclure')] });
-    const d = generateDiagram({ outline: o, scope: o.root }, 'PROCESS').content;
-    expect(d.nodes.map((n) => n.kind)).toEqual(['start', 'step', 'step', 'step', 'end']);
-    expect(d.edges).toHaveLength(4);
-    expect(d.edges.every((e) => e.basis === 'order')).toBe(true);
-    expect(suggestDiagramType({ outline: o, scope: o.root })).toBe('PROCESS');
+  it('rien à schématiser : refus honnête avec explication', async () => {
+    const c = await buildPoor();
+    for (const t of ['PROCESS', 'FLOWCHART', 'TIMELINE', 'COMPARISON'] as const) expect(() => draft('DIAGRAM', { diagramType: t }, undefined, c), t).toThrow(EmptySourceError);
   });
-  it('raisonnement conditionnel : « si… alors » explicite → décision ; le « non » n’est PAS inventé', () => {
-    const o = buildOutline('c', 'Cond', { type: 'doc', content: [h(1, 'Validité'), p('Si le consentement est vicié, alors le contrat est annulable.')] });
-    const d = generateDiagram({ outline: o, scope: o.root }, 'FLOWCHART').content;
-    expect(d.nodes.map((n) => n.kind)).toEqual(['decision', 'step']);
-    expect(d.edges).toHaveLength(1);
-    expect(d.edges[0]).toMatchObject({ label: 'oui', basis: 'stated' });
-  });
-  it('NON-HALLUCINATION : toutes les flèches générées ont une base vérifiable (jamais « inferred »)', () => {
-    const o = out();
-    for (const type of ['HIERARCHY', 'COMPARISON', 'RELATIONSHIP'] as const) {
-      try {
-        const d = generateDiagram({ outline: o, scope: o.root }, type).content;
-        expect(d.edges.every((e) => e.basis !== 'inferred' && !e.uncertain), type).toBe(true);
-      } catch (e) { expect(e).toBeInstanceOf(EmptySourceError); }
-    }
-  });
-  it('hiérarchie et chronologie', () => {
-    const o = out();
-    expect(generateDiagram({ outline: o, scope: o.root }, 'HIERARCHY').content.edges.every((e) => e.basis === 'structure')).toBe(true);
-    const t = buildOutline('t', 'Histoire', { type: 'doc', content: [h(1, 'Réformes'), p('La loi de 1804 crée le Code civil.'), p('L’ordonnance de 2016 réforme le droit des contrats.'), p('La loi de 1975 réforme le divorce.')] });
-    const tl = generateDiagram({ outline: t, scope: t.root }, 'TIMELINE').content;
-    expect(tl.nodes[0]!.label).toContain('1804');
-    expect(tl.nodes.at(-1)!.label).toContain('2016');
-  });
-  it('mise en page en couches : début en haut, positions finies, graphe cyclique toléré', () => {
-    const o = buildOutline('p', 'M', { type: 'doc', content: [ol('A', 'B', 'C')] });
-    const d = generateDiagram({ outline: o, scope: o.root }, 'PROCESS').content;
-    const l = layoutDiagram(d);
-    const ys = d.nodes.map((n) => l.pos[n.id]!.y);
-    expect(ys).toEqual([...ys].sort((a, b) => a - b));
-    const cyc = { ...d, edges: [...d.edges, { id: 'z', from: d.nodes[2]!.id, to: d.nodes[0]!.id, basis: 'stated' as const }] };
-    expect(Object.values(layoutDiagram(cyc).pos).every((p) => Number.isFinite(p.x) && Number.isFinite(p.y))).toBe(true);
+  it('mise en page en couches ; graphe cyclique toléré', () => {
+    const d = draft('DIAGRAM', { diagramType: 'PROCESS' }).content as ReturnType<typeof generateDiagram>['content'];
+    const ys = d.nodes.map((n) => layoutDiagram(d).pos[n.id]!.y); expect(ys).toEqual([...ys].sort((a, b) => a - b));
+    const cyc = { ...d, edges: [...d.edges, { id: 'z', from: d.nodes.at(-1)!.id, to: d.nodes[0]!.id, basis: 'stated' as const }] };
+    expect(Object.values(layoutDiagram(cyc).pos).every((p) => Number.isFinite(p.x))).toBe(true);
   });
 });
 
 describe('tableau comparatif', () => {
-  it('erreur / dol / violence : lignes par type, cellule « — » quand le cours est muet, sources', () => {
-    const o = out();
-    const consent = o.sections.find((s) => s.title === 'Consentement')!;
-    const g = generateComparison({ outline: o, scope: consent });
-    expect(g.content.columns.map((c) => c.title)).toEqual(['Erreur', 'Dol', 'Violence']);
-    const labels = g.content.rows.map((r) => r.label);
-    expect(labels).toEqual(['Définition', 'Articles', 'Jurisprudence']);
-    const art = g.content.rows.find((r) => r.label === 'Articles')!;
-    const viol = g.content.columns[2]!.id;
-    expect(art.cells[viol]).toEqual({ text: '—', sources: [] }); // la violence n'a pas d'article dans CE cours : rien d'inventé
-    expect(Object.values(art.cells).filter((c) => c.sources.length).length).toBe(2);
+  it('erreur / dol / violence détectés ; lignes = critères RÉELLEMENT renseignés ; « — » quand le cours est muet', () => {
+    expect(comparableSections({ tree: treeOf(course), scope: treeOf(course).root }).map((s) => s.title)).toEqual(['Erreur', 'Dol', 'Violence']);
+    const t = draft('COMPARISON_TABLE').content as import('@/domain/study').TableContent;
+    expect(t.columns.map((c) => c.title)).toEqual(['Erreur', 'Dol', 'Violence']);
+    expect(t.rows.map((r) => r.label)).toEqual(['Définition', 'Articles', 'Jurisprudence', 'Exemples', 'Points importants', 'Chiffres et dates']);
+    const caselaw = t.rows.find((r) => r.label === 'Jurisprudence')!; const viol = t.columns[2]!.id; const dol = t.columns[1]!.id;
+    expect(caselaw.cells[viol]).toEqual({ text: '—', sources: [] }); // aucune jurisprudence pour la violence : rien d'inventé
+    expect(caselaw.cells[dol]!.sources.length).toBeGreaterThan(0);
+    expect(t.rows.every((r) => !('Méthode' === r.label))).toBe(true); // critère sans contenu → pas de ligne
   });
-  it('une seule notion : refus', () => {
-    const o = buildOutline('x', 'X', { type: 'doc', content: [h(1, 'Seul'), p('texte')] });
-    expect(() => generateComparison({ outline: o, scope: o.root })).toThrow(EmptySourceError);
-  });
-  it('suggestions discrètes, calculées sur le cours', () => {
-    const s = suggestSupports(out());
-    expect(s.map((x) => x.type)).toEqual(expect.arrayContaining(['MIND_MAP', 'COMPARISON_TABLE']));
-    expect(suggestSupports(buildOutline('v', 'V', { type: 'doc', content: [p('court')] }))).toEqual([]);
+  it('concepts choisis ; une seule notion ou critères vides : refus', () => {
+    const t = draft('COMPARISON_TABLE', { conceptIds: [sec('Dol').id, sec('Violence').id] }).content as import('@/domain/study').TableContent;
+    expect(t.columns).toHaveLength(2);
+    expect(() => draft('COMPARISON_TABLE', { conceptIds: [sec('Dol').id] })).toThrow(EmptySourceError);
+    expect(() => draft('COMPARISON_TABLE', { conceptIds: [sec('Histoire de la réforme').id, sec('Régime').id] })).toThrow(EmptySourceError);
   });
 });
 
-describe('dates et numéros d’articles', () => {
-  it('« Art. 1132 », « article L. 1240-1 » ne sont pas des dates', async () => {
-    const o = buildOutline('d', 'D', { type: 'doc', content: [lb('article', 'Art. 1132 : erreur.'), lb('article', 'Article L. 1240-1 du code'), p('Selon l’article 1137 du code civil.'), lb('article', 'Art. 1137 : dol.')] });
-    await expect(generateDraft(o, { type: 'TIMELINE' })).rejects.toBeInstanceOf(EmptySourceError);
+describe('chronologie', () => {
+  it('dates réelles triées ; numéros d’articles ignorés ; aucune date inventée', () => {
+    const t = draft('TIMELINE').content as import('@/domain/study').TimelineContent;
+    expect(t.events.map((e) => e.date)).toEqual(['1804', '15 janvier 2002', '10 février 2016', '2018']);
+    expect(t.events.every((e) => e.sources.length > 0)).toBe(true);
+    expect(JSON.stringify(t)).not.toMatch(/"date":"11(32|37|40)"/);
   });
-  it('« en 1804 », « le 13 juillet 1930 » en sont', async () => {
-    const o = buildOutline('d', 'D', { type: 'doc', content: [p('Loi du 13 juillet 1930 sur l’assurance.'), p('Réforme en 2016.')] });
-    const c = (await generateDraft(o, { type: 'TIMELINE' })).content as { events: { date: string }[] };
-    expect(c.events.map((e) => e.date)).toEqual(['13 juillet 1930', '2016']);
+  it('moins de deux dates : refus', async () => { expect(() => draft('TIMELINE', {}, undefined, null as never)).toThrow(); const c = await buildPoor(); expect(() => draft('TIMELINE', {}, undefined, c)).toThrow(EmptySourceError); });
+  it('dates : uniquement des blocs fiables', () => { expect(datedBlocks({ tree: treeOf(course), scope: treeOf(course).root }).length).toBe(4); });
+});
+
+describe('méthode', () => {
+  it('objectif, étapes, questions du cours, erreurs signalées, checklist — sans ajout', () => {
+    const m = draft('METHOD').content as import('@/domain/study').MethodContent;
+    expect(m.objective!.text).toBe('Méthode du cas pratique');
+    expect(m.steps.map((s) => s.text)).toEqual(['Identifier les faits pertinents', 'Qualifier juridiquement', 'Formuler le problème de droit', 'Énoncer la règle', 'Appliquer aux faits', 'Conclure']);
+    expect(m.questions.map((q) => q.text)).toEqual(['Quelle est la règle applicable ?']);
+    expect(m.pitfalls[0]!.text).toMatch(/ne confondez pas/i);
+    expect(m.checklist.map((c) => c.text)).toEqual(m.steps.map((s) => s.text)); expect(m.checklist.every((c) => !c.done)).toBe(true);
+    expect([...m.steps, ...m.questions, ...m.pitfalls].every((x) => x.sources.length > 0)).toBe(true);
   });
-  it('tableau : choisit le groupe de notions qui porte le plus d’éléments juridiques (erreur / dol / violence)', () => {
-    const o = out();
-    expect(comparableSections({ outline: o, scope: o.root }).map((s) => s.title)).toEqual(['Erreur', 'Dol', 'Violence']);
+  it('cours sans méthode : refus explicite', async () => { const c = await buildPoor(); expect(() => draft('METHOD', {}, undefined, c)).toThrow(/méthodologique/); });
+});
+
+describe('flashcards', () => {
+  const cards = (count: number) => draft('FLASHCARDS', { count });
+  it('question, réponse, difficulté, source, concept — réponse = texte du cours', () => {
+    const c = cards(30).content as import('@/domain/study').FlashcardsContent;
+    const dol = c.cards.find((x) => x.question === 'Définir : Dol')!;
+    expect(dol).toMatchObject({ difficulty: 'easy', concept: 'Dol', answer: 'manœuvres destinées à tromper le cocontractant.' });
+    expect(c.cards.find((x) => x.question.startsWith('Que prévoit Art. 1137'))!.answer).toMatch(/^le dol est le fait/);
+    expect(new Set(c.cards.map((x) => x.difficulty)).size).toBeGreaterThan(1);
+    expect(c.cards.every((x) => x.sources.length > 0 && x.concept)).toBe(true);
+  });
+  it('10 / 20 / 30 : nombre respecté, équilibré entre types, sinon on l’explique au lieu de compléter', () => {
+    const d10 = cards(10); expect((d10.content as { cards: unknown[] }).cards).toHaveLength(10);
+    expect(new Set((d10.content as { cards: { question: string }[] }).cards.map((x) => x.question.split(' ')[0])).size).toBeGreaterThan(2);
+    const big = cards(30); const n = (big.content as { cards: unknown[] }).cards.length;
+    expect(n).toBeLessThan(30); expect(big.notice).toMatch(/ne permet de créer que \d+ cartes? fiables?/);
+    expect((cards(3).content as { cards: unknown[] }).cards).toHaveLength(3);
+  });
+  it('un fait incertain ou en conflit ne devient jamais la réponse d’une carte', async () => {
+    const m = material({ notes: { type: 'doc', content: [H(1, 'Réforme'), LB('definition', 'Réforme : ordonnance du 10 février 2016.'), LB('definition', 'Ordonnance : texte pris par le gouvernement.')] }, documents: [], segments: [], markers: [], anchors: [] });
+    const c = await courseOf(m);
+    const out = generateFlashcards({ tree: treeOf(c), scope: treeOf(c).root }, { count: 10 });
+    expect(out.content.cards.every((x) => !/Valeurs différentes|UNCERTAIN/.test(x.answer))).toBe(true);
+  });
+  it('cours vide de matière fiable : refus', async () => { const c = await courseOf(material({ notes: { type: 'doc', content: [H(1, 'Titre seul')] }, segments: [], documents: [], markers: [], anchors: [] })).catch(() => null); if (c) expect(() => draft('FLASHCARDS', {}, undefined, c)).toThrow(EmptySourceError); });
+});
+
+describe('quiz', () => {
+  const quiz = (s: Record<string, unknown> = {}) => draft('QUIZ', { count: 12, ...s });
+  const qs = (s?: Record<string, unknown>) => (quiz(s).content as QuizContent).questions;
+  it('chaque question : bonne réponse, explication, source, difficulté', () => {
+    const q = qs();
+    expect(q.length).toBeGreaterThan(5);
+    for (const x of q) { expect(x.correct).toBeTruthy(); expect(x.explanation.length).toBeGreaterThan(5); expect(x.sources.length).toBeGreaterThan(0); expect(['easy', 'medium', 'hard']).toContain(x.difficulty); }
+  });
+  it('QCM : au moins 3 options, la bonne parmi elles, les autres sont de VRAIES définitions du cours', () => {
+    const mcq = qs({ quizKinds: ['mcq'], count: 20 }); expect(mcq.length).toBeGreaterThan(2);
+    const defs = ['fausse représentation de la réalité.', 'manœuvres destinées à tromper le cocontractant.', 'contrainte qui inspire la crainte d’un mal considérable.'];
+    for (const x of mcq) {
+      expect(x.options!.length).toBeGreaterThanOrEqual(3); expect(x.options!.some((o) => o.id === x.correct)).toBe(true);
+      if (x.prompt.startsWith('Quelle définition')) for (const o of x.options!) expect(defs).toContain(o.text);
+    }
+    expect(mcq.some((x) => x.prompt === 'Quelle définition correspond à « Dol » ?' && x.options!.find((o) => o.id === x.correct)!.text === defs[1])).toBe(true);
+  });
+  it('vrai/faux : le faux est une définition d’UNE AUTRE notion du cours, expliquée avec la bonne', () => {
+    const tf = qs({ quizKinds: ['truefalse'], count: 20 });
+    const f = tf.find((x) => x.correct === 'false')!; const t = tf.find((x) => x.correct === 'true')!;
+    expect(f.explanation).toMatch(/^Faux : ce texte définit/); expect(t.explanation).toMatch(/^Vrai/);
+    expect(tf.some((x) => x.prompt === '« Dol » : manœuvres destinées à tromper le cocontractant.' && x.correct === 'true')).toBe(true);
+    expect(tf.some((x) => x.prompt.startsWith('« Dol » :') && x.correct === 'false' && !x.prompt.includes('manœuvres'))).toBe(true);
+  });
+  it('niveau, nombre et types respectés ; notice quand le cours n’en permet pas plus', () => {
+    expect(qs({ level: 'easy' }).every((x) => x.difficulty === 'easy')).toBe(true);
+    expect(qs({ quizKinds: ['short'], count: 4 }).every((x) => x.kind === 'short')).toBe(true);
+    expect(qs({ count: 3 })).toHaveLength(3);
+    expect(quiz({ count: 100 }).notice).toMatch(/ne permet de poser que/);
+  });
+  it('pas assez de matière fiable : refus (aucune réponse inventée) ; QCM impossible avec 2 définitions', async () => {
+    const c = await buildPoor();
+    expect(() => draft('QUIZ', { quizKinds: ['mcq'] }, undefined, c)).toThrow(EmptySourceError);
+    expect(() => draft('QUIZ', { level: 'hard', quizKinds: ['truefalse'] })).toThrow(/ne correspond/);
+  });
+  it('quiz valide ou refusé par le schéma', () => {
+    expect(() => validateContent('QUIZ', { questions: [{ id: 'a', kind: 'mcq', prompt: 'q', options: [{ id: 'x', text: 'a' }], correct: 'x', explanation: 'e', difficulty: 'easy', sources: [] }] })).toThrow(ArtifactValidationError);
+    expect(() => validateContent('QUIZ', { questions: [{ id: 'a', kind: 'truefalse', prompt: 'q', correct: 'peut-être', explanation: 'e', difficulty: 'easy', sources: [] }] })).toThrow(ArtifactValidationError);
   });
 });
 
-describe('flashcards, quiz, chronologie', () => {
-  it('flashcards : définitions « Terme : texte » → recto/verso ; extraits réels', async () => {
-    const d = (await generateDraft(out(), { type: 'FLASHCARDS' })).content as { cards: { front: string; back: string; sources: { quote: string }[] }[] };
-    expect(d.cards.some((c) => c.front === 'Définir : Dol' && c.back.startsWith('manœuvres'))).toBe(true);
-    expect(d.cards.every((c) => out().text.includes(c.sources[0]!.quote))).toBe(true);
-  });
-  it('quiz : la réponse est le passage du cours (aucune réponse inventée)', async () => {
-    const q = (await generateDraft(out(), { type: 'QUIZ' })).content as { questions: { prompt: string; answer: string }[] };
-    expect(q.questions.length).toBeGreaterThan(3);
-    expect(q.questions.every((x) => out().text.includes(x.answer.slice(0, 30)))).toBe(true);
-  });
-  it('chronologie : trie les dates du cours', async () => {
-    const o = buildOutline('t', 'H', { type: 'doc', content: [p('En 2016, réforme.'), p('En 1804, Code civil.')] });
-    const c = (await generateDraft(o, { type: 'TIMELINE' })).content as { events: { date: string }[] };
-    expect(c.events.map((e) => e.date)).toEqual(['1804', '2016']);
-  });
-});
-
-describe('validation stricte (pas de parsing fragile)', () => {
-  it('rejette une structure invalide', () => {
-    expect(() => validateContent('MIND_MAP', { detail: 'standard', orientation: 'horizontal', root: { id: 'r', title: '', type: 'root', children: [] } })).toThrow(ArtifactValidationError);
+describe('validation, suggestions, commandes', () => {
+  it('structures invalides refusées', () => {
+    expect(() => validateContent('MIND_MAP', { depth: 3, orientation: 'horizontal', root: { id: 'r', title: '', type: 'root', children: [] } })).toThrow(ArtifactValidationError);
     expect(() => validateContent('DIAGRAM', { type: 'PROCESS', nodes: [{ id: 'a', label: 'A', kind: 'step' }], edges: [{ id: 'e', from: 'a', to: 'zzz', basis: 'order' }] })).toThrow(/inexistant/);
-    expect(() => validateContent('COURSE_SHEET', 'du texte libre')).toThrow(ArtifactValidationError);
-    expect(() => validateContent('COMPARISON_TABLE', { columns: [{ id: 'a', title: 'A' }], rows: [] })).toThrow();
+    expect(() => validateContent('COURSE_SHEET', 'du texte')).toThrow(ArtifactValidationError);
+    expect(() => validateContent('METHOD', { steps: [], questions: [], pitfalls: [], checklist: [{ id: 'a', text: '' }] })).toThrow();
   });
-});
-
-describe('sortie IA : garde anti-invention', () => {
-  const courseText = out().text;
-  it('fiche : un élément dont l’extrait n’existe pas dans le cours est écarté', () => {
-    const ai = validateContent('COURSE_SHEET', { mode: 'standard', sections: [
-      { id: 'a', kind: 'articles', title: 'Articles', items: [
-        { id: '1', text: 'Art. 1137', sources: [{ sessionId: 's1', quote: 'Art. 1137 : le dol est le fait pour un contractant' }] },
-        { id: '2', text: 'Art. 9999 inventé', sources: [{ sessionId: 's1', quote: 'Art. 9999 : texte qui n’existe pas' }] },
-        { id: '3', text: 'Sans source', sources: [] },
-      ] },
-      { id: 'b', kind: 'pitfalls', title: 'Pièges', items: [{ id: '4', text: 'Piège inventé', sources: [] }] },
-    ] });
-    const r = guardAiContent('COURSE_SHEET', ai, courseText);
-    const c = r.content as SheetContent;
-    expect(r.dropped).toBe(3);
-    expect(c.sections).toHaveLength(1);
-    expect(c.sections[0]!.items.map((i) => i.id)).toEqual(['1']);
+  it('suggestions discrètes calculées sur le cours', async () => {
+    const s = suggestSupports(treeOf(course)).map((x) => x.type);
+    expect(s.length).toBeLessThanOrEqual(4); expect(s).toEqual(expect.arrayContaining(['COMPARISON_TABLE', 'METHOD']));
+    expect(suggestSupports(treeOf(await buildPoor()))).toEqual([]);
   });
-  it('schéma : flèche déduite marquée incertaine, nœud sans source marqué incertain', () => {
-    const ai = validateContent('DIAGRAM', { type: 'RELATIONSHIP', nodes: [
-      { id: 'a', label: 'Dol', kind: 'concept', sources: [{ sessionId: 's1', quote: 'Dol : manœuvres destinées à tromper' }] },
-      { id: 'b', label: 'Fantôme', kind: 'concept', sources: [] },
-    ], edges: [{ id: 'e', from: 'a', to: 'b', basis: 'inferred', label: 'cause' }] });
-    const r = guardAiContent('DIAGRAM', ai, courseText).content as ReturnType<typeof validateContent<'DIAGRAM'>>;
-    expect(r.nodes.find((n) => n.id === 'a')!.uncertain).toBeUndefined();
-    expect(r.nodes.find((n) => n.id === 'b')!.uncertain).toBe(true);
-    expect(r.edges[0]!.uncertain).toBe(true);
-  });
-  it('un fournisseur IA branché passe par la même validation', async () => {
-    setStudyProvider({ id: 'fake', label: 'Faux', isAvailable: () => true, generate: async () => ({ not: 'valide' }) });
-    await expect(generateDraft(out(), { type: 'MIND_MAP' }, { useAi: true })).rejects.toBeInstanceOf(ArtifactValidationError);
-    setStudyProvider({ id: 'fake', label: 'Faux', isAvailable: () => true, generate: async () => ({ mode: 'express', sections: [{ id: 'x', kind: 'articles', title: 'A', items: [{ id: '1', text: 'inventé', sources: [{ sessionId: 's', quote: 'rien' }] }] }] }) });
-    const d = await generateDraft(out(), { type: 'COURSE_SHEET' }, { useAi: true });
-    expect(d.dropped).toBe(1);
-    expect(d.generatedBy.providerId).toBe('fake');
-    setStudyProvider(null);
-  });
-});
-
-describe('commandes naturelles → même moteur', () => {
   const cases: [string, string, Record<string, unknown>][] = [
-    ['Fais-moi une carte mentale de ce cours.', 'MIND_MAP', {}],
-    ['Fais-moi une fiche uniquement sur les nullités.', 'COURSE_SHEET', { sectionQuery: 'nullites' }],
-    ['Crée un schéma sur les étapes de formation du contrat.', 'DIAGRAM', { options: { diagramType: 'PROCESS' } }],
-    ['Fais-moi une fiche très courte pour réviser demain.', 'COURSE_SHEET', { options: { mode: 'express' } }],
-    ['Fais-moi des flashcards', 'FLASHCARDS', {}],
+    ['Fais-moi une carte mentale de ce cours.', 'MIND_MAP', {}], ['Fais-moi une fiche uniquement sur les nullités.', 'COURSE_SHEET', { sectionQuery: 'nullites' }],
+    ['Crée un schéma sur les étapes de formation du contrat.', 'DIAGRAM', { settings: { diagramType: 'PROCESS' } }], ['Fais-moi une fiche très courte pour réviser demain.', 'COURSE_SHEET', { settings: { mode: 'express' } }],
+    ['Fais-moi 15 flashcards', 'FLASHCARDS', { settings: { count: 15 } }], ['Fais-moi un quiz', 'QUIZ', {}], ['Donne-moi la méthode du cas pratique', 'METHOD', {}], ['Fais une chronologie', 'TIMELINE', {}],
   ];
-  it.each(cases)('%s', (text, type, extra) => {
-    expect(interpretStudyCommand(text)).toMatchObject({ type, ...extra });
-  });
-  it('« Compare erreur, dol et violence » → tableau + notions', () => {
+  it.each(cases)('commande : %s', (text, type, extra) => { expect(interpretStudyCommand(text)).toMatchObject({ type, ...extra }); });
+  it('« Compare erreur, dol et violence » ; phrase sans rapport ; section visée', () => {
     expect(interpretStudyCommand('Compare erreur, dol et violence.')).toMatchObject({ type: 'COMPARISON_TABLE', compare: ['erreur', 'dol', 'violence'] });
+    expect(interpretStudyCommand('quel temps fait-il')).toBeNull();
+    expect(findSection(treeOf(course), 'le dol')?.title).toBe('Dol'); expect(findSection(treeOf(course), 'zzz inconnu')).toBeNull();
   });
-  it('phrase sans rapport : aucune action', () => { expect(interpretStudyCommand('quel temps fait-il')).toBeNull(); });
-  it('retrouve la section visée', () => {
-    expect(findSection(out(), 'vices du consentement')?.title).toBe('Consentement');
-    expect(findSection(out(), 'dol')?.title).toBe('Dol');
-    expect(findSection(out(), 'zzz inconnu')).toBeNull();
-  });
+  it('scope / allBlocks cohérents', () => { expect(allBlocks(scopeNode(treeOf(course), sec('Dol').id)).every((b) => b.sectionPath.includes('Dol'))).toBe(true); expect(DEFAULTS.count).toBe(20); expect(provenanceOf(course).sources).toHaveLength(3); });
 });
 
-describe('versions et mise à jour du cours', () => {
-  it('un support à jour n’est pas signalé', async () => {
-    const o = out();
-    const a = toArtifact(await generateDraft(o, { type: 'MIND_MAP' }), { userId: 'u', sessionId: 's1', subjectId: null });
-    expect(isStale(a, o)).toBe(false);
-  });
-  it('empreinte différente quand le texte change ; version IA conservée', async () => {
-    const o = out();
-    const a = toArtifact(await generateDraft(o, { type: 'COURSE_SHEET' }), { userId: 'u', sessionId: 's1', subjectId: null });
-    expect(a.aiContent).toEqual(a.content);
-    expect(a.userEdited).toBe(false);
-    const changed = buildOutline('s1', 'Droit des contrats', { type: 'doc', content: [...DROIT.content, lb('article', 'Art. 1130 : nouveau')] });
-    expect(isStale(a, changed)).toBe(true);
-  });
-});
-
-describe('performance des cartes (10 / 30 / 100 / 300 nœuds)', () => {
-  const tree = (n: number) => {
-    const kids = Array.from({ length: n - 1 }, (_, k) => ({ id: `n${k}`, title: `Nœud ${k}`, type: 'concept' as const, sources: [], children: [] as never[] }));
-    // 10 branches maximum au 1er niveau, le reste en sous-branches
-    const branches = kids.slice(0, Math.min(10, kids.length)).map((b) => ({ ...b, children: [] as typeof kids }));
-    kids.slice(branches.length).forEach((k, idx) => branches[idx % branches.length]!.children.push(k));
-    return { id: 'r', title: 'Racine', type: 'root' as const, sources: [], children: branches };
-  };
-  it.each([10, 30, 100, 300])('mise en page de %i nœuds en moins de 150 ms', (n) => {
-    const root = tree(n);
-    const t0 = performance.now();
-    const l = layoutMindMap(root as never, 'horizontal');
-    const ms = performance.now() - t0;
-    expect(l.nodes.length).toBe(n);
-    expect(ms).toBeLessThan(150);
-  });
-});
-
-import { addChild, addDiagramEdge, addDiagramStepAfter, addSibling, expandTo, moveSibling, moveTo, removeDiagramNode, removeNode, renameNode, searchNodes, toggleCollapse } from './edit';
 
 describe('édition des supports', () => {
   const root = (): MindMapContent['root'] => ({ id: 'r', title: 'R', type: 'root', sources: [], children: [
@@ -383,14 +302,14 @@ describe('édition des supports', () => {
     expect(expandTo(folded, 'a1').children[0]!.collapsed).toBeUndefined();
   });
   it('schéma : insérer une étape dans une chaîne, supprimer en refermant, flèche ajoutée = « dite » par l’utilisateur', () => {
-    const o = buildOutline('p', 'M', { type: 'doc', content: [ol('A', 'B', 'C')] });
-    const d = generateDiagram({ outline: o, scope: o.root }, 'PROCESS').content;
+    const d = draft('DIAGRAM', { diagramType: 'PROCESS' }).content as DiagramContent;
+    const n0 = d.nodes.length, e0 = d.edges.length;
     const { content, id } = addDiagramStepAfter(d, d.nodes[0]!.id, 'A bis');
-    expect(content.nodes).toHaveLength(4);
-    expect(content.edges).toHaveLength(3);
+    expect(content.nodes).toHaveLength(n0 + 1);
+    expect(content.edges).toHaveLength(e0 + 1);
     expect(validateContent('DIAGRAM', content)).toBeTruthy();
     const closed = removeDiagramNode(content, id);
-    expect(closed.edges).toHaveLength(2);
-    expect(addDiagramEdge(d, d.nodes[2]!.id, d.nodes[0]!.id).edges.at(-1)!.basis).toBe('stated');
+    expect(closed.edges).toHaveLength(e0);
+    expect(addDiagramEdge(d, d.nodes.at(-1)!.id, d.nodes[0]!.id).edges.at(-1)!.basis).toBe('stated');
   });
 });

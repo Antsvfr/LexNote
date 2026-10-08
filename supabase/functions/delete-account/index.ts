@@ -6,15 +6,22 @@
 //
 // Déploiement : supabase functions deploy delete-account
 // (SUPABASE_URL, SUPABASE_ANON_KEY et SUPABASE_SERVICE_ROLE_KEY sont fournies automatiquement par Supabase.)
+// @ts-nocheck — le paquet d'intégration généré n'a pas de déclarations de types.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { corsHeadersFor, readBrowserOrigins } from '../_shared/integration/lexnote-revem-v1.mjs';
 
-const cors = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+// CORS : liste blanche centralisée (même configuration que l'intégration REV-EM) — production : https://lex-note-svfr.vercel.app ;
+// développement : INTEGRATION_ENV=development autorise localhost explicitement. Jamais « * ». Configuration invalide ⇒ aucun navigateur autorisé.
+let ORIGINS: string[] = [];
+try { ORIGINS = readBrowserOrigins('lexnote', (k: string) => Deno.env.get(k)); }
+catch (e) { console.error('[delete-account] configuration CORS invalide :', (e as Error).message); }
 
 Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
+  const origin = req.headers.get('Origin');
+  const cors = corsHeadersFor(ORIGINS, origin);
+  // Un navigateur d'une origine non autorisée est refusé AVANT toute lecture du jeton et toute suppression.
+  if (origin && !ORIGINS.includes(origin)) return new Response(JSON.stringify({ error: 'forbidden_origin' }), { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } });
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
   const auth = req.headers.get('Authorization');
   if (!auth) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: cors });
 

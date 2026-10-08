@@ -5,7 +5,8 @@ import { BookMarked, Layers, Pencil, Plus, Scale, Sparkles } from 'lucide-react'
 import { useArtifacts } from '@/store/artifacts';
 import { useUI } from '@/store/ui';
 import { ARTIFACT_LABELS } from '@/domain/study';
-import { outlineFor } from '@/services/study/engine';
+import { useEngine } from '@/store/engine';
+import { latestCourse, treeOf } from '@/services/study/engine';
 import { suggestSupports } from '@/services/study/generators';
 import { useLibrary } from '@/store/library';
 import { useLookups } from '@/lib/useLookups';
@@ -35,7 +36,8 @@ export function RecapPage() {
   const [content, setContent] = useState<unknown>(undefined);
   const allArtifacts = useArtifacts((s) => s.items);
   const mine = useMemo(() => allArtifacts.filter((a) => a.sourceSessionIds.includes(sessionId ?? '')), [allArtifacts, sessionId]);
-  const suggestions = useMemo(() => (session && content ? suggestSupports(outlineFor(session.id, session.title, content)) : []), [session, content]);
+  const courses = useEngine((s) => s.courses);
+  const suggestions = useMemo(() => { const c = session ? latestCourse(courses, session.id) : undefined; return c ? suggestSupports(treeOf(c)) : []; }, [session, courses]);
   const [loaded, setLoaded] = useState(false);
   const [params] = useSearchParams();
   const tParam = params.get('t');
@@ -85,6 +87,7 @@ export function RecapPage() {
           <span className="eyebrow">{session.status === 'completed' ? 'Séance terminée' : 'Séance en cours'}</span>
           <h1 data-testid="recap-title">{sessionLabel(session)}</h1>
         </div>
+        <Link className="btn btn--primary" to={`/session/${session.id}/course`} data-testid="open-course"><Layers /> Cours</Link>
         <Link className="btn" to={`/session/${session.id}`} onClick={() => { if (session.status === 'completed') void useLibrary.getState().setStatus(session.id, 'in_progress'); }}>
           <Pencil /> Reprendre l’édition
         </Link>

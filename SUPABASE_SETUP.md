@@ -39,6 +39,35 @@
 ### Sans ces variables
 L'application démarre mais l'écran de connexion affiche « LexNote n'est pas encore relié à un projet Supabase » et **aucune donnée n'est accessible** (pas de mode anonyme qui mélangerait des données).
 
+### 2 bis. Migrations supplémentaires (à exécuter dans l'ordre, après la première)
+
+1. `supabase/migrations/20261008000000_study_artifacts.sql` — supports d'étude (fiches, cartes mentales…).
+2. `supabase/migrations/20261009000000_course_engine.sql` — documents importés (texte analysé uniquement, **jamais le fichier**) et cours reconstruits versionnés.
+3. `supabase/migrations/20261010000000_study_artifacts_from_course.sql` — supports de révision dérivés du cours reconstruit (version du cours, instantané des sources, provenance, réglages, type MÉTHODE).
+
+4. `supabase/migrations/20261011000000_integration_links.sql` — liaison avec un compte REV-EM (tables `integration_*`, RLS forcée, fonctions réservées à `service_role`).
+
+### 2 quater. Connexion avec REV-EM (facultatif — sans elle, LexNote fonctionne seule)
+
+Deux Edge Functions : `integration-link` (appelée par le navigateur avec le JWT de l'utilisateur) et `integration-gateway` (serveur ↔ serveur, **sans JWT** mais signée).
+```bash
+supabase functions deploy integration-link
+supabase functions deploy integration-gateway --no-verify-jwt     # la signature HMAC remplace le JWT, uniquement pour cette fonction
+supabase secrets set INTEGRATION_ENV=production INTEGRATION_KEY_ID=k1 INTEGRATION_KEY=<MÊME clé que REV-EM, ≥ 32 car., openssl rand -base64 48> \
+  INTEGRATION_SELF_APP_URL=https://lex-note-svfr.vercel.app/ \
+  INTEGRATION_PEER_APP_URL=https://antsvfr.github.io/REV-EM/ \
+  INTEGRATION_PEER_GATEWAY_URL=https://<réf-projet-REV-EM>.supabase.co/functions/v1/integration-gateway
+```
+Procédure complète, vérifications et tests d'attaque : `docs/PRODUCTION_RUNBOOK.md`. La clé reste dans les secrets Supabase : **jamais** dans Vercel, dans le dépôt ni dans le navigateur. Détails : `docs/REVEM_LEXNOTE_INTEGRATION.md` §11.
+
+### 2 ter. Moteur de cours distant (facultatif — sans lui, le moteur local est utilisé)
+
+```bash
+supabase secrets set ANTHROPIC_API_KEY=<clé> COURSE_ENGINE_MODEL=<modèle>   # secrets SERVEUR : jamais dans Vercel/le frontend
+supabase functions deploy course-engine
+```
+Puis, dans Vercel : `VITE_ENGINE_URL=https://<ref>.supabase.co/functions/v1/course-engine`. La fonction n'a pu être testée contre un vrai modèle dans l'environnement de développement : la tester après déploiement.
+
 ## 3. Sécurité : ce qui est garanti **au niveau de la base**
 
 * Toutes les tables ont `user_id` (ou `id` pour `profiles`) et **`ENABLE` + `FORCE ROW LEVEL SECURITY`**.

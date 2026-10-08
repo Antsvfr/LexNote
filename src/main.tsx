@@ -11,6 +11,7 @@ import './styles/pages.css';
 import './styles/editor.css';
 import './styles/capture.css';
 import './styles/study.css';
+import './styles/course.css';
 import { App } from './App';
 import { useAuth } from './store/auth';
 
