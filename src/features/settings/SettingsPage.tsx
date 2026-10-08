@@ -8,6 +8,7 @@ import { confirm, promptText } from '@/components/confirm';
 import { toast } from '@/store/toasts';
 import { captureManager } from '@/services/capture/manager';
 import { SyncIndicator } from '@/components/SyncIndicator';
+import { ConnectedApps } from '@/features/integration/ConnectedApps';
 import { TranscriptionSettings } from './TranscriptionSettings';
 
 interface BeforeInstallPromptEvent extends Event { prompt(): Promise<void>; userChoice: Promise<{ outcome: string }> }
@@ -110,6 +111,8 @@ export function SettingsPage() {
       </section>
 
       <TranscriptionSettings />
+
+      <ConnectedApps />
 
       <section className="settings-block">
         <h2>Application</h2>
