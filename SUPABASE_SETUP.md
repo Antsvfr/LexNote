@@ -2,7 +2,9 @@
 
 > LexNote utilise **son propre projet Supabase, neuf et dédié**.
 > Il ne partage **rien** avec REV-EM : ni projet, ni base, ni utilisateurs, ni clés, ni tables, ni URLs.
-> La connexion LexNote ↔ REV-EM est *préparée* dans l'architecture (table `external_accounts`, aucun code actif) mais **n'existe pas**.
+> La liaison LexNote ↔ REV-EM passe uniquement par des contrats publics signés (voir §2 quater et `docs/REVEM_LEXNOTE_INTEGRATION.md`) : aucun partage de base ni de session.
+>
+> **Une seule architecture officielle** : la chaîne de PR #3 → #8 ; le schéma est défini par les migrations ci-dessous (`docs/SCHEMA_RECONCILIATION.md`). **Projet existant avec un ancien schéma expérimental ? Ne lancez pas la migration par-dessus : suivez `docs/SCHEMA_RECONCILIATION.md` §3.**
 
 ## 1. Ce que fait chaque partie
 
@@ -41,11 +43,14 @@ L'application démarre mais l'écran de connexion affiche « LexNote n'est pas e
 
 ### 2 bis. Migrations supplémentaires (à exécuter dans l'ordre, après la première)
 
+Ordre complet et exclusif : `20261007…lexnote_init` → `20261008…study_artifacts` → `20261009…course_engine` → `20261010…study_artifacts_from_course` → `20261011…integration_links` → `20261012…fk_indexes`. Vérification : `supabase/reconciliation/verify-official-schema.sql` (13 PASS).
+
 1. `supabase/migrations/20261008000000_study_artifacts.sql` — supports d'étude (fiches, cartes mentales…).
 2. `supabase/migrations/20261009000000_course_engine.sql` — documents importés (texte analysé uniquement, **jamais le fichier**) et cours reconstruits versionnés.
 3. `supabase/migrations/20261010000000_study_artifacts_from_course.sql` — supports de révision dérivés du cours reconstruit (version du cours, instantané des sources, provenance, réglages, type MÉTHODE).
 
 4. `supabase/migrations/20261011000000_integration_links.sql` — liaison avec un compte REV-EM (tables `integration_*`, RLS forcée, fonctions réservées à `service_role`).
+5. `supabase/migrations/20261012000000_fk_indexes.sql` — index sur les clés étrangères (Performance Advisor).
 
 ### 2 quater. Connexion avec REV-EM (facultatif — sans elle, LexNote fonctionne seule)
 
