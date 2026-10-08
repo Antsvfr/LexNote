@@ -7,7 +7,7 @@ import { A, B, MIGRATIONS_DIR, OFFICIAL_MIGRATIONS, applyFile, applyOfficial, as
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 
 /**
- * UNE seule architecture : la chaîne #3 → #8 (+ index). Depuis une base VIDE, toutes les migrations s'appliquent dans l'ordre, sans erreur,
+ * UNE seule architecture : la chaîne #3 → #9 (+ index + hardening). Depuis une base VIDE, toutes les migrations s'appliquent dans l'ordre, sans erreur,
  * et produisent le schéma officiel attendu (vérifié par les deux scripts d'audit livrés pour la production).
  */
 describe('chaîne de migrations officielle depuis une base vide', () => {
@@ -53,7 +53,7 @@ describe('mise à niveau d’un projet DÉJÀ migré en cours de route (données
       await db.query(`insert into course_sessions (id, subject_id, title, date, type) values ($1, $2, 'CM 1', '2026-10-01', 'CM')`, [ses, sub]);
       await db.query(`insert into study_artifacts (id, type, title, subject_id, content) values ('0000000a-0000-4000-8000-000000000003', 'COURSE_SHEET', 'Fiche v1', $1, '{"sections":[]}')`, [sub]);   // forme AVANT StudyArtifacts v2
     });
-    for (const f of OFFICIAL_MIGRATIONS.slice(2)) await applyFile(db, `${MIGRATIONS_DIR}/${f}`);       // Course Engine → StudyArtifacts v2 → intégration → index
+    for (const f of OFFICIAL_MIGRATIONS.slice(2)) await applyFile(db, `${MIGRATIONS_DIR}/${f}`);       // Course Engine → StudyArtifacts v2 → intégration → index → hardening
     expect((await db.query<{ title: string }>('select title from course_sessions')).rows).toEqual([{ title: 'CM 1' }]);
     expect((await db.query('select title, course_version, generation from study_artifacts')).rows).toEqual([{ title: 'Fiche v1', course_version: 1, generation: 1 }]);   // renommages / ajouts de colonnes sans perte
     const rows = await rowsOf<{ statut: string }>(db, 'supabase/reconciliation/verify-official-schema.sql');
