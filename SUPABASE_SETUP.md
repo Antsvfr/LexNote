@@ -43,7 +43,7 @@ L'application démarre mais l'écran de connexion affiche « LexNote n'est pas e
 
 ### 2 bis. Migrations supplémentaires (à exécuter dans l'ordre, après la première)
 
-Ordre complet et exclusif : `20261007…lexnote_init` → `20261008…study_artifacts` → `20261009…course_engine` → `20261010…study_artifacts_from_course` → `20261011…integration_links` → `20261012…fk_indexes`. Vérification : `supabase/reconciliation/verify-official-schema.sql` (13 PASS).
+Ordre complet et exclusif : `20261007…lexnote_init` → `20261008…study_artifacts` → `20261009…course_engine` → `20261010…study_artifacts_from_course` → `20261011…integration_links` → `20261012…fk_indexes` → `20261013…security_hardening`. Vérification : `supabase/reconciliation/verify-official-schema.sql` (13 PASS).
 
 1. `supabase/migrations/20261008000000_study_artifacts.sql` — supports d'étude (fiches, cartes mentales…).
 2. `supabase/migrations/20261009000000_course_engine.sql` — documents importés (texte analysé uniquement, **jamais le fichier**) et cours reconstruits versionnés.
@@ -51,6 +51,7 @@ Ordre complet et exclusif : `20261007…lexnote_init` → `20261008…study_arti
 
 4. `supabase/migrations/20261011000000_integration_links.sql` — liaison avec un compte REV-EM (tables `integration_*`, RLS forcée, fonctions réservées à `service_role`).
 5. `supabase/migrations/20261012000000_fk_indexes.sql` — index sur les clés étrangères (Performance Advisor).
+6. `supabase/migrations/20261013000000_security_hardening.sql` — `search_path` figé pour les helpers de trigger et révocation de l’exécution directe de `lx_handle_new_user` (Security Advisor).
 
 ### 2 quater. Connexion avec REV-EM (facultatif — sans elle, LexNote fonctionne seule)
 
