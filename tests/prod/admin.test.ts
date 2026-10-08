@@ -61,6 +61,11 @@ describe('supabase-admin (API de gestion simulée)', () => {
     expect(sim.text).toContain('SIMULATION'); expect(m.calls).toHaveLength(0);
     expect((await run(['verify-db', '--project', REF_L], { SUPABASE_ACCESS_TOKEN: 't' }, m)).code).toBe(1);
   });
+  it('verify-schema : exécute l’audit du schéma officiel, code 1 s’il y a un FAIL', async () => {
+    const m = mock({ [`POST /v1/projects/${REF_L}/database/query`]: [{ n: 1, controle: '17 tables', statut: 'PASS', detail: null }, { n: 999, controle: 'RÉSUMÉ', statut: '1 PASS / 0 FAIL', detail: null }] });
+    expect((await run(['verify-schema', '--project', REF_L], { SUPABASE_ACCESS_TOKEN: 't' }, m)).code).toBe(0);
+    expect(String((m.calls[0]!.body as { query: string }).query)).toContain('17 tables officielles');
+  });
   it('advisors : signale uniquement ce qui concerne integration_*', async () => {
     const m = mock({ [`GET /v1/projects/${REF_L}/advisors/security`]: { lints: [{ level: 'WARN', name: 'auth_leaked_password_protection', title: 'x', metadata: {} }] }, [`GET /v1/projects/${REF_L}/advisors/performance`]: { lints: [{ level: 'WARN', name: 'unused_index', title: 'i', metadata: { name: 'integration_nonces_expiry' } }] } });
     const r = await run(['advisors', '--project', REF_L], { SUPABASE_ACCESS_TOKEN: 't' }, m);
