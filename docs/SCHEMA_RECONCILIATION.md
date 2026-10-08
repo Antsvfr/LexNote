@@ -47,8 +47,9 @@ Les deux branches partent de `main` (`cc56ee7`) et résolvent le même besoin (c
 | 4 | `20261010000000_study_artifacts_from_course.sql` | `study_artifacts` v2 (version du cours, instantané, provenance, réglages, type MÉTHODE) — renommages/ajouts sans perte |
 | 5 | `20261011000000_integration_links.sql` | `integration_links`, `integration_link_intents`, `integration_nonces` + fonctions `integration_*` (liaison REV-EM) |
 | 6 | `20261012000000_fk_indexes.sql` | index sur les 17 clés étrangères non indexées |
+| 7 | `20261013000000_security_hardening.sql` | fixe le `search_path` des helpers de trigger et retire l’exécution navigateur de `lx_handle_new_user` après audit Security Advisor réel |
 
-Schéma final attendu : **17 tables** dans `public` (liste ci-dessus), RLS **activée** partout (forcée sur les tables de données), aucune politique appelant `auth.uid()` hors sous-requête, aucun droit pour `anon`, toutes les clés étrangères indexées, trigger `on_auth_user_created` → `lx_handle_new_user`, aucune fonction `set_updated_at` / `handle_new_user` (anciennes). Ce contrat est **vérifié par SQL** : `supabase/reconciliation/verify-official-schema.sql` (13 contrôles) et `scripts/prod/verify-db.sql` (24 contrôles sur l'intégration).
+Schéma final attendu après les 7 migrations : **17 tables** dans `public` (liste ci-dessus), RLS **activée** partout (forcée sur les tables de données), aucune politique appelant `auth.uid()` hors sous-requête, aucun droit pour `anon`, toutes les clés étrangères indexées, trigger `on_auth_user_created` → `lx_handle_new_user`, aucune fonction `set_updated_at` / `handle_new_user` (anciennes). Ce contrat est **vérifié par SQL** : `supabase/reconciliation/verify-official-schema.sql` (13 contrôles) et `scripts/prod/verify-db.sql` (24 contrôles sur l'intégration).
 
 ## 3. Projet Supabase existant avec l'ancien schéma #5 : réconciliation
 
@@ -130,6 +131,6 @@ Avant l'étape 6, les données de l'ancien schéma sont intactes dans `legacy_pr
 
 ## 4. Tests (aucune donnée réelle nécessaire)
 
-- `tests/db/migrations-chain.test.ts` — chaîne complète **depuis une base vide** (init → StudyArtifacts → Course Engine → StudyArtifacts v2 → intégration → index), ordre exact des fichiers, mise à niveau **avec données existantes** à chaque étape, isolation A/B.
+- `tests/db/migrations-chain.test.ts` — chaîne complète **depuis une base vide** (init → StudyArtifacts → Course Engine → StudyArtifacts v2 → intégration → index → hardening → hardening), ordre exact des fichiers, mise à niveau **avec données existantes** à chaque étape, isolation A/B.
 - `tests/db/schema-reconciliation.test.ts` — **ancien schéma #5 → réconciliation → schéma officiel** : l'init « par-dessus » échoue ; la quarantaine conserve les données et les protège ; profils repris ; **le schéma `public` obtenu est strictement identique à celui d'un projet neuf** (colonnes, contraintes, index, policies, triggers, fonctions, RLS, droits) ; l'application fonctionne ensuite ; idempotence ; garde-fous (projet officiel, vierge, inconnu) ; atomicité. Les deux variantes de l'ancien schéma (001 seule, 001 + 002) sont testées. La fixture `tests/db/fixtures/pr5-experimental-schema.sql` est une copie verbatim des migrations de la PR #5.
 - `tests/db/no-legacy-architecture.test.ts` — plus aucun fichier livré ne dépend des colonnes, tables, client, moteur de sync ou migrations de #5.
