@@ -3,6 +3,13 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { RequireAuth } from '@/features/auth/RequireAuth';
 import { ForgotPasswordPage, LoginPage, ResetPasswordPage, SignupPage } from '@/features/auth/AuthPages';
 import { OnboardingPage } from '@/features/auth/Onboarding';
+import { CreateSupportDialog } from '@/features/study/CreateSupportDialog';
+import { SupportsPage } from '@/features/study/SupportsPage';
+import { ReviewPage } from '@/features/review/ReviewPage';
+import { ArtifactPage } from '@/features/study/ArtifactPage';
+import { AuthorizeRevem } from '@/features/integration/AuthorizeRevem';
+import { ConnectRevemEntry } from '@/features/integration/ConnectRevemEntry';
+import { CoursePage } from '@/features/course/CoursePage';
 import { SubjectDialog } from '@/features/library/SubjectDialog';
 import { AppShell } from '@/components/AppShell';
 import { ConfirmHost, PromptHost } from '@/components/confirm';
@@ -47,6 +54,7 @@ export function App() {
             <Route path="signup" element={<SignupPage />} />
             <Route path="forgot-password" element={<ForgotPasswordPage />} />
             <Route path="reset-password" element={<ResetPasswordPage />} />
+            <Route path="integrations/revem/connect" element={<ConnectRevemEntry />} />
             <Route element={<RequireAuth />}>
             <Route path="onboarding" element={<OnboardingPage />} />
             <Route element={<AppShell />}>
@@ -55,9 +63,14 @@ export function App() {
               <Route path="subjects/:subjectId" element={<SubjectPage />} />
               <Route path="modules/:moduleId" element={<ModulePage />} />
               <Route path="sessions" element={<SessionsPage />} />
+              <Route path="supports" element={<SupportsPage />} />
+              <Route path="supports/:artifactId" element={<ArtifactPage />} />
               <Route path="search" element={<SearchPage />} />
               <Route path="settings" element={<SettingsPage />} />
+              <Route path="integrations/revem/authorize" element={<AuthorizeRevem />} />
               <Route path="session/:sessionId/recap" element={<RecapPage />} />
+              <Route path="session/:sessionId/course" element={<CoursePage />} />
+              <Route path="session/:sessionId/review" element={<ReviewPage />} />
               <Route path="*" element={<Dashboard />} />
             </Route>
             <Route path="session/:sessionId" element={<EditorPage />} />
@@ -66,6 +79,7 @@ export function App() {
         </Suspense>
         <NewSessionDialog />
         <SubjectDialog />
+        <CreateSupportDialog />
         <CommandPalette />
         <ConfirmHost />
         <PromptHost />

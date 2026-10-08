@@ -25,7 +25,10 @@ export function applyTheme(pref: ThemePref) {
 }
 
 import type { SessionType } from '@/domain/sessionType';
+import type { ArtifactType } from '@/domain/study';
+import type { StudySettings } from '@/domain/study';
 
+export interface SupportPreset { sessionId?: string; type?: ArtifactType; sectionId?: string; settings?: StudySettings; sectionIds?: string[] }
 export interface NewSessionPreset { subjectId?: string; moduleId?: string | null; type?: SessionType }
 
 interface UIState {
@@ -38,6 +41,8 @@ interface UIState {
   /** Tiroir de navigation (tablette / mobile). */
   navOpen: boolean;
   newSession: NewSessionPreset | null;
+  /** Panneau « Créer un support ». */
+  supportDialog: SupportPreset | null;
   /** Boîte de dialogue matière (création / modification). */
   subjectDialog: { id?: string } | null;
   /** Onglet du panneau latéral de l'éditeur. */
@@ -58,6 +63,8 @@ interface UIState {
   closeSubjectDialog(): void;
   openNewSession(preset?: NewSessionPreset): void;
   closeNewSession(): void;
+  openSupportDialog(preset?: SupportPreset): void;
+  closeSupportDialog(): void;
 }
 
 export const useUI = create<UIState>((set, get) => ({
@@ -68,6 +75,7 @@ export const useUI = create<UIState>((set, get) => ({
   navOpen: false,
   newSession: null,
   subjectDialog: null,
+  supportDialog: null,
   sideTab: 'transcript',
   recPopover: false,
 
@@ -95,4 +103,6 @@ export const useUI = create<UIState>((set, get) => ({
   closeSubjectDialog: () => set({ subjectDialog: null }),
   openNewSession: (preset = {}) => set({ newSession: preset }),
   closeNewSession: () => set({ newSession: null }),
+  openSupportDialog: (preset = {}) => set({ supportDialog: preset }),
+  closeSupportDialog: () => set({ supportDialog: null }),
 }));

@@ -1,3 +1,5 @@
+import type { StudyArtifact } from '@/domain/study';
+import type { GeneratedCourse, SourceDocument } from '@/domain/course';
 import type { CourseSession, LibrarySnapshot, Module, NoteDocument, Subject } from '@/domain/types';
 import {
   SCHEMA_VERSION, type ChangeSet, type CommitOptions, type DirtySet, type ExportBundle, type StorageAdapter, type SyncTable, type Tombstone,
@@ -13,6 +15,10 @@ export class MemoryAdapter implements StorageAdapter {
   private subjects = new Map<string, Subject>();
   private modules = new Map<string, Module>();
   private sessions = new Map<string, CourseSession>();
+  private artifacts = new Map<string, StudyArtifact>();
+  private documents = new Map<string, SourceDocument>();
+  private courses = new Map<string, GeneratedCourse>();
+  private files = new Map<string, Blob>();
   private notes = new Map<string, NoteDocument>();
   private meta = new Map<string, unknown>();
   private tombstones = new Map<string, Tombstone>();
@@ -20,6 +26,11 @@ export class MemoryAdapter implements StorageAdapter {
   async loadLibrary(): Promise<LibrarySnapshot> {
     return { subjects: clone([...this.subjects.values()]), modules: clone([...this.modules.values()]), sessions: clone([...this.sessions.values()]) };
   }
+  async loadArtifacts() { return clone([...this.artifacts.values()]); }
+  async loadDocuments() { return clone([...this.documents.values()]); }
+  async loadCourses() { return clone([...this.courses.values()]); }
+  async putDocumentFile(id: string, file: Blob) { this.files.set(id, file); }
+  async getDocumentFile(id: string) { return this.files.get(id); }
   async getNotes(sessionId: string) { const n = this.notes.get(sessionId); return n ? clone(n) : undefined; }
 
   async commit(c: ChangeSet, opts: CommitOptions = {}) {
@@ -37,7 +48,13 @@ export class MemoryAdapter implements StorageAdapter {
     c.putSubjects?.forEach((s) => { if (guarded(this.subjects, s.id)) return; this.subjects.set(s.id, clone(mark(s))); this.tombstones.delete(`subjects:${s.id}`); });
     c.putModules?.forEach((m) => { if (guarded(this.modules, m.id)) return; this.modules.set(m.id, clone(mark(m))); this.tombstones.delete(`modules:${m.id}`); });
     c.putSessions?.forEach((s) => { if (guarded(this.sessions, s.id)) { skippedSessions.add(s.id); return; } this.sessions.set(s.id, clone(mark(s))); this.tombstones.delete(`course_sessions:${s.id}`); });
+    c.putArtifacts?.forEach((a) => { if (guarded(this.artifacts, a.id)) return; this.artifacts.set(a.id, clone(mark(a))); this.tombstones.delete(`study_artifacts:${a.id}`); });
+    c.putDocuments?.forEach((d) => { if (guarded(this.documents, d.id)) return; this.documents.set(d.id, clone(mark(d))); this.tombstones.delete(`source_documents:${d.id}`); });
+    c.putCourses?.forEach((d) => { if (guarded(this.courses, d.id)) return; this.courses.set(d.id, clone(mark(d))); this.tombstones.delete(`generated_courses:${d.id}`); });
     c.putNotes?.forEach((n) => { if (!skippedSessions.has(n.sessionId)) this.notes.set(n.sessionId, clone(n)); });
+    c.deleteArtifacts?.forEach((id) => { if (guarded(this.artifacts, id)) return; tomb('study_artifacts', this.artifacts, id); this.artifacts.delete(id); });
+    c.deleteDocuments?.forEach((id) => { if (guarded(this.documents, id)) return; tomb('source_documents', this.documents, id); this.documents.delete(id); this.files.delete(id); });
+    c.deleteCourses?.forEach((id) => { if (guarded(this.courses, id)) return; tomb('generated_courses', this.courses, id); this.courses.delete(id); });
     c.deleteSubjects?.forEach((id) => { if (guarded(this.subjects, id)) return; tomb('subjects', this.subjects, id); this.subjects.delete(id); });
     c.deleteModules?.forEach((id) => { if (guarded(this.modules, id)) return; tomb('modules', this.modules, id); this.modules.delete(id); });
     c.deleteSessions?.forEach((id) => { if (guarded(this.sessions, id)) return; tomb('course_sessions', this.sessions, id); this.sessions.delete(id); this.notes.delete(id); });
@@ -51,11 +68,14 @@ export class MemoryAdapter implements StorageAdapter {
       subjects: clone([...this.subjects.values()].filter((x) => x.dirty)),
       modules: clone([...this.modules.values()].filter((x) => x.dirty)),
       sessions: clone([...this.sessions.values()].filter((x) => x.dirty)),
+      artifacts: clone([...this.artifacts.values()].filter((x) => x.dirty)),
+      documents: clone([...this.documents.values()].filter((x) => x.dirty)),
+      courses: clone([...this.courses.values()].filter((x) => x.dirty)),
       tombstones: clone([...this.tombstones.values()]),
     };
   }
   async markSynced(table: SyncTable, id: string, version: number, pushedUpdatedAt?: string) {
-    const map = (table === 'subjects' ? this.subjects : table === 'modules' ? this.modules : this.sessions) as Map<string, { version?: number; dirty?: boolean; updatedAt: string }>;
+    const map = (table === 'subjects' ? this.subjects : table === 'modules' ? this.modules : table === 'study_artifacts' ? this.artifacts : table === 'source_documents' ? this.documents : table === 'generated_courses' ? this.courses : this.sessions) as Map<string, { version?: number; dirty?: boolean; updatedAt: string }>;
     const row = map.get(id);
     if (!row) return;
     row.version = version;
@@ -65,8 +85,8 @@ export class MemoryAdapter implements StorageAdapter {
 
   async exportAll(): Promise<ExportBundle> {
     const lib = await this.loadLibrary();
-    return { app: 'lexnote', schemaVersion: SCHEMA_VERSION, exportedAt: new Date().toISOString(), ...lib, notes: clone([...this.notes.values()]) };
+    return { app: 'lexnote', schemaVersion: SCHEMA_VERSION, exportedAt: new Date().toISOString(), ...lib, notes: clone([...this.notes.values()]), artifacts: clone([...this.artifacts.values()]), documents: clone([...this.documents.values()]), courses: clone([...this.courses.values()]) };
   }
-  async clearAll() { [this.subjects, this.modules, this.sessions, this.notes, this.meta, this.tombstones].forEach((m) => m.clear()); }
+  async clearAll() { [this.subjects, this.modules, this.sessions, this.artifacts, this.documents, this.courses, this.files, this.notes, this.meta, this.tombstones].forEach((m) => m.clear()); }
   close() { /* rien à fermer */ }
 }

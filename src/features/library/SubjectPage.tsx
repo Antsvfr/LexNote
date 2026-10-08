@@ -46,6 +46,7 @@ export function SubjectPage() {
       <header className="page__head">
         <h1 style={{ display: 'flex', alignItems: 'center', gap: 12 }}><SubjectDot color={subject.color} icon={subject.icon} /> {subject.name}</h1>
         <div style={{ display: 'flex', gap: 8 }}>
+          <Link className="btn btn--sm" to={`/supports?subject=${subject.id}`} data-testid="subject-supports">Supports</Link>
           <button className="btn btn--sm" onClick={() => openSubjectDialog(subject.id)} data-testid="edit-subject"><Pencil /> Modifier</button>
           <button className="btn btn--sm btn--danger" onClick={remove}><Trash2 /> Supprimer</button>
           <button className="btn btn--sm" onClick={newModule} data-testid="new-module"><Plus /> Module</button>

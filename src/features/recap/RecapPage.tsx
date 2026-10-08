@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { EditorContent, useEditor } from '@tiptap/react';
-import { BookMarked, FileText, Layers, ListChecks, Pencil, Scale, Sparkles, HelpCircle, Layers3 } from 'lucide-react';
+import { BookMarked, Layers, Pencil, Plus, Scale, Sparkles } from 'lucide-react';
+import { useArtifacts } from '@/store/artifacts';
+import { useUI } from '@/store/ui';
+import { ARTIFACT_LABELS } from '@/domain/study';
+import { useEngine } from '@/store/engine';
+import { latestCourse, treeOf } from '@/services/study/engine';
+import { suggestSupports } from '@/services/study/generators';
 import { useLibrary } from '@/store/library';
 import { useLookups } from '@/lib/useLookups';
 import { formatDateLong, formatDuration } from '@/lib/dates';
@@ -17,12 +23,8 @@ import { MiniPlayer } from '@/features/capture/MiniPlayer';
 
 const FUTURE = [
   { icon: Layers, label: 'Cours restructuré', hint: 'Notes, transcription et supports fusionnés en un plan clair' },
-  { icon: FileText, label: 'Résumé', hint: 'L’essentiel du CM en quelques lignes' },
-  { icon: ListChecks, label: 'Fiche de révision', hint: 'Notions à retenir, prêtes à réviser' },
   { icon: Scale, label: 'Articles', hint: 'Textes cités, avec provenance et statut' },
   { icon: BookMarked, label: 'Jurisprudences', hint: 'Arrêts cités, jamais inventés' },
-  { icon: Layers3, label: 'Flashcards', hint: 'Cartes de révision générées depuis le cours' },
-  { icon: HelpCircle, label: 'Questions', hint: 'Entraînement sur les notions du CM' },
 ];
 
 export function RecapPage() {
@@ -32,6 +34,10 @@ export function RecapPage() {
   const loadNotes = useLibrary((s) => s.loadNotes);
   const { subjectById, moduleById } = useLookups();
   const [content, setContent] = useState<unknown>(undefined);
+  const allArtifacts = useArtifacts((s) => s.items);
+  const mine = useMemo(() => allArtifacts.filter((a) => a.sourceSessionIds.includes(sessionId ?? '')), [allArtifacts, sessionId]);
+  const courses = useEngine((s) => s.courses);
+  const suggestions = useMemo(() => { const c = session ? latestCourse(courses, session.id) : undefined; return c ? suggestSupports(treeOf(c)) : []; }, [session, courses]);
   const [loaded, setLoaded] = useState(false);
   const [params] = useSearchParams();
   const tParam = params.get('t');
@@ -81,6 +87,7 @@ export function RecapPage() {
           <span className="eyebrow">{session.status === 'completed' ? 'Séance terminée' : 'Séance en cours'}</span>
           <h1 data-testid="recap-title">{sessionLabel(session)}</h1>
         </div>
+        <Link className="btn btn--primary" to={`/session/${session.id}/course`} data-testid="open-course"><Layers /> Cours</Link>
         <Link className="btn" to={`/session/${session.id}`} onClick={() => { if (session.status === 'completed') void useLibrary.getState().setStatus(session.id, 'in_progress'); }}>
           <Pencil /> Reprendre l’édition
         </Link>
@@ -150,6 +157,11 @@ export function RecapPage() {
         </section>
 
         <aside aria-labelledby="next-h">
+          <h2 id="supports-h" className="section-title">Supports d’étude</h2>
+          <p className="muted" style={{ marginBottom: 8, fontSize: 13.5 }}>Fiche, carte mentale, schéma, tableau… créés à la demande, à partir de vos notes.</p>
+          <button className="btn btn--primary" onClick={() => useUI.getState().openSupportDialog({ sessionId: session.id })} data-testid="recap-create-support"><Plus /> Créer un support</button>
+          {suggestions.length > 0 && <ul className="supporthints muted" data-testid="support-hints">{suggestions.map((x) => <li key={x.type + x.text}>{ARTIFACT_LABELS[x.type]} — {x.text}</li>)}</ul>}
+          {mine.length > 0 && <ul className="future future--links" data-testid="session-supports">{mine.map((a) => <li key={a.id}><Link to={`/supports/${a.id}`}><strong>{a.title}</strong><small>{ARTIFACT_LABELS[a.type]}</small></Link></li>)}</ul>}
           <h2 id="next-h" className="section-title">Étapes suivantes <span className="tag tag--soon">Bientôt</span></h2>
           <p className="muted" style={{ marginBottom: 8, fontSize: 13.5 }}>
             Ces outils ne sont pas encore disponibles. Aucun contenu n’est généré à votre place.

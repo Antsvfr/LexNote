@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { Command, FolderTree, GraduationCap, Home, Library, Plus, Search, Settings, X } from 'lucide-react';
+import { Brain, Command, FolderTree, GraduationCap, Home, Library, Plus, Search, Settings, X } from 'lucide-react';
 import { LogoMark } from './Logo';
 import { AppHeader } from './AppHeader';
 import { SyncIndicator } from './SyncIndicator';
@@ -44,6 +44,7 @@ export function AppShell() {
           <NavLink to="/" end className={navClass}><Home /> Accueil</NavLink>
           <NavLink to="/subjects" className={navClass}><FolderTree /> Mes matières</NavLink>
           <NavLink to="/sessions" className={navClass}><Library /> Mes séances</NavLink>
+          <NavLink to="/supports" className={navClass} data-testid="nav-supports"><Brain /> Mes supports</NavLink>
           <NavLink to="/search" className={navClass}><Search /> Recherche</NavLink>
           <button className="nav__item" onClick={() => setPalette(true)} data-testid="nav-commands">
             <Command /> Commandes <kbd className="kbd-hint">{modKeyLabel} K</kbd>

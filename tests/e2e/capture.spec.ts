@@ -251,8 +251,8 @@ test.describe('transcription — après le CM', () => {
     await expect(page.getByTestId('recap-markers')).toHaveText('1');
     await expect(page.getByTestId('recap-interruptions')).toHaveText('0');
     await expect(page.getByTestId('recap-audio')).not.toHaveText('—');
-    await expect(page.getByText('Cours restructuré')).toBeVisible(); // toujours désactivé
-    await expect(page.locator('.future li[aria-disabled="true"]')).toHaveCount(7);
+    await expect(page.getByText('Cours restructuré')).toBeVisible(); // toujours désactivé ; résumé, fiche, flashcards, questions sont désormais de vrais supports
+    await expect(page.locator('.future li[aria-disabled="true"]')).toHaveCount(3);
 
     // Onglets
     await page.getByTestId('recap-tab-transcript').click();

@@ -9,6 +9,9 @@ import { AuthError, emptyProfile, type AuthEvent, type AuthRepository, type Auth
 import { CloudDb, InMemoryRemote } from '../sync/inMemoryRemote';
 import type { RemoteStore } from '../sync/types';
 import type { Backend } from './index';
+import { createMockIntegration } from '../integration/mockIntegration';
+import { saveEngineSettings } from '../../lib/engineSettings';
+import { EngineUnavailableError, registerEngineProvider, setActiveEngineProvider } from '../engine/provider';
 
 const AUTH_KEY = 'lexnote-mock-auth';
 const CLOUD_KEY = 'lexnote-mock-cloud';
@@ -66,6 +69,7 @@ export function createMockBackend(): Backend {
       if (pw.length < 8) throw new AuthError('Mot de passe trop faible (8 caractères minimum).', 'weak_password');
       u.password = pw; save(st);
     },
+    async getAccessToken() { const st = load(); return st.sessionUserId ? `mock-token-${st.sessionUserId}` : null; },
     async deleteAccount() {
       const st = load(); const id = st.sessionUserId;
       st.users = st.users.filter((u) => u.id !== id); delete st.profiles[id ?? '']; st.sessionUserId = null; save(st);
@@ -94,11 +98,14 @@ export function createMockBackend(): Backend {
       cloud.rows(table as never).set(id, { ...r, ...patch, version: (r.version ?? 0) + 1, server_updated_at: cloud.now() });
       cloud.onChange?.();
     },
+    /** Simule un moteur de cours distant injoignable (tests hors-ligne du moteur). */
+    breakEngine: (fallback = false) => { registerEngineProvider({ id: 'remote', label: 'Moteur distant (simulé)', local: false, isAvailable: () => true, compose: async () => { throw new EngineUnavailableError('Moteur distant injoignable (réseau ?).'); } }); setActiveEngineProvider('remote'); saveEngineSettings({ providerId: 'remote', fallbackToLocal: !!fallback }); },
     users: () => load().users.map((u) => ({ id: u.id, email: u.email })),
   };
 
   return {
     kind: 'mock', auth, profiles,
     remoteFor: (userId: string): RemoteStore => new InMemoryRemote(cloud, userId),
+    integration: createMockIntegration(() => load().sessionUserId),
   };
 }

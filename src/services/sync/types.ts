@@ -39,6 +39,6 @@ export interface RemoteStore {
   touchDevice(deviceId: string, info: string): Promise<void>;
 }
 
-export const VERSIONED_TABLES: SyncTable[] = ['subjects', 'modules', 'course_sessions'];
+export const VERSIONED_TABLES: SyncTable[] = ['subjects', 'modules', 'course_sessions', 'study_artifacts', 'source_documents', 'generated_courses'];
 /** Ordre d'envoi/réception : les parents avant les enfants (clés étrangères). */
 export const CAPTURE_TABLES: CaptureTable[] = ['transcript_sessions', 'transcript_segments', 'timeline_markers', 'note_anchors', 'capture_interruptions'];

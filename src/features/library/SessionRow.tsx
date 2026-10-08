@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { Check, ExternalLink, EyeOff, ImageIcon, MoreHorizontal, Trash2 } from 'lucide-react';
+import { Check, ExternalLink, Layers, EyeOff, ImageIcon, MoreHorizontal, Trash2 } from 'lucide-react';
 import type { CourseSession } from '@/domain/types';
 import { sessionLabel, sessionNumberTitle } from '@/domain/session';
 import { formatDateShort, formatRelative } from '@/lib/dates';
@@ -60,6 +60,7 @@ export function SessionRow({ session: s, showContext = true }: Props) {
         {(close) => (
           <>
             <button className="menu__item" role="menuitem" onClick={() => { close(); navigate(`/session/${s.id}`); }}><ExternalLink />Ouvrir dans l’éditeur</button>
+            <button className="menu__item" role="menuitem" onClick={() => { close(); navigate(`/session/${s.id}/course`); }}><Layers />Cours et sources</button>
             {done && <button className="menu__item" role="menuitem" onClick={() => { close(); navigate(`/session/${s.id}/recap`); }}><EyeOff />Voir le récapitulatif</button>}
             <div className="menu__sep" />
             <div className="menu__label"><ImageIcon size={12} style={{ verticalAlign: -1 }} /> Image</div>

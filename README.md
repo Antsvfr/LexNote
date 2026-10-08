@@ -105,6 +105,62 @@ supabase/          Migration SQL + Edge Function delete-account
 - **Audio** : jamais envoyé au cloud ; la transcription, les marqueurs et les ancrages, eux, sont synchronisés.
 - **Développement/tests sans Supabase** : `VITE_BACKEND=mock` (build ou dev) remplace Supabase par un serveur simulé dans le navigateur ; **absent des builds de production**.
 
+## Intelligent Course Engine (espace « Cours »)
+
+Dans chaque séance, **Cours** réunit : *Notes · Transcription · Sources · Cours reconstruit*. Le moteur exploite ensemble les notes, la transcription, les marqueurs, les NoteAnchors et les documents importés (PDF, PowerPoint .pptx, Word .docx, texte ; images acceptées mais **sans OCR** pour l'instant) et reconstruit un cours structuré **sans jamais perdre la provenance**.
+
+```
+Sources → Extraction → Normalisation → Context Builder → Structure Analyzer → Course Generator → Validation → GeneratedCourse
+```
+
+| Étape | Code (`src/services/engine`) |
+|---|---|
+| Extraction (une interface `DocumentExtractor` par format, remplaçable) | `extractors/` (pdf.js chargé à la demande, fflate pour .docx/.pptx) |
+| Normalisation (en-têtes/pieds de page, doublons) | `normalize.ts` |
+| Morceaux + emplacements exacts (`SourceChunk`, `SourceLocation` : page, slide, plage temporelle, segments, passage de notes, ancrage, marqueur) | `chunking.ts` |
+| Index BM25 (sélection du contexte, corroboration, rattachement) — base d'un futur RAG | `sourceIndex.ts` |
+| Connaissances (`CourseKnowledgeUnit` : définitions, articles, arrêts, dates, chiffres, formules, exemples, points d'examen, méthodes, raisonnements, ambiguïtés, passages incomplets, contradictions) | `analyzer.ts` (interface `KnowledgeAnalyzer`) |
+| Corroboration, confiance, conflits | `context.ts` (`CourseContextBuilder`) |
+| Plan issu des sources (titres des notes, slides, sinon découpage de la transcription) | `structure.ts` |
+| Rédaction (reprise de textes sources, aucune prose inventée) | `generator.ts` |
+| Validation (schéma strict, citations exactes, garde juridique) | `validator.ts` |
+| Moteurs interchangeables (local / distant), repli | `provider.ts`, `pipeline.ts` |
+
+- **Provenance** : chaque bloc porte ses `SourceReference` (extrait exact + emplacement). Composant réutilisable `SourceBadge` (« Notes », « Transcription 00:34:12 », « PDF p. 18 », « Slide 24 », « Notes + transcription »…) ; au clic, popover détaillé et lien **Ouvrir la source** (notes surlignées, transcription au bon instant, document à la bonne page).
+- **Fiabilité** : `VERIFIED` (corroboré par ≥ 2 sources indépendantes) · `SUPPORTED` · `UNCERTAIN` (source fragile, ou date/chiffre absent des autres sources qui traitent du sujet, ou référence entendue seulement à l'oral) · `CONFLICTING` (deux sources, deux valeurs : les deux sont montrées, aucune n'est tranchée) · `MISSING_SOURCE` (« Information non vérifiée dans les sources »). **Aucun article, arrêt, date ou citation n'est jamais reconstitué** : ils sont repris littéralement ou absents ; la validation dégrade tout ce qui ne figure pas dans les sources citées, quel que soit le moteur.
+- **Sources intactes** : le cours est un artefact **séparé et versionné** (`GeneratedCourse` : `courseVersion`, `generatedAt`, `engineVersion`, `sourceSnapshot`) ; régénérer crée une nouvelle version, les anciennes sont conservées. Le fichier original d'un document reste **sur l'appareil** ; seuls son texte analysé et le cours sont synchronisés (tables `source_documents`, `generated_courses`, RLS).
+- **Performance** : morceaux bornés, index, déduplication, analyse mémorisée par empreinte (traitement incrémental : relancer sans changement = 0 analyse), traitement par lots sans geler l'interface ; séance de 3 h de transcription testée.
+- **Moteur IA** : abstrait (`CourseEngineProvider`). Livré : moteur **local** déterministe (aucune IA, hors-ligne). Un moteur **distant** s'active avec `VITE_ENGINE_URL` (Edge Function `supabase/functions/course-engine`, **clé du modèle uniquement côté serveur**, prompts hors du frontend). Sa sortie JSON repasse par la même validation. Si le moteur est injoignable : message clair, repli local au choix, **les notes ne sont jamais affectées**.
+
+## Réviser — StudyArtifacts dérivés du cours reconstruit
+
+```
+Course Sources → Course Context → Reconstructed Course (GeneratedCourse) → StudyArtifacts
+```
+
+Chaque séance a deux espaces : **Cours** (sources + cours reconstruit) et **Réviser** (`/session/:id/review`, bibliothèque de supports). Rien n'est généré automatiquement : « Créer une fiche / carte mentale / schéma / tableau / chronologie / méthode / flashcards / quiz » (ou une phrase dans la palette `Ctrl/⌘ K` : « Compare erreur, dol et violence »).
+
+| Support | Contenu | Réglages |
+|---|---|---|
+| Fiche | rubriques alimentées par le cours (définitions, articles, jurisprudence, exemples, points examen, chiffres…) | Express / Standard / Complète ; partie du cours |
+| Carte mentale | titres du cours + blocs typés ; interactive (zoom, déplacement, repli, clic → sources) | profondeur 1–5, orientation |
+| Schéma | processus, raisonnement (« si… alors »), hiérarchie, relations citées | type auto-suggéré ou choisi |
+| Tableau comparatif | uniquement des notions **réellement comparables** (sous-parties sœurs) × critères renseignés | notions choisies |
+| Chronologie | dates du cours (un numéro d'article n'est pas une date) | partie du cours |
+| Méthode | objectif, étapes, questions du cours, erreurs signalées, checklist cochable | partie du cours |
+| Flashcards | question · réponse · difficulté · concept · source | 10 / 20 / 30 / personnalisé |
+| Quiz | QCM, vrai/faux, question courte ; bonne réponse + explication + source ; score | nombre, niveau, types |
+
+**Architecture** (`src/services/study`, `src/domain/study.ts`, `src/features/study`, `src/features/review`) :
+- **Pas de second moteur** : un artefact est une transformation déterministe d'une *version précise* du cours reconstruit (`courseTree.ts` → `generators.ts` → validation zod). Il réutilise les `SourceReference` des blocs du cours : le même `SourceBadge` s'affiche partout (« Pourquoi cette flashcard ? → Notes → PDF p. 14 → Transcription 01:02:32 »).
+- `StudyArtifact` : `id`, `type`, `sourceSessionIds` (séance), `courseId` + `courseVersion`, `sourceSnapshot`, `engineVersion`, `settings`, `content` (modifiable), `generatedContent` (jamais modifié), `provenance`, `generation`, `userEdited`, dates. Synchronisé comme le reste (`study_artifacts`, RLS ; migration `20261010000000_study_artifacts_from_course.sql`).
+- **Fiabilité** : seules les affirmations `VERIFIED`/`SUPPORTED` avec source servent de réponses (flashcards, quiz) ; les distracteurs de QCM sont de vraies définitions d'autres notions du cours ; aucune relation, aucun critère, aucune date, aucune réponse n'est inventé. Matière insuffisante → message explicatif, pas de support médiocre.
+- **Versions** : modifier, dupliquer, supprimer, « revenir à la version générée », **régénérer**. Si un cours plus récent existe, bandeau « Le cours a été mis à jour » ; un support modifié à la main n'est **jamais écrasé** (une copie régénérée est créée ; le remplacement exige une confirmation).
+
+## Intégration avec REV-EM
+
+LexNote et REV-EM restent **indépendantes** (code, bases Supabase, comptes, clés) et ne communiqueront que par des contrats publics versionnés (`lexnote-revem/v1`, `src/integration/`). Architecture, source of truth, sécurité, erreurs, versionnement et hors-ligne : [`docs/REVEM_LEXNOTE_INTEGRATION.md`](docs/REVEM_LEXNOTE_INTEGRATION.md). Aucune fonction visible n'est encore construite.
+
 ## Stockage
 
 > (Les bases décrites ci-dessous sont désormais **par compte** : `lexnote-u-<id>`.)
@@ -232,6 +288,10 @@ IA (résumé, restructuration, fiches, flashcards, quiz, vérification des artic
 
 - Les notes sont d'abord **sur l'appareil** (IndexedDB), puis synchronisées avec **votre espace personnel** Supabase (RLS : personne d'autre n'y accède). L'audio ne quitte jamais l'appareil. Aucune télémétrie, aucune police ou ressource tierce.
 - Aucun enregistrement sans action explicite ; l'indicateur REC est toujours visible ; l'audio reste local. Selon le moteur, la *reconnaissance* peut être distante : c'est indiqué dans le panneau.
+
+## Vérifications effectuées (moteur de cours)
+
+- `tsc`, build de production (sans backend simulé) : OK. **281 tests unitaires/DB** (dont 70 pour le moteur : extracteurs PDF/PPTX/DOCX réels, chunking, provenance, conflits, non-invention, incrémental, validation, versions, isolation, hors-ligne) · **77 tests e2e Chromium** (dont le scénario complet matière → séance → notes → transcription + document → cours → consultation d'une source → rechargement).
 
 ## Vérifications effectuées (comptes + synchronisation)
 
