@@ -84,7 +84,7 @@ describe.each([['lexnote', U.lexA, U.lexB], ['revem', U.revemA, U.revemB]] as co
   });
   it('contrôles type « Security Advisor » : RLS forcée partout, fonctions durcies, aucun droit anon/PUBLIC', async () => {
     const t = await db.query<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }>(`select c.relname, c.relrowsecurity, c.relforcerowsecurity from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and c.relname like 'integration\_%'`);
-    expect(t.rows.map((r) => r.relname).sort()).toEqual(['integration_link_intents', 'integration_links', 'integration_nonces']);
+    expect(t.rows.map((r) => r.relname).sort()).toEqual(kind === 'lexnote' ? ['integration_course_refs', 'integration_link_intents', 'integration_links', 'integration_nonces', 'integration_subject_refs'] : ['integration_launch_intents', 'integration_link_intents', 'integration_links', 'integration_nonces']);
     expect(t.rows.every((r) => r.relrowsecurity && r.relforcerowsecurity)).toBe(true);
     const f = await db.query<{ proname: string; prosecdef: boolean; proconfig: string[] | null; anon: boolean; authed: boolean; pub: boolean }>(`select proname, prosecdef, proconfig, has_function_privilege('anon', oid, 'execute') as anon, has_function_privilege('authenticated', oid, 'execute') as authed, has_function_privilege('public', oid, 'execute') as pub from pg_proc where pronamespace = 'public'::regnamespace and proname like 'integration\_%'`);
     expect(f.rows.length).toBeGreaterThanOrEqual(12);
@@ -96,7 +96,7 @@ describe.each([['lexnote', U.lexA, U.lexB], ['revem', U.revemA, U.revemB]] as co
     const g = await db.query<{ grantee: string; privilege_type: string }>(`select grantee, privilege_type from information_schema.role_table_grants where table_name like 'integration\_%' and grantee in ('anon', 'PUBLIC')`);
     expect(g.rows).toEqual([]);
     const policies = await db.query<{ cmd: string; tablename: string }>(`select tablename, cmd from pg_policies where tablename like 'integration\_%'`);
-    expect(policies.rows.sort((a, b) => a.tablename.localeCompare(b.tablename))).toEqual([{ tablename: 'integration_link_intents', cmd: 'ALL' }, { tablename: 'integration_links', cmd: 'SELECT' }, { tablename: 'integration_nonces', cmd: 'ALL' }]);   // lecture de SA ligne + refus explicite pour intentions / nonces
+    expect(policies.rows.sort((a, b) => a.tablename.localeCompare(b.tablename))).toEqual([...(kind === 'lexnote' ? [{ tablename: 'integration_course_refs', cmd: 'ALL' }] : [{ tablename: 'integration_launch_intents', cmd: 'ALL' }]), { tablename: 'integration_link_intents', cmd: 'ALL' }, { tablename: 'integration_links', cmd: 'SELECT' }, { tablename: 'integration_nonces', cmd: 'ALL' }, ...(kind === 'lexnote' ? [{ tablename: 'integration_subject_refs', cmd: 'ALL' }] : [])]);   // lecture de SA ligne + refus explicite pour intentions / nonces
     const pol = await db.query<{ qual: string }>(`select qual from pg_policies where tablename = 'integration_links'`);
     expect(pol.rows[0]!.qual).toMatch(/SELECT auth\.uid\(\)/i);                               // initplan : (select auth.uid())
   });

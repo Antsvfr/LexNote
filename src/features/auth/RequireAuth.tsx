@@ -27,6 +27,6 @@ export function RequireAuth() {
   }
   if (workspace !== 'ready' || !loaded || !profileReady) return <Splash label="Ouverture de votre espace…" />;
   const empty = subjects === 0 && sessions === 0;
-  if (profile && !profile.onboardingCompleted && empty && loc.pathname !== '/onboarding') return <Navigate key={loc.pathname} to="/onboarding" replace />;
+  if (profile && !profile.onboardingCompleted && empty && loc.pathname !== '/onboarding' && !loc.pathname.startsWith('/integrations/')) return <Navigate key={loc.pathname} to="/onboarding" replace />;
   return <Outlet />;
 }

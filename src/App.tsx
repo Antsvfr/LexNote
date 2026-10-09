@@ -9,6 +9,8 @@ import { ReviewPage } from '@/features/review/ReviewPage';
 import { ArtifactPage } from '@/features/study/ArtifactPage';
 import { AuthorizeRevem } from '@/features/integration/AuthorizeRevem';
 import { ConnectRevemEntry } from '@/features/integration/ConnectRevemEntry';
+import { LaunchRevemEntry } from '@/features/integration/LaunchRevemEntry';
+import { OpenRevemCourse } from '@/features/integration/OpenRevemCourse';
 import { CoursePage } from '@/features/course/CoursePage';
 import { SubjectDialog } from '@/features/library/SubjectDialog';
 import { AppShell } from '@/components/AppShell';
@@ -55,6 +57,7 @@ export function App() {
             <Route path="forgot-password" element={<ForgotPasswordPage />} />
             <Route path="reset-password" element={<ResetPasswordPage />} />
             <Route path="integrations/revem/connect" element={<ConnectRevemEntry />} />
+            <Route path="integrations/revem/launch" element={<LaunchRevemEntry />} />
             <Route element={<RequireAuth />}>
             <Route path="onboarding" element={<OnboardingPage />} />
             <Route element={<AppShell />}>
@@ -73,6 +76,7 @@ export function App() {
               <Route path="session/:sessionId/review" element={<ReviewPage />} />
               <Route path="*" element={<Dashboard />} />
             </Route>
+            <Route path="integrations/revem/open" element={<OpenRevemCourse />} />
             <Route path="session/:sessionId" element={<EditorPage />} />
             </Route>
           </Routes>

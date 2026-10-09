@@ -73,7 +73,7 @@ test.describe('refonte visuelle — fonctionnalités réelles', () => {
     await expect(page.getByRole('menu')).toContainText('Aucune notification');
     await page.keyboard.press('Escape');
     await page.getByTestId('avatar').click();
-    await expect(page.getByRole('menu')).toContainText('REV-EM · connexion bientôt disponible');
+    await expect(page.getByRole('menu')).toContainText('REV-EM · Applications connectées');
     await expect(page.getByTestId('account-email')).toContainText('@example.com');
     await page.keyboard.press('Escape');
   });
