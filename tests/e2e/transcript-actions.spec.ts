@@ -35,12 +35,12 @@ test.describe('généralisation', () => {
     expect(desc).not.toMatch(/droit/i);
     await recapWithTranscript(page);
     await expect(page.locator('.sidebar .brand__text small')).toHaveText('Notes · Cours · Révisions');
-    const card = page.getByTestId('sidebar-revem');
+    const card = page.getByTestId('revem-card');
     await expect(card).toContainText('REV-EM');
     await expect(card).not.toContainText('bientôt');
-    await expect(card).toContainText(/Non connecté|Vérification|Indisponible/);
+    await expect(page.getByTestId('revem-card-status')).toHaveText(/Non connecté|Vérification/);
     await card.click();
-    await expect(page).toHaveURL(/\/settings#connected-apps/);
+    await expect(page).toHaveURL(/\/settings#apps-h/);
     await expect(page.getByTestId('connected-apps')).toBeVisible();
   });
 

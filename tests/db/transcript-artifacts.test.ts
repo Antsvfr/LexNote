@@ -6,7 +6,7 @@ import { artifactFromRow, artifactToRow } from '@/services/sync/mappers';
 import type { StudyArtifact } from '@/domain/study';
 
 /**
- * Migration 20261020 (documents dérivés de la transcription + profil d'études) sur un vrai Postgres (PGlite) :
+ * Migration 20261015 (documents dérivés de la transcription + profil d'études) sur un vrai Postgres (PGlite) :
  * chaîne COMPLÈTE des migrations du dépôt, RLS inchangée, contraintes, rétrocompatibilité et rejouabilité.
  */
 const A = '11111111-1111-4111-8111-111111111111';
@@ -19,7 +19,7 @@ async function as<T>(user: string | null, fn: () => Promise<T>): Promise<T> {
   try { return await fn(); } finally { await db.exec('reset role;'); }
 }
 const MIGRATIONS = readdirSync('supabase/migrations').filter((f) => f.endsWith('.sql')).sort();
-const MIG = '20261020000000_transcript_derived_artifacts.sql';
+const MIG = '20261015000000_transcript_derived_artifacts.sql';
 const strip = (sql: string) => sql.replace(/create extension[^;]*;/gi, '');
 
 beforeAll(async () => {
@@ -48,7 +48,7 @@ const insertDoc = (id: string, extra: Record<string, unknown> = {}) => {
   return q(`insert into study_artifacts (${keys.join(', ')}) values (${keys.map((_, i) => `$${i + 1}`).join(', ')})`, Object.values(cols));
 };
 
-describe('migration 20261020 — documents dérivés de la transcription', () => {
+describe('migration 20261015 — documents dérivés de la transcription', () => {
   it('chaîne complète appliquée ; données antérieures intactes (source_type par défaut, revisions vides)', async () => {
     expect(MIGRATIONS.at(-1)).toBe(MIG);
     const r = await as(A, () => q<{ type: string; source_type: string; revisions: unknown[] }>('select type, source_type, revisions from study_artifacts where id = $1', [uuid(1)]));

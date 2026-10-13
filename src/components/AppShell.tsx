@@ -10,7 +10,7 @@ import { useUI } from '@/store/ui';
 import { modKeyLabel } from '@/features/editor/commands';
 import { GlobalRecPill } from '@/features/capture/RecControls';
 import { useCreateSubject } from '@/features/library/useCreateSubject';
-import { RevemStatusCard } from '@/features/integration/RevemStatusCard';
+import { RevemCard } from '@/features/integration/RevemCard';
 
 const navClass = ({ isActive }: { isActive: boolean }) => `nav__item${isActive ? ' is-active' : ''}`;
 
@@ -68,8 +68,7 @@ export function AppShell() {
         </div>
 
         <div className="sidebar__foot">
-          {/* État réel de la liaison REV-EM (vérifié par le serveur) ; mène à Réglages › Applications connectées. */}
-          <RevemStatusCard />
+          <RevemCard />
           <SyncIndicator />
           <div className="sidebar__sync" title="Vos notes sont d’abord enregistrées sur cet appareil, puis synchronisées avec votre compte.">
             <span className={`status-dot${persistent ? '' : ' is-warn'}`} aria-hidden />

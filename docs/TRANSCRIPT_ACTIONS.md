@@ -56,7 +56,7 @@ d'inventé, notions conservées, vraie hiérarchie. Éditable, sauvegardé, rég
 
 ## 5. StudyArtifact (aucun système parallèle)
 
-Mêmes table, synchronisation, RLS que les supports du cours reconstruit. Ajouts (migration `20261020000000`, rétrocompatible) :
+Mêmes table, synchronisation, RLS que les supports du cours reconstruit. Ajouts (migration `20261015000000`, rétrocompatible) :
 
 | Colonne | Rôle |
 |---|---|
@@ -92,7 +92,7 @@ comme `OTHER`.
 
 ## 7. Déploiement (rien n'est déployé par cette PR)
 
-1. Appliquer la migration `20261020000000_transcript_derived_artifacts.sql` **avant** de déployer le frontend.
+1. Appliquer la migration `20261015000000_transcript_derived_artifacts.sql` **avant** de déployer le frontend.
 2. `supabase secrets set ANTHROPIC_API_KEY=… APP_ORIGINS=https://lex-note-svfr.vercel.app` (optionnel : `STUDY_AI_MODEL`).
 3. `supabase functions deploy study-ai`.
 4. Vercel : `VITE_AI_URL=https://<ref>.supabase.co/functions/v1/study-ai`, puis redéployer.

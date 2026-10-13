@@ -73,7 +73,7 @@ export function AppHeader() {
               <div className="menu__sep" />
               <div className="menu__label" style={{ textTransform: 'none', letterSpacing: 0 }} data-testid="account-email">{profile?.email}</div>
               <button className="menu__item" role="menuitem" onClick={() => { close(); void logout(); }} data-testid="logout"><LogOut />Se déconnecter</button>
-              <button className="menu__item" role="menuitem" onClick={() => { close(); navigate('/settings#connected-apps'); }} data-testid="menu-revem"><GraduationCap />REV-EM · Applications connectées</button>
+              <button className="menu__item" role="menuitem" onClick={() => { close(); navigate('/settings#apps-h'); }} data-testid="menu-revem"><GraduationCap />REV-EM · Applications connectées</button>
             </>
           )}
         </Menu>

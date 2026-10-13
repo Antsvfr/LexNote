@@ -110,7 +110,7 @@ export const artifactToRow = (a: StudyArtifact): RemoteRow => ({
   settings: a.settings, content: a.content, generated_content: a.generatedContent, user_edited: a.userEdited,
   course_id: a.courseId || null, course_version: a.courseVersion, source_snapshot: a.sourceSnapshot, engine_version: a.engineVersion, provenance: a.provenance, generation: a.generation,
   created_at: a.createdAt, updated_at: a.updatedAt, deleted_at: null,
-  // Colonnes de la migration 20261020 : envoyées seulement quand elles portent une information, pour qu'un support du cours
+  // Colonnes de la migration 20261015 : envoyées seulement quand elles portent une information, pour qu'un support du cours
   // reconstruit reste synchronisable même si la migration n'est pas encore appliquée (déploiement progressif).
   ...(a.sourceType === 'transcript' ? {
     source_type: 'transcript', source_session_id: a.sourceSessionIds[0] ?? null, source_transcript_version: a.sourceTranscriptVersion ?? null,

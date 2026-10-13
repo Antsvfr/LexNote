@@ -56,3 +56,43 @@ export function createRpcStore(db: RpcClient): LinkStore {
     async registerNonce(sender, nonce, expiresAt) { const r = await call('integration_register_nonce', { p_sender: sender, p_nonce: nonce, p_expires: expiresAt.toISOString() }); return r.reason === 'OK'; },
   };
 }
+
+/* ------------------------------------------------------------------ ouverture d'un cours depuis REV-EM */
+
+export type LaunchReason = 'OK' | 'NOT_FOUND' | 'EXPIRED' | 'NONCE_MISMATCH' | 'USED' | 'CANCELLED' | 'LINK_NOT_CONNECTED' | 'RATE_LIMITED' | 'INVALID';
+
+/** Côté REV-EM (initiateur) : intentions de lancement, usage unique. Le cours (`event`) y est figé par le SERVEUR au moment du clic. */
+export interface LaunchStore {
+  startLaunch(a: { userId: string; linkId: string; eventKey: string; event: unknown; nonceHash: string; ttlSeconds: number }): Promise<{ reason: LaunchReason; intentId?: string; expiresAt?: string }>;
+  /** Atomique : consomme l'intention (PENDING→REDEEMED). Un mauvais nonce ne la consomme PAS. */
+  redeemLaunch(a: { intentId: string; nonceHash: string; linkId: string }): Promise<{ reason: LaunchReason; event?: unknown; expiresAt?: string }>;
+}
+
+/** Paramètres de création / récupération d'une séance, déjà validés et normalisés (aucun JSON du navigateur). */
+export interface CourseOpenParams {
+  userId: string; provider: string; linkId: string;
+  eventKey: string; subjectKey: string; subjectName: string;
+  type: string; title: string; date: string; startTime: string | null; endTime: string | null; teacher: string | null; room: string | null;
+}
+export interface CourseOpenResult { reason: LaunchReason; sessionId?: string; subjectId?: string; createdSubject?: boolean; createdSession?: boolean; number?: number | null }
+/** Côté LexNote (répondant) : création / récupération IDEMPOTENTE de la matière et de la séance, garantie par la base (contraintes UNIQUE + verrous). */
+export interface CourseStore { openCourse(a: CourseOpenParams): Promise<CourseOpenResult> }
+
+export function createRpcLaunchStore(db: RpcClient): LaunchStore & CourseStore {
+  async function call(fn: string, args: Record<string, unknown>): Promise<Record<string, any>> {
+    const { data, error } = await db.rpc(fn, args);
+    if (error) { console.error('[integration] rpc', fn, error.message); return fail('UNAVAILABLE', 'Base de données indisponible.'); }
+    return (data ?? {}) as Record<string, any>;
+  }
+  return {
+    async startLaunch(a) { const r = await call('integration_launch_start', { p_user: a.userId, p_link_id: a.linkId, p_event_key: a.eventKey, p_event: a.event, p_nonce_hash: a.nonceHash, p_ttl_seconds: a.ttlSeconds }); return { reason: r.reason, intentId: r.intent_id, expiresAt: r.expires_at }; },
+    async redeemLaunch(a) { const r = await call('integration_launch_redeem', { p_intent: a.intentId, p_nonce_hash: a.nonceHash, p_link_id: a.linkId }); return { reason: r.reason, event: r.event, expiresAt: r.expires_at }; },
+    async openCourse(a) {
+      const r = await call('integration_course_open', {
+        p_user: a.userId, p_provider: a.provider, p_link_id: a.linkId, p_event_key: a.eventKey, p_subject_key: a.subjectKey, p_subject_name: a.subjectName,
+        p_type: a.type, p_title: a.title, p_date: a.date, p_start: a.startTime, p_end: a.endTime, p_teacher: a.teacher, p_room: a.room,
+      });
+      return { reason: r.reason, sessionId: r.session_id, subjectId: r.subject_id, createdSubject: r.created_subject, createdSession: r.created_session, number: r.number ?? null };
+    },
+  };
+}

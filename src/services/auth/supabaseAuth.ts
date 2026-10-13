@@ -76,7 +76,7 @@ export class SupabaseAuth implements AuthRepository {
 interface ProfileRow {
   id: string; email: string | null; first_name: string | null; last_name: string | null; avatar_url: string | null; institution: string | null;
   academic_year: string | null; usage_type: string | null; onboarding_completed: boolean;
-  /** Ajoutées par la migration 20261020 : absentes tant qu'elle n'est pas appliquée. */
+  /** Ajoutées par la migration 20261015 : absentes tant qu'elle n'est pas appliquée. */
   field_of_study?: string | null; primary_use?: string | null;
 }
 const fromRow = (r: ProfileRow, u: AuthUser): Profile => ({

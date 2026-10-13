@@ -1,3 +1,5 @@
+import { useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Link2, Link2Off, RefreshCw, ShieldCheck } from 'lucide-react';
 import { confirm } from '@/components/confirm';
 import { toast } from '@/store/toasts';
@@ -8,6 +10,8 @@ const formatDate = (iso: string) => new Date(iso).toLocaleDateString('fr-FR', { 
 /** Réglages › Applications connectées › REV-EM. L'affichage « Connecté » exige que les DEUX côtés le confirment. */
 export function ConnectedApps() {
   const { state, error, busy, refresh, revoke } = useConnection();
+  const { hash } = useLocation();
+  useEffect(() => { if (hash === '#apps-h') document.getElementById('apps-h')?.scrollIntoView({ block: 'start' }); }, [hash]);
   const s = state?.state;
 
   async function disconnect() {
@@ -19,7 +23,7 @@ export function ConnectedApps() {
   }
 
   return (
-    <section className="settings-block" id="connected-apps" aria-labelledby="apps-h" data-testid="connected-apps" ref={(el) => { if (el && window.location.hash === '#connected-apps') requestAnimationFrame(() => el.scrollIntoView({ block: 'start' })); }}>
+    <section className="settings-block" aria-labelledby="apps-h" data-testid="connected-apps">
       <h2 id="apps-h"><Link2 size={18} aria-hidden /> Applications connectées</h2>
       <p className="muted">Reliez explicitement votre compte REV-EM à votre compte LexNote. Les deux comptes restent indépendants : rien n’est fusionné, aucun mot de passe ni jeton n’est partagé, et l’adresse e-mail ne sert jamais à relier les comptes.</p>
       <div className="appcard" data-testid="app-revem" data-state={s ?? 'loading'}>
