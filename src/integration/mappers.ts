@@ -5,7 +5,7 @@
 import type { CourseSession } from '@/domain/types';
 import type { StudyArtifact } from '@/domain/study';
 import type { GeneratedCourse } from '@/domain/course';
-import type { LexNoteSessionReference, StudyArtifactReference } from './contracts';
+import { ARTIFACT_KINDS, type ArtifactKind, type LexNoteSessionReference, type StudyArtifactReference } from './contracts';
 import { buildLexNoteLink } from './links';
 import { INTEGRATION_VERSION } from './version';
 
@@ -49,10 +49,19 @@ export function itemCountOf(a: Pick<StudyArtifact, 'type' | 'content'>): number 
     case 'METHOD': return (c.steps ?? []).length;
     case 'FLASHCARDS': return (c.cards ?? []).length;
     case 'QUIZ': return (c.questions ?? []).length;
+    default: return (c.blocks ?? []).length;
   }
 }
 
+/**
+ * Le contrat lexnote-revem/v1 ne connaît que les 8 types de supports du cours reconstruit (`ARTIFACT_KINDS`). Les documents dérivés
+ * de la transcription (résumé, traduction…) ne sont PAS exposés à REV-EM tant qu'une version du contrat ne les prévoit pas :
+ * filtrer avec ceci avant `toArtifactReference` (une évolution compatible du contrat sera nécessaire pour les partager).
+ */
+export const isContractArtifact = <A extends Pick<StudyArtifact, 'type'>>(a: A): a is A & { type: ArtifactKind } => (ARTIFACT_KINDS as readonly string[]).includes(a.type);
+
 export function toArtifactReference(a: StudyArtifact, c: { origin: string; stale: boolean }): StudyArtifactReference {
+  if (!isContractArtifact(a)) throw new Error(`Type de support non prévu par ${INTEGRATION_VERSION} : ${a.type}`);
   return {
     integrationVersion: INTEGRATION_VERSION, kind: 'study-artifact-reference',
     artifactRef: a.id, artifactType: a.type, title: a.title, sessionRef: a.sourceSessionIds[0] ?? '',

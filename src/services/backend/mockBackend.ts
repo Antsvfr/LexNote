@@ -12,6 +12,8 @@ import type { Backend } from './index';
 import { createMockIntegration } from '../integration/mockIntegration';
 import { saveEngineSettings } from '../../lib/engineSettings';
 import { EngineUnavailableError, registerEngineProvider, setActiveEngineProvider } from '../engine/provider';
+import { aiService, type AIRequest } from '../ai';
+import { createTestAIProvider, type TestAIMode } from '../ai/testDouble';
 
 const AUTH_KEY = 'lexnote-mock-auth';
 const CLOUD_KEY = 'lexnote-mock-cloud';
@@ -87,6 +89,7 @@ export function createMockBackend(): Backend {
     },
   };
 
+  let aiMode: TestAIMode = 'ok'; const aiCalls: AIRequest[] = [];
   // Outils de test (jamais présents en production) : couper le « serveur », altérer une ligne, lire l'état.
   (window as unknown as { __lx: unknown }).__lx = {
     cloud,
@@ -101,6 +104,11 @@ export function createMockBackend(): Backend {
     /** Simule un moteur de cours distant injoignable (tests hors-ligne du moteur). */
     breakEngine: (fallback = false) => { registerEngineProvider({ id: 'remote', label: 'Moteur distant (simulé)', local: false, isAvailable: () => true, compose: async () => { throw new EngineUnavailableError('Moteur distant injoignable (réseau ?).'); } }); setActiveEngineProvider('remote'); saveEngineSettings({ providerId: 'remote', fallbackToLocal: !!fallback }); },
     users: () => load().users.map((u) => ({ id: u.id, email: u.email })),
+    /** Branche le DOUBLE DE TEST du moteur IA (jamais en production) ; `mode` change son comportement. `calls` : requêtes reçues. */
+    installAI: (mode: TestAIMode = 'ok') => { aiMode = mode; aiService.setProvider(createTestAIProvider(() => aiMode, aiCalls)); },
+    setAIMode: (mode: TestAIMode) => { aiMode = mode; },
+    aiCalls: () => aiCalls.map((c) => ({ command: c.command, options: c.options, inputLength: c.input.length })),
+    removeAI: () => aiService.reset(),
   };
 
   return {

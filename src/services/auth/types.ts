@@ -9,11 +9,16 @@ export interface Profile {
   avatarUrl: string;
   institution: string;
   academicYear: string;
+  /** Type d'établissement (université, école, prépa, autre) — facultatif. */
   usageType: string;
+  /** Domaine d'études (commerce, droit, médecine…) — facultatif, ne restreint jamais aucune fonctionnalité. */
+  fieldOfStudy: string;
+  /** Usage principal (prise de notes, transcription, révisions…) — facultatif. */
+  primaryUse: string;
   onboardingCompleted: boolean;
 }
 export const emptyProfile = (u: AuthUser): Profile => ({
-  id: u.id, email: u.email, firstName: '', lastName: '', avatarUrl: '', institution: '', academicYear: '', usageType: '', onboardingCompleted: false,
+  id: u.id, email: u.email, firstName: '', lastName: '', avatarUrl: '', institution: '', academicYear: '', usageType: '', fieldOfStudy: '', primaryUse: '', onboardingCompleted: false,
 });
 
 export type AuthEvent = 'SIGNED_IN' | 'SIGNED_OUT' | 'PASSWORD_RECOVERY' | 'TOKEN_REFRESHED' | 'INITIAL_SESSION';

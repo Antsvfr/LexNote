@@ -7,4 +7,6 @@ interface ImportMetaEnv {
   readonly VITE_BACKEND?: string;
   /** Point d'accès (Edge Function) du moteur de cours distant — facultatif ; aucune clé de modèle dans l'application. */
   readonly VITE_ENGINE_URL?: string;
+  /** Point d'accès (Edge Function `study-ai`) des actions IA sur la transcription — facultatif ; aucune clé de modèle dans l'application. */
+  readonly VITE_AI_URL?: string;
 }

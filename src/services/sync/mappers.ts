@@ -108,8 +108,15 @@ export const interruptionFromRow = (r: RemoteRow): Interruption => ({
 export const artifactToRow = (a: StudyArtifact): RemoteRow => ({
   id: a.id, user_id: a.userId, type: a.type, title: a.title, subject_id: a.subjectId, source_session_ids: a.sourceSessionIds, scope: a.scope,
   settings: a.settings, content: a.content, generated_content: a.generatedContent, user_edited: a.userEdited,
-  course_id: a.courseId, course_version: a.courseVersion, source_snapshot: a.sourceSnapshot, engine_version: a.engineVersion, provenance: a.provenance, generation: a.generation,
+  course_id: a.courseId || null, course_version: a.courseVersion, source_snapshot: a.sourceSnapshot, engine_version: a.engineVersion, provenance: a.provenance, generation: a.generation,
   created_at: a.createdAt, updated_at: a.updatedAt, deleted_at: null,
+  // Colonnes de la migration 20261020 : envoyées seulement quand elles portent une information, pour qu'un support du cours
+  // reconstruit reste synchronisable même si la migration n'est pas encore appliquée (déploiement progressif).
+  ...(a.sourceType === 'transcript' ? {
+    source_type: 'transcript', source_session_id: a.sourceSessionIds[0] ?? null, source_transcript_version: a.sourceTranscriptVersion ?? null,
+    language: a.language ?? null, generation_type: a.generationType ?? null, generator: a.generator ?? null, parent_artifact_id: a.parentArtifactId ?? null,
+  } : {}),
+  ...(a.revisions?.length ? { revisions: a.revisions } : {}),
 });
 export const artifactFromRow = (r: RemoteRow): StudyArtifact => ({
   id: r.id, userId: String(r.user_id), type: (ARTIFACT_TYPES as readonly string[]).includes(String(r.type)) ? (r.type as StudyArtifact['type']) : 'COURSE_SHEET',
@@ -118,6 +125,11 @@ export const artifactFromRow = (r: RemoteRow): StudyArtifact => ({
   content: r.content as ArtifactContent, generatedContent: (r.generated_content as ArtifactContent | null) ?? null, userEdited: !!r.user_edited,
   courseId: String(r.course_id ?? ''), courseVersion: Number(r.course_version ?? 1), sourceSnapshot: (r.source_snapshot as StudyArtifact['sourceSnapshot']) ?? { sources: [], hash: '' },
   engineVersion: String(r.engine_version ?? ''), provenance: r.provenance as StudyArtifact['provenance'], generation: Number(r.generation ?? 1),
+  ...(r.source_type === 'transcript' ? {
+    sourceType: 'transcript' as const, sourceTranscriptVersion: orUndef(r.source_transcript_version as string), language: orUndef(r.language as string),
+    generationType: orUndef(r.generation_type as string), generator: (r.generator as StudyArtifact['generator']) ?? undefined, parentArtifactId: (r.parent_artifact_id as string | null) ?? null,
+  } : {}),
+  ...(Array.isArray(r.revisions) && r.revisions.length ? { revisions: r.revisions as StudyArtifact['revisions'] } : {}),
   createdAt: String(r.created_at), updatedAt: String(r.updated_at), version: r.version,
 });
 

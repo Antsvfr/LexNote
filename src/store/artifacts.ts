@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { ArtifactContent, StudyArtifact } from '@/domain/study';
+import { MAX_REVISIONS, type ArtifactRevision } from '@/domain/derived';
 import type { StorageAdapter } from '@/services/storage/types';
 import { newId } from '@/lib/ids';
 import { provenanceOf, type GeneratedDraft } from '@/services/study/engine';
@@ -16,8 +17,15 @@ interface ArtifactsState {
   rename(id: string, title: string): Promise<void>;
   /** Revient à la version générée. */
   restoreGenerated(id: string): Promise<void>;
-  /** Remplace par une nouvelle génération (le contenu précédent est perdu : l'appelant a confirmé ou fait une copie). */
+  /** Remplace par une nouvelle génération ; le contenu précédent est conservé dans `revisions`. */
   replaceGenerated(id: string, draft: GeneratedDraft): Promise<void>;
+  /**
+   * Document dérivé de la transcription : nouvelle génération. La version courante (modifiée ou non) est conservée dans `revisions`
+   * — une version modifiée par l'utilisateur n'est jamais perdue.
+   */
+  regenerateDerived(id: string, next: Pick<StudyArtifact, 'content' | 'provenance' | 'generator' | 'language' | 'sourceTranscriptVersion' | 'settings'> & { title?: string }): Promise<void>;
+  /** Restaure une version antérieure (la version courante est elle-même conservée). */
+  restoreRevision(id: string, generation: number): Promise<void>;
   duplicate(id: string, title?: string): Promise<StudyArtifact | undefined>;
   remove(id: string): Promise<void>;
   removeForSubject(subjectId: string): Promise<void>;
@@ -27,6 +35,11 @@ let adapter: StorageAdapter | null = null;
 const db = () => { if (!adapter) throw new Error('Le stockage LexNote n’est pas initialisé.'); return adapter; };
 const stamp = () => new Date().toISOString();
 const replace = (list: StudyArtifact[], a: StudyArtifact) => list.map((x) => (x.id === a.id ? a : x));
+/** Ajoute la version courante à l'historique (les plus récentes d'abord, bornées à MAX_REVISIONS). */
+export const withRevision = (a: StudyArtifact): ArtifactRevision[] => [
+  { generation: a.generation, title: a.title, content: structuredClone(a.content), userEdited: a.userEdited, savedAt: a.updatedAt, ...(a.generator ? { generator: a.generator } : {}) },
+  ...(a.revisions ?? []),
+].slice(0, MAX_REVISIONS);
 
 export const useArtifacts = create<ArtifactsState>((set, get) => {
   async function put(next: StudyArtifact) {
@@ -59,8 +72,22 @@ export const useArtifacts = create<ArtifactsState>((set, get) => {
       await put({
         ...cur, title: cur.userEdited ? cur.title : d.title, content: d.content, generatedContent: structuredClone(d.content), settings: d.settings, scope: d.scope ?? cur.scope,
         courseId: c.id, courseVersion: c.courseVersion, sourceSnapshot: c.sourceSnapshot, engineVersion: c.engineVersion, provenance: provenanceOf(c),
-        generation: cur.generation + 1, userEdited: false, updatedAt: stamp(),
+        generation: cur.generation + 1, userEdited: false, revisions: withRevision(cur), updatedAt: stamp(),
       });
+    },
+    async regenerateDerived(id, n) {
+      const cur = find(id); if (!cur) return;
+      await put({
+        ...cur, title: cur.userEdited ? cur.title : (n.title ?? cur.title), content: n.content, generatedContent: structuredClone(n.content), provenance: n.provenance,
+        generator: n.generator, language: n.language, sourceTranscriptVersion: n.sourceTranscriptVersion, settings: n.settings,
+        generation: cur.generation + 1, userEdited: false, revisions: withRevision(cur), updatedAt: stamp(),
+      });
+    },
+    async restoreRevision(id, generation) {
+      const cur = find(id); const rev = cur?.revisions?.find((r) => r.generation === generation);
+      if (!cur || !rev) return;
+      const rest = withRevision(cur).filter((r) => !(r.generation === generation && r.savedAt === rev.savedAt));
+      await put({ ...cur, title: rev.title, content: structuredClone(rev.content) as ArtifactContent, userEdited: true, revisions: rest, updatedAt: stamp() });
     },
     async duplicate(id, title) {
       const cur = find(id); if (!cur) return undefined;
