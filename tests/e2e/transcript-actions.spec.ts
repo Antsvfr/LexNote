@@ -207,8 +207,8 @@ test.describe('exploiter la transcription', () => {
     const sid2 = sessionIdOf(page);
     await seedTranscript(page, sid2, [{ id: 'c1', startMs: 0, text: 'Bonjour à tous, nous commençons.' }]);
     await page.goto(`/session/${sid2}/recap`);
-    await installAI(page);
     await expect(page.getByTestId('xaction-summarize')).toContainText('Trop court');
+    await installAI(page);
     await page.getByTestId('xaction-summarize').click();
     await page.getByTestId('action-run').click();
     await expect(page.getByTestId('action-error')).toContainText('trop court');
