@@ -418,7 +418,7 @@ Jamais transmis : notes, résumé, questions, description du cours, mot de passe
 
 ### Liaison évènement → séance, matière → matière, idempotence
 
-* Table `integration_course_refs` (LexNote, migration `20261012000000_revem_course_refs.sql`) : `UNIQUE (user_id, provider, external_event_ref)` → **une** séance par évènement REV-EM et par utilisateur. Table `integration_subject_refs` : `UNIQUE (user_id, provider, external_subject_ref)` → **une** matière par matière REV-EM.
+* Table `integration_course_refs` (LexNote, migration `20261014000000_revem_course_refs.sql`) : `UNIQUE (user_id, provider, external_event_ref)` → **une** séance par évènement REV-EM et par utilisateur. Table `integration_subject_refs` : `UNIQUE (user_id, provider, external_subject_ref)` → **une** matière par matière REV-EM.
 * Clé de matière : l'identifiant REV-EM de la matière si elle existe en base ; sinon `name:<nom normalisé>` (titre sans préfixe CM/TD/TP ni « groupe N »), de sorte que « CM/TD/TP Droit des contrats » partagent **une** matière. Une matière LexNote créée à la main sous le même nom est adoptée si elle n'est pas déjà liée à une autre matière REV-EM.
 * La fonction SQL `integration_course_open` (SECURITY DEFINER, `service_role` seul) prend `pg_advisory_xact_lock` (matière puis évènement : ordre fixe, pas d'interblocage) : double clic, deux onglets, deux appareils, rejeu réseau → **une** matière, **une** séance, garanti par la base et non par le front. Une séance supprimée par l'étudiant est recréée à la réouverture ; une séance existante n'est jamais modifiée.
 * Numérotation de la séance : `max(number)+1` par (matière, type).
@@ -446,6 +446,6 @@ Non connecté à LexNote → intention gardée (10 min) puis reprise après conn
 
 ### Déploiement ultérieur (rien n'est déployé par cette étape)
 
-1. REV-EM : appliquer `supabase/migrations/008_integration_launch.sql` ; LexNote : appliquer `20261012000000_revem_course_refs.sql` (après toutes les migrations antérieures).
+1. REV-EM : appliquer `supabase/migrations/008_integration_launch.sql` ; LexNote : appliquer `20261014000000_revem_course_refs.sql` (après toutes les migrations antérieures).
 2. Redéployer `integration-link` et `integration-gateway` (`--no-verify-jwt`) des **deux** projets (le paquet `lexnote-revem-v1.mjs` est régénéré : `node scripts/build-integration-bundle.mjs --revem <chemin REV-EM>`) ; secrets inchangés.
 3. Publier les deux fronts, puis vérifier avec un compte réel de bout en bout (les tests automatisés sont en simulation : PGlite, double de Supabase, Chromium).

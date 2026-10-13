@@ -19,10 +19,14 @@ export const U = {
 export const EMAIL = { revemA: 'alice@revem.test', revemB: 'bob@revem.test', lexA: 'alice@lexnote.test', lexB: 'bob@lexnote.test' };
 const LEX_SQL = 'supabase/migrations/20261011000000_integration_links.sql';
 /** Schéma LexNote COMPLET (matières, séances, …) : l'ouverture d'un cours crée de vraies lignes, la RLS et les clés composites s'appliquent. */
-const LEX_SCHEMA = ['20261007000000_lexnote_init', '20261008000000_study_artifacts', '20261009000000_course_engine', '20261010000000_study_artifacts_from_course', '20261011000000_integration_links', '20261012000000_revem_course_refs'].map((f) => `supabase/migrations/${f}.sql`);
+const LEX_SCHEMA = ['20261007000000_lexnote_init', '20261008000000_study_artifacts', '20261009000000_course_engine', '20261010000000_study_artifacts_from_course', '20261011000000_integration_links', '20261012000000_fk_indexes', '20261013000000_security_hardening', '20261014000000_revem_course_refs'].map((f) => `supabase/migrations/${f}.sql`);
 const REVEM_REPO = process.env.REVEM_REPO ?? '/home/user/rev-em';
 const REVEM_SQL = `${REVEM_REPO}/supabase/migrations/006_integration_links.sql`;
-const REVEM_LAUNCH_SQL = `${REVEM_REPO}/supabase/migrations/008_integration_launch.sql`;
+/** Migration REV-EM du lancement de cours : lue dans le dépôt REV-EM s'il est présent, sinon copie versionnée (CI sans dépôt voisin).
+ *  `revem-fixture.test.ts` vérifie que la copie est identique au fichier REV-EM quand celui-ci est disponible. */
+export const REVEM_LAUNCH_FIXTURE = 'tests/fixtures/revem/008_integration_launch.sql';
+export const REVEM_LAUNCH_REPO_SQL = `${REVEM_REPO}/supabase/migrations/008_integration_launch.sql`;
+const REVEM_LAUNCH_SQL = existsSync(REVEM_LAUNCH_REPO_SQL) ? REVEM_LAUNCH_REPO_SQL : REVEM_LAUNCH_FIXTURE;
 
 export async function makeDb(kind: 'revem' | 'lexnote', users: [string, string, string][]): Promise<PGlite> {
   const db = new PGlite();
@@ -73,7 +77,10 @@ export interface World {
 }
 
 export async function makeWorld(): Promise<World> {
-  const clock = { now: new Date('2026-10-08T10:00:00.000Z') };
+  // Horloge de test alignée sur l'heure RÉELLE : la base (PGlite) purge les nonces expirés avec now() ; une date figée dans le
+  // passé rendait le test anti-rejeu dépendant du jour d'exécution (vert le 8 octobre, rouge ensuite).
+  const start = () => new Date(Math.floor(Date.now() / 1000) * 1000);
+  const clock = { now: start() };
   const now = () => clock.now;
   const mk = (self: 'revem' | 'lexnote'): IntegrationConfig => readIntegrationConfig(self, (k) => ({
     INTEGRATION_ENV: 'production', INTEGRATION_KEY_ID: 'k1', INTEGRATION_KEY: KEY,
@@ -116,7 +123,7 @@ export async function makeWorld(): Promise<World> {
       await Rdb.exec('truncate integration_launch_intents');
       await Ldb.exec('truncate integration_course_refs, integration_subject_refs; delete from course_sessions; delete from subjects');
       for (const k of Object.keys(events)) delete events[k];
-      traffic.length = 0; netDown.value = false; hook.before = undefined; clock.now = new Date('2026-10-08T10:00:00.000Z');
+      traffic.length = 0; netDown.value = false; hook.before = undefined; clock.now = start();
     },
     async userReq(side, userId, body, origin = side === 'R' ? 'https://antsvfr.github.io' : 'https://lexnote.example.app') {
       const headers: Record<string, string> = { 'content-type': 'application/json' };

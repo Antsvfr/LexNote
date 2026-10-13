@@ -21,7 +21,8 @@ create table public.integration_subject_refs (
   -- une clé composite interdit de référencer la matière d'un autre utilisateur ; supprimer la matière supprime la correspondance
   foreign key (subject_id, user_id) references public.subjects (id, user_id) on delete cascade
 );
-create index integration_subject_refs_subject on public.integration_subject_refs (user_id, subject_id);
+-- colonnes dans l’ordre de la clé étrangère (subject_id, user_id) : index reconnu par le Performance Advisor (unindexed_foreign_keys)
+create index integration_subject_refs_subject on public.integration_subject_refs (subject_id, user_id);
 
 create table public.integration_course_refs (
   id uuid primary key default gen_random_uuid(),
@@ -38,7 +39,7 @@ create table public.integration_course_refs (
   constraint integration_course_refs_unique unique (user_id, provider, external_event_ref),
   foreign key (session_id, user_id) references public.course_sessions (id, user_id) on delete cascade
 );
-create index integration_course_refs_session on public.integration_course_refs (user_id, session_id);
+create index integration_course_refs_session on public.integration_course_refs (session_id, user_id);
 
 alter table public.integration_subject_refs enable row level security;
 alter table public.integration_subject_refs force row level security;
