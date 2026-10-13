@@ -12,7 +12,8 @@ import type { TranscriptTaskId } from '@/services/ai';
 import type { CourseArtifactType, DocArtifactType } from '@/domain/study';
 
 export type ActionNature = 'ai' | 'local' | 'support';
-export type ActionGroup = 'primary' | 'revise' | 'understand' | 'analyze' | 'text';
+/** 'selection' : actions proposées uniquement sur un passage sélectionné (barre de sélection de la transcription). */
+export type ActionGroup = 'primary' | 'revise' | 'understand' | 'analyze' | 'text' | 'selection';
 /** Panneau d'options à afficher avant de lancer. */
 export type ActionOptionsKind = 'summary' | 'translate' | 'source' | 'clean' | 'none';
 
@@ -37,7 +38,7 @@ export interface TranscriptAction {
   title: (sessionTitle: string, opts?: Record<string, string>) => string;
 }
 
-export const GROUP_LABELS: Record<Exclude<ActionGroup, 'primary'>, string> = {
+export const GROUP_LABELS: Record<Exclude<ActionGroup, 'primary' | 'selection'>, string> = {
   revise: 'Réviser', understand: 'Comprendre', analyze: 'Analyser', text: 'Texte',
 };
 
@@ -75,11 +76,17 @@ export const TRANSCRIPT_ACTIONS: readonly TranscriptAction[] = [
 
   // ------------------------------------------------------------------ texte
   { id: 'clean', label: 'Nettoyer la transcription', description: 'Hésitations, répétitions, ponctuation, paragraphes. L’original reste accessible.', icon: 'Wand2', group: 'text', nature: 'local', task: 'clean', docType: 'CLEAN_TRANSCRIPT', options: 'clean', minWords: 1, title: t('Transcription nettoyée') },
+
+  // ------------------------------------------------------------------ sélection (passage choisi dans la transcription)
+  { id: 'summarize-selection', label: 'Résumer', description: 'Résumé du passage sélectionné.', icon: 'ScrollText', group: 'selection', nature: 'ai', task: 'summarize', docType: 'SUMMARY', options: 'summary', minWords: 25, title: t('Résumé d’un passage') },
+  { id: 'translate-selection', label: 'Traduire', description: 'Traduction du passage sélectionné.', icon: 'Languages', group: 'selection', nature: 'ai', task: 'translate', docType: 'TRANSLATION', options: 'translate', minWords: 1,
+    title: (s, o) => `Traduction d’un passage${o?.languageLabel ? ` (${o.languageLabel})` : ''} — ${s}` },
+  { id: 'explain', label: 'Expliquer', description: 'Explication du passage, avec le vocabulaire du cours.', icon: 'Lightbulb', group: 'selection', nature: 'ai', task: 'explain', docType: 'STUDY_NOTE', options: 'none', minWords: 3, title: t('Explication d’un passage') },
 ] as const;
 
 export const actionById = (id: string) => TRANSCRIPT_ACTIONS.find((a) => a.id === id);
 export const PRIMARY_ACTIONS = TRANSCRIPT_ACTIONS.filter((a) => a.group === 'primary');
-export const SECONDARY_ACTIONS = TRANSCRIPT_ACTIONS.filter((a) => a.group !== 'primary');
+export const SECONDARY_ACTIONS = TRANSCRIPT_ACTIONS.filter((a) => a.group !== 'primary' && a.group !== 'selection');
 
 /** Types de résumé. */
 export const SUMMARY_MODES = [

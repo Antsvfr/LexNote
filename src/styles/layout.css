@@ -172,3 +172,7 @@
 .splash { height: 100%; display: grid; place-items: center; align-content: center; gap: 14px; color: var(--text-muted); }
 .splash .brand__mark { width: 56px; height: 56px; animation: pulse 1.6s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: 0.55; transform: scale(0.96); } }
+a.revem { color: inherit; text-decoration: none; transition: border-color var(--t-fast), background var(--t-fast); }
+a.revem:hover { border-color: var(--border-hover); }
+.revem__dot { font-style: normal; color: var(--text-muted); margin-right: 2px; }
+.revem__dot.is-on { color: var(--accent-green); }

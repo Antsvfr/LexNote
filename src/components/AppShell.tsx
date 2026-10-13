@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { Brain, Command, FolderTree, GraduationCap, Home, Library, Plus, Search, Settings, X } from 'lucide-react';
+import { Brain, Command, FolderTree, Home, Library, Plus, Search, Settings, X } from 'lucide-react';
 import { LogoMark } from './Logo';
 import { AppHeader } from './AppHeader';
 import { SyncIndicator } from './SyncIndicator';
@@ -10,6 +10,7 @@ import { useUI } from '@/store/ui';
 import { modKeyLabel } from '@/features/editor/commands';
 import { GlobalRecPill } from '@/features/capture/RecControls';
 import { useCreateSubject } from '@/features/library/useCreateSubject';
+import { RevemStatusCard } from '@/features/integration/RevemStatusCard';
 
 const navClass = ({ isActive }: { isActive: boolean }) => `nav__item${isActive ? ' is-active' : ''}`;
 
@@ -36,7 +37,7 @@ export function AppShell() {
       <aside className="sidebar" aria-label="Navigation principale">
         <div className="brand">
           <LogoMark className="brand__mark" />
-          <div className="brand__text"><strong>LexNote</strong><small>Notes · CM · Droit</small></div>
+          <div className="brand__text"><strong>LexNote</strong><small>Notes · Cours · Révisions</small></div>
           <button className="iconbtn brand__close" onClick={() => setNavOpen(false)} aria-label="Fermer la navigation"><X size={18} /></button>
         </div>
 
@@ -67,11 +68,8 @@ export function AppShell() {
         </div>
 
         <div className="sidebar__foot">
-          {/* Aucune connexion REV-EM n'existe encore : la carte le dit honnêtement. */}
-          <div className="revem" aria-label="REV-EM">
-            <span className="revem__icon"><GraduationCap size={20} /></span>
-            <span><strong>REV-EM</strong><small>Connexion bientôt disponible</small></span>
-          </div>
+          {/* État réel de la liaison REV-EM (vérifié par le serveur) ; mène à Réglages › Applications connectées. */}
+          <RevemStatusCard />
           <SyncIndicator />
           <div className="sidebar__sync" title="Vos notes sont d’abord enregistrées sur cet appareil, puis synchronisées avec votre compte.">
             <span className={`status-dot${persistent ? '' : ' is-warn'}`} aria-hidden />

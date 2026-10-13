@@ -231,7 +231,7 @@ test.describe('transcription — capture en direct', () => {
 });
 
 test.describe('transcription — après le CM', () => {
-  test('Terminer le CM pendant l’enregistrement, récapitulatif, recherche dans la transcription, réécoute, suppression', async ({ page }) => {
+  test('Terminer la séance pendant l’enregistrement, récapitulatif, recherche dans la transcription, réécoute, suppression', async ({ page }) => {
     await page.goto('/');
     await createCm(page, { subject: 'Fin', module: 'M', title: 'Vices du consentement' });
     await page.locator('.note-prose').click();
@@ -244,15 +244,17 @@ test.describe('transcription — après le CM', () => {
     // Terminer pendant l'enregistrement → confirmation
     await page.getByTestId('finish-cm').click();
     await expect(page.getByRole('dialog')).toContainText('Un enregistrement est en cours');
-    await page.getByRole('button', { name: 'Arrêter et terminer le CM' }).click();
+    await page.getByRole('button', { name: 'Arrêter et terminer la séance' }).click();
     await expect(page.getByTestId('recap-title')).toContainText('Vices du consentement');
     await expect(page.getByTestId('recap-words')).toContainText('5');
     await expect(page.getByTestId('recap-twords')).toContainText('6');
     await expect(page.getByTestId('recap-markers')).toHaveText('1');
     await expect(page.getByTestId('recap-interruptions')).toHaveText('0');
     await expect(page.getByTestId('recap-audio')).not.toHaveText('—');
-    await expect(page.getByText('Cours restructuré')).toBeVisible(); // toujours désactivé ; résumé, fiche, flashcards, questions sont désormais de vrais supports
-    await expect(page.locator('.future li[aria-disabled="true"]')).toHaveCount(3);
+    // « Exploiter la transcription » remplace les anciens emplacements « bientôt » ; sans moteur IA, l'état est affiché honnêtement
+    await expect(page.getByTestId('transcript-actions')).toContainText('6 mots');
+    await expect(page.getByTestId('ai-status')).toHaveText('Fonction IA non configurée');
+    await expect(page.locator('.future li[aria-disabled="true"]')).toHaveCount(0);
 
     // Onglets
     await page.getByTestId('recap-tab-transcript').click();

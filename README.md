@@ -1,15 +1,15 @@
 # LexNote
 
-> L'assistant de prise de notes pour les cours magistraux — pensé pour le droit.
+> Prise de notes, transcription et révisions — pour les étudiants de **toutes les filières** (commerce, économie, droit, santé, sciences, ingénierie, langues…).
 > **Local-first** · **PWA installable** · **hors connexion** · comptes personnels · synchronisation chiffrée en transit (Supabase, RLS).
 
-LexNote est une application **totalement indépendante** (aucune dépendance à un autre projet). Cette V1 « Fondation » pose le socle technique, visuel et architectural : un vrai éditeur de CM, un stockage local robuste, et des emplacements propres pour la transcription, l'IA et la synchronisation — **sans simuler** ce qui n'existe pas encore.
+LexNote est une application **totalement indépendante** (aucune dépendance à un autre projet). Cette V1 « Fondation » pose le socle technique, visuel et architectural : un vrai éditeur de séance (cours, CM, TD, TP…), un stockage local robuste, et des emplacements propres pour la transcription, l'IA et la synchronisation — **sans simuler** ce qui n'existe pas encore.
 
 ## Vision du produit
 
-Ouvrir LexNote au début d'un CM → créer la séance → prendre ses notes très vite → (à terme) transcrire le professeur, importer ses supports, utiliser une IA pendant le cours → terminer la séance → obtenir un cours restructuré, un résumé, une fiche, les articles et arrêts cités, des flashcards et des questions.
+Ouvrir LexNote au début d'une séance → prendre ses notes très vite → transcrire l'enseignant, importer ses supports → terminer la séance → **exploiter la transcription** : résumé, traduction, cours structuré, points clés, fiche, flashcards, quiz, questions d'examen… (voir [Exploiter la transcription](docs/TRANSCRIPT_ACTIONS.md)).
 
-Principe cardinal : **LexNote distingue toujours ce que le professeur a dit de ce que l'IA a ajouté, et n'invente jamais silencieusement un article, un arrêt ou une règle** (voir [Fiabilité juridique](#fiabilité-juridique)).
+Principe cardinal : **LexNote distingue toujours ce que l'enseignant a dit de ce que l'IA a ajouté, et n'invente jamais silencieusement une référence, un chiffre, une citation ou une règle** (voir [Fiabilité des sources](#fiabilité-des-sources)).
 
 ## Stack et choix
 
@@ -17,7 +17,7 @@ Principe cardinal : **LexNote distingue toujours ce que le professeur a dit de c
 |---|---|---|
 | UI | **React 19 + TypeScript strict** | Écosystème mûr, typage fort des modèles de données. |
 | Build | **Vite** | Démarrage instantané, code-splitting (l'éditeur est chargé à la demande). |
-| Éditeur | **TipTap (ProseMirror)** | Vrai éditeur de documents structurés, extensible (blocs juridiques), très performant sur de longs textes. |
+| Éditeur | **TipTap (ProseMirror)** | Vrai éditeur de documents structurés, extensible (blocs de notes, dont des blocs spécialisés), très performant sur de longs textes. |
 | Stockage | **IndexedDB** via `idb`, derrière une interface `StorageAdapter` | Persistant, asynchrone, gros volumes ; l'interface permet d'ajouter un cloud sans réécrire l'app. |
 | État | **Zustand** | Minuscule, sélecteurs fins → la frappe ne re-rend rien d'autre que l'éditeur. |
 | Routage | React Router | Navigation classique, URL partageables entre fenêtres. |
@@ -76,7 +76,7 @@ Chaîne de persistance : **frappe → autosave (debounce 500 ms, max 4 s) → In
 
 ```
 src/
-  domain/          Modèle de données et règles métier pures (legal.ts = fiabilité juridique)
+  domain/          Modèle de données et règles métier pures (legal.ts = fiabilité des sources ; nom historique conservé)
   services/        Interfaces + implémentations (storage, ai, transcription, documents, search, sync)
   store/           Stores Zustand (auth, library, sync, ui, toasts, editorBridge)
   features/
@@ -178,9 +178,9 @@ LexNote et REV-EM restent **indépendantes** (code, bases Supabase, comptes, cl�
 Manifest (`display: standalone`, icônes 192/512/maskable, `apple-touch-icon`), service worker Workbox avec précache de l'application et des polices latines, `navigateFallback` pour le hors-ligne. Les mises à jour sont **proposées** (toast « Mettre à jour »), jamais imposées en plein cours.
 Les icônes sont générées depuis `public/favicon.svg` (`node scripts/make-icons.mjs`). Installation : Chrome/Edge → icône dans la barre d'adresse ; Safari macOS → *Fichier › Ajouter au Dock*. À tester sur le build (`npm run preview`), pas en mode dev.
 
-## Fiabilité juridique
+## Fiabilité des sources
 
-Dans `src/domain/legal.ts` :
+Dans `src/domain/legal.ts` (nom historique conservé ; le modèle couvre toutes les disciplines, avec des types spécialisés pour le droit) :
 
 - **Types** : `ArticleOfLaw`, `CaseLaw`, `LegalDefinition`, `LegalRule`, `Exception`, `ProfessorExample`, `ImportantPoint`, `QuestionToVerify`.
 - **Provenance** : `PROFESSOR`, `USER_NOTE`, `DOCUMENT`, `AI`, `VERIFIED_SOURCE`, `UNKNOWN`.
@@ -193,7 +193,7 @@ Dans `src/domain/legal.ts` :
 L'interface suit la maquette de référence « LexNote × REV-EM » : thème **sombre** principal (bleu nuit `#050B14`, halos rouge/bleu, rouge vif comme couleur d'action), thème clair conservé.
 - **Tokens** centralisés dans `src/styles/tokens.css` (`--background-*`, `--surface*`, `--border-*`, `--text-*`, `--accent-*`, `--radius-*`, `--shadow-card|red|floating`) ; les anciens noms de variables sont des alias.
 - **Écrans refaits** : barre latérale (logo, navigation, matières avec « + » réel, carte REV-EM honnête, stockage local, réglages), en-tête (recherche globale, thème, notifications, profil), accueil (hero, 4 statistiques, bouton Nouveau CM, carte « Reprendre votre cours », derniers cours, matières, outils), Mes matières (cartes), Mes CM (onglets + filtres), Recherche (groupes Matières / CM / Notes / Transcriptions), Réglages (profil), éditeur (feuille d'écriture sombre), panneau Transcription (en-tête REC), modales, menus, toasts, palette.
-- **Données réelles uniquement** : les statistiques sont calculées (`src/lib/stats.ts`, testé) ; aucune évolution en % n'est inventée ; l'avancement affiché est « CM terminés / CM du module » ; le prénom vient du profil (Réglages) ; la carte REV-EM indique « Connexion bientôt disponible » tant qu'aucune connexion n'existe ; Documents et Assistant sont marqués « Bientôt » et inactifs ; Transcription est active.
+- **Données réelles uniquement** : les statistiques sont calculées (`src/lib/stats.ts`, testé) ; aucune évolution en % n'est inventée ; l'avancement affiché est « CM terminés / CM du module » ; le prénom vient du profil (Réglages) ; la carte REV-EM affiche l'état réel de la liaison (● Connecté / ○ Non connecté, vérifié par le serveur) et mène à Réglages › Applications connectées ; Documents et Assistant sont marqués « Bientôt » et inactifs ; Transcription est active.
 - **Images** : illustrations SVG **locales** (`src/assets/art/`, ≈ 13 Ko au total), vignettes déterministes par matière (changeables depuis le menu ⋯ d'un CM). Aucune image distante.
 - Responsive : sidebar fixe ≥ 1100 px, tiroir en dessous, barre d'onglets sur mobile ; statistiques 2×2 sur tablette.
 

@@ -19,7 +19,7 @@ export function ConnectedApps() {
   }
 
   return (
-    <section className="settings-block" aria-labelledby="apps-h" data-testid="connected-apps">
+    <section className="settings-block" id="connected-apps" aria-labelledby="apps-h" data-testid="connected-apps" ref={(el) => { if (el && window.location.hash === '#connected-apps') requestAnimationFrame(() => el.scrollIntoView({ block: 'start' })); }}>
       <h2 id="apps-h"><Link2 size={18} aria-hidden /> Applications connectées</h2>
       <p className="muted">Reliez explicitement votre compte REV-EM à votre compte LexNote. Les deux comptes restent indépendants : rien n’est fusionné, aucun mot de passe ni jeton n’est partagé, et l’adresse e-mail ne sert jamais à relier les comptes.</p>
       <div className="appcard" data-testid="app-revem" data-state={s ?? 'loading'}>

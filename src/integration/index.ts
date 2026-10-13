@@ -5,7 +5,7 @@ export * from './errors';
 export * from './security';
 export * from './envelope';
 export * from './links';
-export { toSessionReference, toArtifactReference, itemCountOf, type SessionRefContext } from './mappers';
+export { toSessionReference, toArtifactReference, itemCountOf, isContractArtifact, type SessionRefContext } from './mappers';
 export * from './config';
 export * from './signing';
 export * from './store';

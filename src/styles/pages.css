@@ -289,3 +289,4 @@ dialog.palette::backdrop { background: var(--scrim); }
 .authorize__icon { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: rgba(255, 59, 92, .12); color: #ff3b5c; }
 .authorize__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: 13.5px; }
 .authorize__list li { display: flex; gap: 8px; align-items: flex-start; } .authorize__list svg { color: #2e9d64; flex: none; margin-top: 2px; }
+.ob-fields { margin: 6px 0 16px; } .authcard .field-label { display: block; margin-top: 4px; }

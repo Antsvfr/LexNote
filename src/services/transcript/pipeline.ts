@@ -93,7 +93,7 @@ export async function runTranscriptAction(i: RunInput): Promise<RunOutput> {
   };
 
   /* ---------------- nettoyage léger : sur l'appareil, sans IA */
-  if (action.id === 'clean' && options.cleanDepth !== 'ai') {
+  if (action.task === 'clean' && options.cleanDepth !== 'ai') {
     const { doc, stats } = cleanTranscriptLocally(source.paragraphs, sourceLanguage);
     if (!doc.blocks.length) throw new EmptyTranscriptError('Après nettoyage, il ne reste aucun texte exploitable.');
     const generator: GeneratorInfo = { providerId: 'lexnote-local', model: 'nettoyage-léger-v1', local: true };
@@ -109,7 +109,7 @@ export async function runTranscriptAction(i: RunInput): Promise<RunOutput> {
   if (!i.ai.isAvailable()) throw new AINotConfiguredError();
   if (isOffline()) throw new AIOfflineError();
   const task = action.task!;
-  const target = action.id === 'translate' ? (options.targetLanguage ?? 'en') : undefined;
+  const target = action.task === 'translate' ? (options.targetLanguage ?? 'en') : undefined;
   const outLanguage = target ?? sourceLanguage ?? i.uiLanguage ?? 'fr';
   const max = Math.max(4000, i.ai.maxInputChars);
   let model = ''; let providerId = '';
@@ -124,12 +124,12 @@ export async function runTranscriptAction(i: RunInput): Promise<RunOutput> {
   let blocks: DocBlock[] = []; let parts = 1; let notice: string | undefined;
   const chunks = chunkParagraphs(source.paragraphs, max);
 
-  if (action.id === 'translate' || action.id === 'clean') {
+  if (action.task === 'translate' || action.task === 'clean') {
     // partie par partie, dans l'ordre : on ne condense jamais une traduction ni un nettoyage
     if (target && sourceLanguage === target) notice = `Le texte semble déjà être en ${languageLabel(target).toLowerCase()} : la traduction peut être très proche de l’original.`;
     parts = chunks.length;
     for (const c of chunks) {
-      i.onProgress?.({ step: action.id === 'translate' ? 'Traduction' : 'Nettoyage', done: c.index, total: chunks.length });
+      i.onProgress?.({ step: action.task === 'translate' ? 'Traduction' : 'Nettoyage', done: c.index, total: chunks.length });
       const text = await call({ command: task, input: c.text, options: { ...common, ...(target ? { targetLanguage: target } : {}), part: c.index + 1, parts: chunks.length } });
       const doc = parseModelDoc(text, outLanguage);
       const at = c.startMs;
@@ -137,7 +137,7 @@ export async function runTranscriptAction(i: RunInput): Promise<RunOutput> {
     }
   } else {
     let input: string; const opts: AIOptions = { ...common };
-    if (action.id === 'summarize') { opts.mode = options.mode ?? 'standard'; }
+    if (action.task === 'summarize') { opts.mode = options.mode ?? 'standard'; }
     if (chunks.length === 1) {
       input = chunks[0]!.text;
     } else {
@@ -166,11 +166,11 @@ export async function runTranscriptAction(i: RunInput): Promise<RunOutput> {
   const opts: Record<string, string> = {};
   if (options.mode) opts.mode = options.mode;
   if (target) opts.targetLanguage = target;
-  if (action.id === 'clean') opts.depth = 'ai';
+  if (action.task === 'clean') opts.depth = 'ai';
   const modeLabel = SUMMARY_MODES.find((m) => m.id === options.mode)?.label;
   return {
     content: { language: outLanguage, blocks }, generator, language: outLanguage, notice,
-    title: action.title(i.session.title, { ...(modeLabel && action.id === 'summarize' ? { modeLabel } : {}), ...(target ? { languageLabel: languageLabel(target) } : {}) }),
+    title: action.title(i.session.title, { ...(modeLabel && action.task === 'summarize' ? { modeLabel } : {}), ...(target ? { languageLabel: languageLabel(target) } : {}) }),
     provenance: { ...baseProv, generator, language: outLanguage, options: opts, parts },
   };
 }

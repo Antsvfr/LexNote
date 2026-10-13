@@ -5,7 +5,8 @@
 import type { CourseSession } from '@/domain/types';
 import type { StudyArtifact } from '@/domain/study';
 import type { GeneratedCourse } from '@/domain/course';
-import { ARTIFACT_KINDS, type ArtifactKind, type LexNoteSessionReference, type StudyArtifactReference } from './contracts';
+import { ARTIFACT_KINDS, SESSION_TYPE_HINTS, type ArtifactKind, type LexNoteSessionReference, type StudyArtifactReference } from './contracts';
+type SessionTypeHint = (typeof SESSION_TYPE_HINTS)[number];
 import { buildLexNoteLink } from './links';
 import { INTEGRATION_VERSION } from './version';
 
@@ -21,11 +22,12 @@ export interface SessionRefContext {
   artifactCount: number;
 }
 
+/** Les types de séance ajoutés après la v1 du contrat (ex. PROJECT) sont transmis comme OTHER. */
 export function toSessionReference(s: CourseSession, c: SessionRefContext): LexNoteSessionReference {
   return {
     integrationVersion: INTEGRATION_VERSION, kind: 'lexnote-session-reference',
     sessionRef: s.id, linkedExternalId: c.linkedExternalId ?? null,
-    title: s.title || 'Séance', sessionType: s.type, number: s.number, date: s.date,
+    title: s.title || 'Séance', sessionType: (SESSION_TYPE_HINTS as readonly string[]).includes(s.type) ? (s.type as SessionTypeHint) : 'OTHER', number: s.number, date: s.date,
     ...(s.startTime ? { startTime: s.startTime } : {}), ...(s.endTime ? { endTime: s.endTime } : {}),
     status: s.status,
     subject: { app: 'lexnote', ref: c.subject.id, name: c.subject.name, ...(c.subject.color ? { color: c.subject.color } : {}) },

@@ -377,3 +377,13 @@ production = `https://antsvfr.github.io` (REV-EM, app `https://antsvfr.github.io
 
 `node scripts/build-integration-bundle.mjs [--revem <dépôt REV-EM>] [--check]` génère `supabase/functions/_shared/integration/lexnote-revem-v1.mjs`
 (autonome, zod inclus, empreinte en en-tête) dans les **deux** dépôts ; `--check` échoue si une copie diverge. Les Edge Functions ne font que câbler (`runtime.ts`).
+
+## 12. Documents dérivés de la transcription et types de séance (compatibilité v1)
+
+- Les documents produits par « Exploiter la transcription » (résumé, traduction, cours structuré… — voir
+  [TRANSCRIPT_ACTIONS.md](TRANSCRIPT_ACTIONS.md)) sont des `StudyArtifact` de LexNote, mais leurs types (`SUMMARY`,
+  `TRANSLATION`, …) **ne font pas partie de `lexnote-revem/v1`** (`ARTIFACT_KINDS` = les 8 types du cours reconstruit).
+  Ils ne sont donc jamais exposés à REV-EM (`isContractArtifact`, `toArtifactReference` refuse explicitement) ; les partager
+  demandera une évolution compatible du contrat (nouvelle version mineure, champ facultatif côté REV-EM).
+- Le type de séance `PROJECT` (Projet), ajouté côté LexNote, est transmis comme `OTHER` dans `lexnote-session-reference`.
+- Une séance ouverte depuis REV-EM est une séance LexNote ordinaire : toutes les actions sur la transcription s'y appliquent.

@@ -36,7 +36,7 @@ export function SubjectPage() {
     navigate('/subjects');
   }
   async function newModule() {
-    const name = await promptText({ title: 'Nouveau module', label: 'Nom du module', placeholder: 'ex. Droit des contrats', confirmLabel: 'Créer' });
+    const name = await promptText({ title: 'Nouveau module', label: 'Nom du module', placeholder: 'ex. Chapitre 2 — Les marchés', confirmLabel: 'Créer' });
     if (name) await addModule(subject!.id, name);
   }
 
@@ -54,7 +54,7 @@ export function SubjectPage() {
         </div>
       </header>
 
-      {mine.length === 0 && mods.length === 0 && <div className="panel empty" data-testid="subject-empty"><strong>Aucune séance</strong>Créez un CM, un TD, un TP… ou une séance libre pour cette matière.</div>}
+      {mine.length === 0 && mods.length === 0 && <div className="panel empty" data-testid="subject-empty"><strong>Aucune séance</strong>Créez un cours, un TD, un TP… ou une séance libre pour cette matière.</div>}
 
       {(mine.length > 0 || mods.length > 0) && (
         <div className="tabs" role="tablist" aria-label="Affichage" style={{ marginBottom: 14 }}>

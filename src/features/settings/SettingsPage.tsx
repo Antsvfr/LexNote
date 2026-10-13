@@ -9,6 +9,7 @@ import { toast } from '@/store/toasts';
 import { captureManager } from '@/services/capture/manager';
 import { SyncIndicator } from '@/components/SyncIndicator';
 import { ConnectedApps } from '@/features/integration/ConnectedApps';
+import { FIELDS } from '@/domain/profile';
 import { TranscriptionSettings } from './TranscriptionSettings';
 
 interface BeforeInstallPromptEvent extends Event { prompt(): Promise<void>; userChoice: Promise<{ outcome: string }> }
@@ -28,7 +29,7 @@ export function SettingsPage() {
   const [standalone] = useState(() => window.matchMedia('(display-mode: standalone)').matches);
   const [persisted, setPersisted] = useState<boolean | null>(null);
   const [usage, setUsage] = useState<string>('');
-  const [form, setForm] = useState({ firstName: profile?.firstName ?? '', lastName: profile?.lastName ?? '', institution: profile?.institution ?? '', academicYear: profile?.academicYear ?? '' });
+  const [form, setForm] = useState({ firstName: profile?.firstName ?? '', lastName: profile?.lastName ?? '', institution: profile?.institution ?? '', academicYear: profile?.academicYear ?? '', fieldOfStudy: profile?.fieldOfStudy ?? '' });
   const [pw, setPw] = useState('');
 
   useEffect(() => {
@@ -82,6 +83,13 @@ export function SettingsPage() {
         <div className="row2">
           <div className="field"><label htmlFor="inst">Établissement</label><input id="inst" className="input" value={form.institution} maxLength={120} onChange={(e) => setForm({ ...form, institution: e.target.value })} /></div>
           <div className="field"><label htmlFor="yr">Année / niveau</label><input id="yr" className="input" value={form.academicYear} maxLength={60} onChange={(e) => setForm({ ...form, academicYear: e.target.value })} /></div>
+        </div>
+        <div className="field"><label htmlFor="fos">Domaine d’études <span className="muted">(facultatif — ne limite aucune fonctionnalité)</span></label>
+          <select id="fos" className="select" value={form.fieldOfStudy} onChange={(e) => setForm({ ...form, fieldOfStudy: e.target.value })} data-testid="profile-field">
+            <option value="">Non précisé</option>
+            {FIELDS.map((f) => <option key={f} value={f}>{f}</option>)}
+            {form.fieldOfStudy && !(FIELDS as readonly string[]).includes(form.fieldOfStudy) && <option value={form.fieldOfStudy}>{form.fieldOfStudy}</option>}
+          </select>
         </div>
         <div className="row-actions">
           <button className="btn btn--primary" onClick={saveProfile} data-testid="profile-save">Enregistrer le profil</button>

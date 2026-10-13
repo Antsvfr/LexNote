@@ -118,6 +118,7 @@ describe('actions', () => {
   it('catalogue : 4 actions principales, chaque action produit un type connu', () => {
     expect(TRANSCRIPT_ACTIONS.filter((a) => a.group === 'primary').map((a) => a.label)).toEqual(['Résumer', 'Traduire', 'Structurer', 'Points clés']);
     for (const a of TRANSCRIPT_ACTIONS) expect(a.nature === 'support' ? a.supportType : a.docType).toBeTruthy();
+    for (const id of ['summarize-selection', 'translate-selection', 'explain']) expect(actionById(id)?.group).toBe('selection');
   });
   it('suggestions contextuelles légères', () => {
     const cmp = 'Contrairement à la demande, alors que l’offre, par rapport à la demande, en revanche. '.repeat(3) + 'mot '.repeat(80);
@@ -204,7 +205,7 @@ describe('pipeline', () => {
   it('sélection : le passage seul, avec sa plage', async () => {
     const e = engine();
     const t = buildTranscriptText(lectureSegs(), { range: { startMs: 8000, endMs: 20_000 } });
-    const out = await runTranscriptAction({ action: actionById('translate')!, session: SESSION, userId: 'u', ai: e, options: { targetLanguage: 'en' }, source: { kind: 'selection', paragraphs: t.paragraphs, version: t.version, words: t.words, range: t.range! } });
+    const out = await runTranscriptAction({ action: actionById('translate-selection')!, session: SESSION, userId: 'u', ai: e, options: { targetLanguage: 'en' }, source: { kind: 'selection', paragraphs: t.paragraphs, version: t.version, words: t.words, range: t.range! } });
     expect(out.provenance.range).toEqual({ startMs: 8000, endMs: 20_000 });
     expect(e.calls[0]!.input).not.toContain('Alors aujourd’hui');
     expect(paragraphsOfText('a\n\nb')).toHaveLength(2);
