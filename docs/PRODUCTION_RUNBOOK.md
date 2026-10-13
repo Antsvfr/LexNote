@@ -44,6 +44,13 @@ puis coller `scripts/prod/verify-db.sql`. `verify-db.sql` contrôle : 3 tables, 
 fonctions `SECURITY DEFINER` + `search_path` figé + droits d'exécution, contraintes d'unicité, index (dont clés étrangères), `ON DELETE CASCADE`, absence de colonne e-mail/jeton.
 Il est lui-même testé : vert sur les deux migrations, rouge quand on dégrade la sécurité (`tests/db/verify-db.test.ts`).
 
+> **Projet LexNote de production (état au 2026-10-13)** : `…20261007` à `…20261013` (dont `fk_indexes` et `security_hardening`) y sont
+> **déjà appliquées** — ne jamais les rejouer, ni rejouer `supabase/reconciliation/*`. Chaîne complète, dans l'ordre strict :
+> `20261007 init` · `08 study_artifacts` · `09 course_engine` · `10 study_artifacts_from_course` · `11 integration_links` ·
+> `12 fk_indexes` · `13 security_hardening` · `14 revem_course_refs` (#10) · `15 transcript_derived_artifacts` (#11) ·
+> `16 study_ai_usage` (#11). Seules **14, 15, 16** restent à appliquer, dans cet ordre, après fusion de #12 → #10 → #11, puis
+> `verify-schema` (13 PASS). `study-ai` : voir `docs/TRANSCRIPT_ACTIONS.md` §7 (secrets, déploiement, smoke test réel).
+
 ## 3. Secrets (identiques à la clé près, un jeu par projet)
 
 ```bash

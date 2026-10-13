@@ -8,7 +8,9 @@
  *   traduction / nettoyage IA : partie par partie (on ne « résume » pas une traduction), puis concaténation.
  *
  * Coût maîtrisé : jamais 10 traitements complets de la même transcription — les synthèses intermédiaires d'une version donnée
- * de la transcription sont calculées une fois. Aucune réponse n'est simulée : sans moteur, `AINotConfiguredError`.
+ * de la transcription sont calculées une fois et conservées SUR L'APPAREIL (IndexedDB, voir `digestStore.ts`) : elles survivent au
+ * rechargement de la page. Si les synthèses réunies dépassent encore la taille d'une requête, elles sont elles-mêmes condensées
+ * (réduction récursive, profondeur bornée). Aucune réponse n'est simulée : sans moteur, `AINotConfiguredError`.
  */
 import { newId } from '@/lib/ids';
 import { formatHMS } from '@/domain/capture';
@@ -20,6 +22,8 @@ import { cleanTranscriptLocally } from './clean';
 import { parseModelDoc } from './docFormat';
 import { detectLanguage } from './language';
 import { SUMMARY_MODES, type SummaryMode, type TranscriptAction } from './actions';
+import { hashText } from '@/services/engine/text';
+import { createDigestStore, DIGEST_PROMPT_VERSION, type DigestStore } from './digestStore';
 
 export class EmptyTranscriptError extends Error {
   constructor(message = 'La transcription est vide : il n’y a rien à traiter. Activez la transcription pendant la séance, ou ajoutez des notes.') { super(message); this.name = 'EmptyTranscriptError'; }
@@ -31,6 +35,8 @@ export interface AIEngine {
   isAvailable(): boolean;
   run(req: AIRequest): Promise<AIResult>;
   readonly maxInputChars: number;
+  /** Identifiant du moteur (entre dans la clé du cache des synthèses). */
+  readonly providerId?: string;
 }
 
 export interface DerivedSource {
@@ -59,19 +65,20 @@ export interface RunInput {
   signal?: AbortSignal;
   /** Langue de l'interface (langue des documents produits, sauf traduction). */
   uiLanguage?: string;
+  /** Cache des synthèses intermédiaires (par défaut : IndexedDB de l'appareil). */
+  digests?: DigestStore;
 }
 
 export interface RunOutput { content: DocContent; provenance: TranscriptProvenance; generator: GeneratorInfo; language: string; title: string; notice?: string }
 
 /* ------------------------------------------------------------------ cache des synthèses intermédiaires */
-const DIGESTS = new Map<string, string>();
-const DIGEST_CAP = 300;
-export const digestCache = {
-  get: (k: string) => DIGESTS.get(k),
-  set: (k: string, v: string) => { if (DIGESTS.size >= DIGEST_CAP) DIGESTS.delete(DIGESTS.keys().next().value!); DIGESTS.set(k, v); },
-  clear: () => DIGESTS.clear(),
-  get size() { return DIGESTS.size; },
-};
+/** Cache partagé par défaut (IndexedDB + mémoire). */
+export const digestCache: DigestStore = createDigestStore();
+/** Taille maximale d'une requête envoyée au serveur (le serveur refuse au-delà de 80 000 caractères). */
+export const CLIENT_MAX_INPUT = 60_000;
+/** Traduction / nettoyage : parties plus petites (la sortie ≈ l'entrée ; limite de sortie du serveur). */
+export const LINEAR_CHUNK = 16_000;
+const MAX_REDUCE_DEPTH = 3;
 
 const throwIfAborted = (s?: AbortSignal) => { if (s?.aborted) throw new DOMException('Annulé', 'AbortError'); };
 const isOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
@@ -111,7 +118,17 @@ export async function runTranscriptAction(i: RunInput): Promise<RunOutput> {
   const task = action.task!;
   const target = action.task === 'translate' ? (options.targetLanguage ?? 'en') : undefined;
   const outLanguage = target ?? sourceLanguage ?? i.uiLanguage ?? 'fr';
-  const max = Math.max(4000, i.ai.maxInputChars);
+  const max = Math.min(CLIENT_MAX_INPUT, Math.max(4000, i.ai.maxInputChars));
+  const cache = i.digests ?? digestCache;
+  const engineVersion = `${DIGEST_PROMPT_VERSION}:${i.ai.providerId ?? 'ai'}`;
+  const cached = async (text: string, level: number, produce: () => Promise<string>) => {
+    const k = { userId: i.userId, sessionId: i.session.id, transcriptVersion: `${source.version}|${source.kind}`, chunkVersion: `L${level}-${max}-${hashText(text)}`, engineVersion };
+    const hit = await cache.get(k).catch(() => undefined);
+    if (hit !== undefined) return hit;
+    const v = await produce();
+    await cache.set(k, v).catch(() => undefined);
+    return v;
+  };
   let model = ''; let providerId = '';
   const call = async (req: Omit<AIRequest, 'signal'>) => {
     throwIfAborted(i.signal);
@@ -122,9 +139,10 @@ export async function runTranscriptAction(i: RunInput): Promise<RunOutput> {
   const common: AIOptions = { outputLanguage: outLanguage, ...(sourceLanguage ? { sourceLanguage } : {}), sessionTitle: i.session.title.slice(0, 200) };
 
   let blocks: DocBlock[] = []; let parts = 1; let notice: string | undefined;
-  const chunks = chunkParagraphs(source.paragraphs, max);
+  const linear = action.task === 'translate' || action.task === 'clean';
+  const chunks = chunkParagraphs(source.paragraphs, linear ? Math.min(max, LINEAR_CHUNK) : max);
 
-  if (action.task === 'translate' || action.task === 'clean') {
+  if (linear) {
     // partie par partie, dans l'ordre : on ne condense jamais une traduction ni un nettoyage
     if (target && sourceLanguage === target) notice = `Le texte semble déjà être en ${languageLabel(target).toLowerCase()} : la traduction peut être très proche de l’original.`;
     parts = chunks.length;
@@ -146,15 +164,26 @@ export async function runTranscriptAction(i: RunInput): Promise<RunOutput> {
       const digests: string[] = [];
       for (const c of chunks) {
         i.onProgress?.({ step: 'Analyse de la transcription', done: c.index, total: chunks.length + 1 });
-        const key = `${source.version}|${source.kind}|${max}|${c.index}`;
-        let d = digestCache.get(key);
-        if (!d) {
-          const raw = await call({ command: 'digest', input: c.text, options: { ...common, part: c.index + 1, parts: chunks.length } });
-          d = raw; digestCache.set(key, d);
-        }
+        const d = await cached(c.text, 0, () => call({ command: 'digest', input: c.text, options: { ...common, part: c.index + 1, parts: chunks.length } }));
         digests.push(`## Partie ${c.index + 1}/${chunks.length}${span(c.startMs, c.endMs)}\n${d}`);
       }
-      input = digests.join('\n\n');
+      // réduction récursive : si les synthèses réunies dépassent encore une requête, on les condense par groupes
+      let level = 0; let current = digests;
+      while (current.join('\n\n').length > max && current.length > 1 && level < MAX_REDUCE_DEPTH) {
+        level++;
+        const groups: string[] = []; let g = '';
+        for (const d of current) { if (g && g.length + d.length + 2 > max) { groups.push(g); g = ''; } g = g ? `${g}\n\n${d}` : d; }
+        if (g) groups.push(g);
+        if (groups.length >= current.length) break;   // aucune réduction possible (synthèses individuellement trop longues)
+        const next: string[] = [];
+        for (const [k, grp] of groups.entries()) {
+          i.onProgress?.({ step: 'Consolidation des synthèses', done: k, total: groups.length });
+          const d = await cached(grp, level, () => call({ command: 'digest', input: grp.slice(0, max), options: { ...common, fromDigest: true, part: k + 1, parts: groups.length } }));
+          next.push(`## Bloc ${k + 1}/${groups.length}\n${d}`);
+        }
+        current = next;
+      }
+      input = current.join('\n\n').slice(0, max);
       opts.fromDigest = true;
       i.onProgress?.({ step: 'Rédaction', done: chunks.length, total: chunks.length + 1 });
     }

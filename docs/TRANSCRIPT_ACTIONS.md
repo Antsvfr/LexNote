@@ -34,11 +34,18 @@ l'étudiant : la réponse reprend le passage, aucune IA).
 - **Source** : transcription complète, version nettoyée, sélection (plage horodatée) ou support existant (ex. « traduire le résumé seulement »).
 - **Garde-fous** : transcription vide → `EmptyTranscriptError` ; trop courte pour l'action → `TooShortError` ; moteur absent →
   `AINotConfiguredError` ; hors ligne → `AIOfflineError` ; réponse invalide → `InvalidModelOutputError` (rien n'est enregistré).
-- **Longues transcriptions** : si le texte dépasse ce qu'un appel traite (`maxInputChars`, 60 000 caractères par défaut), il est
-  découpé aux frontières de paragraphes ; chaque partie reçoit une **synthèse intermédiaire** (`digest`), **mise en cache par
-  version de la transcription** ; l'action finale travaille sur ces synthèses. Une deuxième action sur la même transcription
-  (points clés après un résumé) ne refait aucune synthèse : **un seul appel**.
-- **Traduction et nettoyage IA** : partie par partie, dans l'ordre, sans condensation.
+- **Longues transcriptions** : si le texte dépasse ce qu'un appel traite (`maxInputChars`, **plafonné à 60 000 caractères**
+  côté client ; le serveur refuse au-delà de 80 000), il est découpé aux frontières de paragraphes ; chaque partie reçoit une
+  **synthèse intermédiaire** (`digest`) ; l'action finale travaille sur ces synthèses. Si les synthèses réunies dépassent encore
+  la limite, elles sont condensées par groupes (**réduction récursive**, profondeur ≤ 3). Une deuxième action sur la même
+  transcription (points clés après un résumé) ne refait aucune synthèse : **un seul appel**.
+- **Cache des synthèses (`digestStore.ts`)** : l'ancienne `Map` en mémoire était **perdue à chaque rechargement** (constaté :
+  module rechargé = cache vide = analyse complète relancée). Désormais IndexedDB sur l'appareil (base `lexnote-digests`), `Map` en
+  premier niveau et en repli (navigation privée). Clé = `user_id | session_id | transcript_version | chunk_version` (empreinte du
+  texte de la partie + taille de découpe + niveau de réduction) ` | engine_version` (`digest-v1:<fournisseur>`). Non synchronisé
+  dans le cloud ; 2 000 entrées max, 60 jours max ; `clearUser(userId)` disponible.
+- **Traduction et nettoyage IA** : partie par partie (≤ 16 000 caractères, la sortie ayant la taille de l'entrée), dans l'ordre,
+  sans condensation.
 - **Sortie** : un document en blocs (`docSchema`, zod) — titres, paragraphes, listes, définitions, encadrés « À retenir » /
   « Attention » / « Passage incertain », tableaux, questions. Les passages incertains restent signalés.
 
@@ -82,25 +89,52 @@ comme `OTHER`.
   `APP_ORIGINS` ; seul du **texte** est reçu (jamais l'audio) ; rien n'est stocké côté fonction.
 - Fournisseur interchangeable : seule `callModel` dépend du fournisseur (SDK officiel Anthropic, modèle par défaut
   `claude-opus-5-5`, surchargeable par `STUDY_AI_MODEL`).
-- Sortie structurée (`output_config.format` JSON Schema) ; repli automatique en cas de refus (`fallbacks: "default"`) ;
-  effort réduit pour les tâches mécaniques (traduction, nettoyage, synthèses intermédiaires).
+- Sortie structurée (`output_config.format` JSON Schema) ; effort réduit pour les tâches mécaniques (traduction, nettoyage,
+  synthèses intermédiaires).
+- **Refus du modèle** : **aucun repli, aucun contournement**. `stop_reason: "refusal"` → HTTP 422 `{error:"refused"}`, journalisé
+  `refused`, aucune nouvelle tentative (ni serveur ni client). Les nouvelles tentatives (SDK, `maxRetries: 2`) ne concernent que
+  l'indisponibilité technique (429 / 5xx / réseau du fournisseur).
+- **Limites de sortie par action** (`maxTokensFor`, plus de `max_tokens: 64000`) : base + marge de réflexion (1 000 pour les
+  tâches à effort réduit, 3 000 sinon). Résumé express 1 500, standard 4 000, détaillé 8 000 ; points clés / à retenir /
+  explication / fiches 2 500 ; définitions / glossaire / notions / plan 4 000 ; questions / ambiguïtés / passages 3 500 ;
+  synthèse intermédiaire 800–3 000 (≈ 0,3 × entrée) ; structuration 3 000–12 000 (≈ 1,1 × entrée) ; traduction / nettoyage
+  1 000–12 000 (≈ 1,5 × entrée). Sortie tronquée → 502 `truncated` (rien n'est enregistré).
+- **Limitation de débit par utilisateur** (migration `20261016000000_study_ai_usage.sql`) : avant tout appel payant, la fonction
+  appelle `study_ai_acquire` (clé `service_role`, côté serveur uniquement ; verrou consultatif par utilisateur → atomique) :
+  appels simultanés (défaut 2), par minute (12), par jour (200), volume de texte par jour (3 000 000 caractères). Dépassement →
+  **429** `{error:"rate_limited", reason:"concurrent"|"per_minute"|"per_day"|"chars_per_day", limit, retry_after}` + en-tête
+  `Retry-After` ; l'application affiche un message clair (« Trop de demandes IA en une minute (max 12). Réessayez dans 37 s. »).
+  Contrôle indisponible → 503 `rate_limit_unavailable` (**fermé** : aucun appel non compté). Journal sans texte (utilisateur,
+  tâche, taille, état, jetons de sortie), purgé après 2 jours ; RLS forcée, aucun droit navigateur. Réglable par secrets :
+  `STUDY_AI_MAX_CONCURRENT`, `STUDY_AI_MAX_PER_MINUTE`, `STUDY_AI_MAX_PER_DAY`, `STUDY_AI_MAX_CHARS_PER_DAY`,
+  `STUDY_AI_TIMEOUT_MS` (120 000) ; `STUDY_AI_MODEL` reste un secret serveur. Aucun réglage sensible côté frontend.
+- Délai fournisseur dépassé → 504 `timeout` ; fournisseur saturé → 503 `provider_busy`.
 - **Cache de prompt** : système identique pour toutes les tâches, texte source en premier (bloc mis en cache), consigne de la
   tâche ensuite — plusieurs actions sur la même transcription réutilisent le même préfixe.
 - Côté application : `VITE_AI_URL=https://<ref>.supabase.co/functions/v1/study-ai`. Sans cette variable : aucune IA, et
   l'interface l'affiche.
-- Tests : `handler.test.ts` (Deno, sans réseau : `fetch` remplacé).
+- Tests : `handler.test.ts` (Deno, sans réseau : `fetch` remplacé) ; `tests/db/study-ai-usage.test.ts` (limites sur un vrai
+  Postgres) ; `scripts/prod/study-ai-smoke.mjs` (smoke test RÉEL, manuel) + son auto-test sans clé.
 
 ## 7. Déploiement (rien n'est déployé par cette PR)
 
-1. Appliquer la migration `20261015000000_transcript_derived_artifacts.sql` **avant** de déployer le frontend.
-2. `supabase secrets set ANTHROPIC_API_KEY=… APP_ORIGINS=https://lex-note-svfr.vercel.app` (optionnel : `STUDY_AI_MODEL`).
+Ordre de fusion : #12 (réconciliation) → #10 (lancement REV-EM, migration `20261014`) → **#11**. Ne jamais rejouer
+`20261012` / `20261013` en production (déjà appliquées).
+
+1. Appliquer **uniquement** `20261015000000_transcript_derived_artifacts.sql` puis `20261016000000_study_ai_usage.sql`
+   (après `20261014` de #10), **avant** de déployer le frontend.
+2. `supabase secrets set ANTHROPIC_API_KEY=… APP_ORIGINS=https://lex-note-svfr.vercel.app` (optionnels : `STUDY_AI_MODEL`,
+   `STUDY_AI_MAX_*`, `STUDY_AI_TIMEOUT_MS`). `SUPABASE_SERVICE_ROLE_KEY` est fourni automatiquement aux fonctions.
 3. `supabase functions deploy study-ai`.
-4. Vercel : `VITE_AI_URL=https://<ref>.supabase.co/functions/v1/study-ai`, puis redéployer.
-5. Vérifier sur une vraie séance : résumé, traduction, longue transcription (découpage), erreurs.
+4. **Smoke test réel** : `node scripts/prod/study-ai-smoke.mjs` (dry-run), puis `SMOKE_CONFIRM=1 SMOKE_RATE_LIMIT=1 …`.
+   Délai et erreur fournisseur : sur un projet de test (`SMOKE_EXPECT_TIMEOUT=1` avec `STUDY_AI_TIMEOUT_MS` bas ;
+   `SMOKE_EXPECT_PROVIDER_ERROR=1` avec une clé invalide). **Tant qu'il n'est pas passé, la fonction n'est pas « prête pour la
+   production ».**
+5. Vercel : `VITE_AI_URL=https://<ref>.supabase.co/functions/v1/study-ai`, puis redéployer.
 
 ## 8. Limites
 
-- Edge Function non testée contre un vrai modèle (aucune clé dans l'environnement de développement).
+- Edge Function **non testée contre un vrai modèle** (aucune clé dans l'environnement de développement) : smoke test réel à faire.
+- Refus du modèle : non provocable de façon fiable sur un vrai modèle → vérifié uniquement par les tests Deno.
 - Export PDF = impression du navigateur (« Imprimer / PDF ») ; Markdown, texte et presse-papiers sont natifs.
-- Pas de limite de débit par utilisateur dans `study-ai` (à ajouter si nécessaire : quota par jour).
 - La détection de langue et les suggestions sont des indices lexicaux, pas des analyses.

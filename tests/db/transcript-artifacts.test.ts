@@ -50,7 +50,7 @@ const insertDoc = (id: string, extra: Record<string, unknown> = {}) => {
 
 describe('migration 20261015 — documents dérivés de la transcription', () => {
   it('chaîne complète appliquée ; données antérieures intactes (source_type par défaut, revisions vides)', async () => {
-    expect(MIGRATIONS.at(-1)).toBe(MIG);
+    expect(MIGRATIONS).toContain(MIG);
     const r = await as(A, () => q<{ type: string; source_type: string; revisions: unknown[] }>('select type, source_type, revisions from study_artifacts where id = $1', [uuid(1)]));
     expect(r.rows[0]).toEqual({ type: 'COURSE_SHEET', source_type: 'reconstructed-course', revisions: [] });
   });

@@ -115,6 +115,29 @@ const isOffline = () => typeof navigator !== 'undefined' && navigator.onLine ===
  * Fournisseur distant : POST JSON vers l'Edge Function `study-ai` avec le jeton de session de l'utilisateur.
  * Le choix du fournisseur et du modèle est fait CÔTÉ SERVEUR (secrets) : l'application n'en sait rien.
  */
+/** Erreur HTTP de `study-ai` → message clair (limites, refus, délai). Un refus du modèle n'est jamais « contourné » ni réessayé. */
+export function remoteError(status: number, body: unknown, retryAfterHeader?: string | null): Error {
+  const b = (body && typeof body === 'object' ? body : {}) as { error?: unknown; reason?: unknown; limit?: unknown; retry_after?: unknown };
+  if (status === 503 && b.error === 'not_configured') return new AINotConfiguredError();
+  if (status === 413) return new AIUnavailableError('Texte trop long pour une seule requête.', false);
+  if (status === 422) return new AIUnavailableError('Le moteur IA a refusé de traiter ce contenu. Aucune nouvelle tentative n’est faite automatiquement : reformulez ou réduisez la sélection.', false);
+  if (status === 429) {
+    const secs = Number(b.retry_after ?? retryAfterHeader);
+    const wait = Number.isFinite(secs) && secs > 0 ? ` Réessayez dans ${secs < 120 ? `${Math.ceil(secs)} s` : secs < 7200 ? `${Math.ceil(secs / 60)} min` : `${Math.ceil(secs / 3600)} h`}.` : ' Réessayez plus tard.';
+    const what = b.reason === 'concurrent' ? `Trop d’analyses IA en cours en même temps${b.limit ? ` (max ${b.limit})` : ''}.`
+      : b.reason === 'per_minute' ? `Trop de demandes IA en une minute${b.limit ? ` (max ${b.limit})` : ''}.`
+      : b.reason === 'per_day' ? `Quota quotidien de demandes IA atteint${b.limit ? ` (${b.limit} par jour)` : ''}.`
+      : b.reason === 'chars_per_day' ? 'Volume quotidien de texte analysé par l’IA atteint.'
+      : 'Trop de demandes en peu de temps.';
+    return new AIUnavailableError(what + wait, false);
+  }
+  if (status === 504 || b.error === 'timeout') return new AIUnavailableError('Le moteur IA a mis trop de temps à répondre. Réessayez avec un passage plus court.');
+  if (status === 503 && b.error === 'rate_limit_unavailable') return new AIUnavailableError('Contrôle des quotas IA momentanément indisponible. Réessayez dans un instant.');
+  if (status === 503 && b.error === 'provider_busy') return new AIUnavailableError('Le fournisseur IA est saturé. Réessayez dans un instant.');
+  if (b.error === 'truncated') return new AIUnavailableError('Réponse IA incomplète (trop longue). Essayez sur un passage plus court.', false);
+  return new AIUnavailableError(`Le moteur IA est momentanément indisponible (erreur ${status}). Réessayez.`);
+}
+
 export function createRemoteAIProvider(cfg: {
   endpoint: string; getToken: () => Promise<string | null>; label?: string; fetchImpl?: typeof fetch; timeoutMs?: number; maxInputChars?: number;
 }): AIProvider {
@@ -141,11 +164,7 @@ export function createRemoteAIProvider(cfg: {
         throw new AIUnavailableError(ctl.signal.aborted ? 'Le moteur IA ne répond pas (délai dépassé). Réessayez.' : 'Moteur IA injoignable (réseau ?). Réessayez.');
       } finally { clearTimeout(timer); }
       if (res.status === 401 || res.status === 403) throw new AIAuthError();
-      if (res.status === 503 && (await res.clone().json().catch(() => null))?.error === 'not_configured') throw new AINotConfiguredError();
-      if (res.status === 413) throw new AIUnavailableError('Texte trop long pour une seule requête.', false);
-      if (res.status === 422) throw new AIUnavailableError('Le moteur IA a refusé de traiter ce contenu.', false);
-      if (res.status === 429) throw new AIUnavailableError('Trop de demandes en peu de temps. Réessayez dans un instant.');
-      if (!res.ok) throw new AIUnavailableError(`Le moteur IA est momentanément indisponible (erreur ${res.status}). Réessayez.`);
+      if (!res.ok) throw remoteError(res.status, await res.json().catch(() => null), res.headers.get('Retry-After'));
       const body = (await res.json().catch(() => null)) as { text?: unknown; model?: unknown; provider?: unknown } | null;
       if (!body || typeof body.text !== 'string') throw new AIUnavailableError('Réponse du moteur IA illisible.', false);
       return {
