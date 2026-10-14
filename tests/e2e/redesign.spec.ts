@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { createCm, createSession, signUp, trackErrors, waitSaved } from './helpers';
+import { createCm, createSession, libIDB, signUp, trackErrors, waitSaved } from './helpers';
 
 /** Refonte premium : tableau de bord, navigation, thème, vignettes, pages — avec de VRAIES données créées par l'étudiant. */
 test.describe('refonte visuelle — fonctionnalités réelles', () => {
@@ -106,6 +106,8 @@ test.describe('refonte visuelle — fonctionnalités réelles', () => {
     await expect(row.locator('img').first()).toHaveAttribute('data-thumb', 'chart');
     await row.getByTestId('row-menu').click();
     await page.getByRole('menuitem', { name: 'Ville' }).click();
+    // l'interface est mise à jour avant l'écriture locale : on attend que l'écriture soit faite avant de recharger
+    await expect.poll(async () => (await libIDB(page, 'sessions')).find((x) => x.title === 'Valeur actuelle nette')?.thumbnail).toBe('skyline');
     await page.reload();
     await expect(page.getByTestId('session-row').filter({ hasText: 'Valeur actuelle nette' }).locator('img').first()).toHaveAttribute('data-thumb', 'skyline');
     await page.getByLabel('Filtrer par titre').fill('offre');
