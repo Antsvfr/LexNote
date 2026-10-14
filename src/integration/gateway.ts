@@ -5,6 +5,7 @@
 import { allowedBrowserOrigin, type IntegrationConfig } from './config';
 import { fail, integrationError, IntegrationFailure, type IntegrationError, type IntegrationErrorCode } from './errors';
 import { expectPayload, makeEnvelope, parseEnvelope } from './envelope';
+import type { LaunchService } from './launch';
 import type { LinkService } from './linking';
 import { signRequest, verifyRequest, MAX_SKEW_SECONDS } from './signing';
 import type { LinkStore } from './store';
@@ -17,7 +18,7 @@ const STATUS: Partial<Record<IntegrationErrorCode, number>> = {
 };
 export const httpStatusOf = (code: string): number => STATUS[code as IntegrationErrorCode] ?? 500;
 
-export interface GatewayDeps { cfg: IntegrationConfig; store: LinkStore; service: LinkService; now?: () => Date }
+export interface GatewayDeps { cfg: IntegrationConfig; store: LinkStore; service: LinkService; /** Ouverture de cours (REV-EM seulement). */ launch?: LaunchService; now?: () => Date }
 
 const jsonResponse = (body: string, status: number, headers: Record<string, string> = {}) => new Response(body, { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store', ...headers } });
 
@@ -49,9 +50,13 @@ export async function handleGatewayRequest(req: Request, deps: GatewayDeps): Pro
     const env = parsed.envelope;
     if (env.from !== v.from || env.to !== cfg.self) return fail('FORBIDDEN', 'Enveloppe incohérente avec la signature.');
     // 4) traitement → réponse SIGNÉE
-    const payload = expectPayload(env, 'link-request');
     let out;
-    try { out = await service.handlePeerRequest(payload); }
+    try {
+      if (env.payload.kind === 'course-launch-request') {
+        if (!deps.launch) return fail('INVALID_PAYLOAD', 'Ouverture de cours non prise en charge ici.');
+        out = await deps.launch.handlePeerLaunch(env.payload);
+      } else out = await service.handlePeerRequest(expectPayload(env, 'link-request'));
+    }
     catch (e) {
       const err = e instanceof IntegrationFailure ? e.error : integrationError('INTERNAL', 'Erreur interne.');
       if (!(e instanceof IntegrationFailure)) console.error('[integration-gateway]', e);
@@ -73,8 +78,8 @@ async function signedResponse(cfg: IntegrationConfig, linkId: string, payload: P
 
 /* ====================================================================================================== fonction utilisateur */
 
-export interface UserDeps { cfg: IntegrationConfig; service: LinkService; authenticate(req: Request): Promise<string> }
-const ACTIONS = ['start', 'cancel', 'inspect', 'confirm', 'status', 'revoke'] as const;
+export interface UserDeps { cfg: IntegrationConfig; service: LinkService; launch?: LaunchService; authenticate(req: Request): Promise<string> }
+const ACTIONS = ['start', 'cancel', 'inspect', 'confirm', 'status', 'revoke', 'launch-start', 'launch-open'] as const;
 
 function cors(origin: string | null): Record<string, string> {
   return origin ? { 'access-control-allow-origin': origin, 'access-control-allow-headers': 'authorization, x-client-info, apikey, content-type', 'access-control-allow-methods': 'POST, OPTIONS', vary: 'Origin' } : { vary: 'Origin' };
@@ -106,6 +111,17 @@ export async function handleUserRequest(req: Request, deps: UserDeps): Promise<R
       }
       case 'status': return reply({ ok: true, state: await service.getState(userId, { probe: body.probe !== false }) });
       case 'revoke': return reply({ ok: true, ...(await service.revoke(userId)) });
+      case 'launch-start': {
+        if (!deps.launch) return fail('INVALID_PAYLOAD', 'Action non disponible.');
+        const eventId = typeof body.eventId === 'string' && /^[A-Za-z0-9._:~@-]{1,128}$/.test(body.eventId) ? body.eventId : fail('INVALID_PAYLOAD', 'Évènement invalide.');
+        const tz = typeof body.tz === 'string' && body.tz.length <= 64 ? body.tz : undefined;
+        return reply({ ok: true, ...(await deps.launch.startLaunch(userId, { eventId, tz })) });
+      }
+      case 'launch-open': {
+        if (!deps.launch) return fail('INVALID_PAYLOAD', 'Action non disponible.');
+        const r = await deps.launch.openLaunch(userId, uuid(body.launchIntentId), nonce(body.nonce));
+        return reply({ ok: true, sessionId: r.sessionId, subjectId: r.subjectId, createdSession: !!r.createdSession, createdSubject: !!r.createdSubject });
+      }
     }
   } catch (e) {
     const err = e instanceof IntegrationFailure ? e.error : integrationError('INTERNAL', 'Erreur interne.');

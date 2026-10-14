@@ -1,3 +1,5 @@
+import { useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Link2, Link2Off, RefreshCw, ShieldCheck } from 'lucide-react';
 import { confirm } from '@/components/confirm';
 import { toast } from '@/store/toasts';
@@ -8,6 +10,8 @@ const formatDate = (iso: string) => new Date(iso).toLocaleDateString('fr-FR', { 
 /** Réglages › Applications connectées › REV-EM. L'affichage « Connecté » exige que les DEUX côtés le confirment. */
 export function ConnectedApps() {
   const { state, error, busy, refresh, revoke } = useConnection();
+  const { hash } = useLocation();
+  useEffect(() => { if (hash === '#apps-h') document.getElementById('apps-h')?.scrollIntoView({ block: 'start' }); }, [hash]);
   const s = state?.state;
 
   async function disconnect() {

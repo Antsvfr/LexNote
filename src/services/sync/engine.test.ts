@@ -111,6 +111,23 @@ describe('synchronisation local-first', () => {
     expect(b.conflicts).toHaveLength(1);
   });
 
+  it('autosave avec une copie en mémoire antérieure à l’envoi : pas de faux conflit, les nouvelles notes partent (régression)', async () => {
+    // L'interface garde la séance en mémoire (version inconnue) ; l'envoi a fixé la version en base locale seulement.
+    const cloud = new CloudDb();
+    const a = device(cloud, 'u1');
+    const { session } = await setup(a, 'u1');
+    await a.engine.syncNow();
+    const stale = { ...session, updatedAt: new Date(Date.now() + 1000).toISOString() };   // version: undefined (copie d'avant l'envoi)
+    await a.local.commit({ putSessions: [stale], putNotes: [notes(session.id, 'v2 — notes plus récentes')] });
+    await a.engine.syncNow();
+    expect(a.conflicts).toEqual([]);
+    const lib = await a.local.loadLibrary();
+    expect(lib.sessions.map((s) => s.id)).toEqual([session.id]);                          // aucune copie « en conflit »
+    expect((await a.local.getNotes(session.id))?.content).toEqual({ type: 'doc', text: 'v2 — notes plus récentes' });
+    expect(cloud.rows('course_sessions').get(session.id)?.notes_content).toEqual({ type: 'doc', text: 'v2 — notes plus récentes' });
+    expect((await a.local.listDirty()).sessions).toHaveLength(0);
+  });
+
   it('une modification locale en attente n’est jamais écrasée par une réception', async () => {
     const cloud = new CloudDb();
     const a = device(cloud, 'u1'), b = device(cloud, 'u1');

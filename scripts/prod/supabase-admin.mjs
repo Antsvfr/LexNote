@@ -3,7 +3,8 @@
 // ⚠ À lancer depuis VOTRE machine (jeton personnel SUPABASE_ACCESS_TOKEN). Aucune valeur secrète n'est jamais affichée ni écrite sur disque.
 // Par défaut : SIMULATION (dry-run). Ajouter --apply pour exécuter. Sous-commandes :
 //   apply-sql  --project <ref> --file <sql>                 applique une migration (une transaction côté API)
-//   verify-db  --project <ref>                              exécute scripts/prod/verify-db.sql (PASS/FAIL) — lecture seule
+//   verify-db  --project <ref>                              exécute scripts/prod/verify-db.sql (PASS/FAIL, tables d'intégration) — lecture seule
+//   verify-schema --project <ref>                           exécute supabase/reconciliation/verify-official-schema.sql (13 contrôles du schéma officiel) — lecture seule
 //   set-secrets --app lexnote|revem --project <ref> --peer-ref <réf. de l'autre projet>   (INTEGRATION_KEY lue dans l'environnement)
 //   auth-urls  --app lexnote|revem --project <ref> [--dev]  fusionne les URLs de redirection Auth (n'en supprime aucune)
 //   advisors   --project <ref>                              Security + Performance Advisor, filtrés sur les objets d'intégration
@@ -28,7 +29,7 @@ export async function main(argv, env, fetchImpl = fetch, out = console.log) {
   const token = env.SUPABASE_ACCESS_TOKEN;
   const project = flag('--project');
   const need = (v, name) => { if (!v) throw new Error(`argument manquant : ${name}`); return v; };
-  if (!cmd) throw new Error('sous-commande manquante (apply-sql | verify-db | set-secrets | auth-urls | advisors)');
+  if (!cmd) throw new Error('sous-commande manquante (apply-sql | verify-db | verify-schema | set-secrets | auth-urls | advisors)');
   need(project, '--project'); if (!REF.test(project)) throw new Error('--project doit être la référence du projet (20 caractères a-z0-9)');
   const call = async (method, path, body) => {
     if (!token) throw new Error('SUPABASE_ACCESS_TOKEN absent de l’environnement');
@@ -45,8 +46,8 @@ export async function main(argv, env, fetchImpl = fetch, out = console.log) {
     if (apply) { await query(sql); out('migration appliquée.'); }
     return 0;
   }
-  if (cmd === 'verify-db') {
-    const rows = await query(readFileSync(join(here, 'verify-db.sql'), 'utf8'));
+  if (cmd === 'verify-db' || cmd === 'verify-schema') {
+    const rows = await query(readFileSync(cmd === 'verify-db' ? join(here, 'verify-db.sql') : join(here, '..', '..', 'supabase', 'reconciliation', 'verify-official-schema.sql'), 'utf8'));
     let fails = 0;
     for (const r of rows) { out(`${String(r.statut).padEnd(6)} ${r.n} ${r.controle}${r.detail && r.statut === 'FAIL' ? ` — ${r.detail}` : ''}`); if (r.statut === 'FAIL') fails++; }
     return fails ? 1 : 0;
