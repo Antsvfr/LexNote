@@ -29,7 +29,7 @@ describe('une seule architecture : la chaîne #3 → #8', () => {
       expect(existsSync(f), f).toBe(false);
   });
   it('toutes les tables lues / écrites par le moteur de synchronisation et les fonctions existent dans le schéma officiel', async () => {
-    const official = new Set(['profiles', 'subjects', 'modules', 'course_sessions', 'transcript_sessions', 'transcript_segments', 'timeline_markers', 'note_anchors', 'capture_interruptions', 'sync_metadata', 'external_accounts', 'study_artifacts', 'source_documents', 'generated_courses', 'integration_links', 'integration_link_intents', 'integration_nonces']);
+    const official = new Set(['profiles', 'subjects', 'modules', 'course_sessions', 'transcript_sessions', 'transcript_segments', 'timeline_markers', 'note_anchors', 'capture_interruptions', 'sync_metadata', 'external_accounts', 'study_artifacts', 'source_documents', 'generated_courses', 'integration_links', 'integration_link_intents', 'integration_nonces', 'user_devices']);
     const { VERSIONED_TABLES, CAPTURE_TABLES } = await import('../../src/services/sync/types');
     const used = new Set<string>([...VERSIONED_TABLES, ...CAPTURE_TABLES, 'sync_metadata', 'profiles']);
     for (const f of files(['src', 'supabase/functions']).filter((x) => !/\.test\.|testkit/.test(x))) {

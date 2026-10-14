@@ -57,7 +57,7 @@ Ordre complet et exclusif : `20261007…lexnote_init` → `20261008…study_arti
 
 Deux Edge Functions : `integration-link` (appelée par le navigateur avec le JWT de l'utilisateur) et `integration-gateway` (serveur ↔ serveur, **sans JWT** mais signée).
 ```bash
-supabase functions deploy integration-link
+supabase functions deploy integration-link      # verify_jwt = false (supabase/config.toml) : la fonction authentifie elle-même chaque action, sauf launch-signin (connexion automatique)
 supabase functions deploy integration-gateway --no-verify-jwt     # la signature HMAC remplace le JWT, uniquement pour cette fonction
 supabase secrets set INTEGRATION_ENV=production INTEGRATION_KEY_ID=k1 INTEGRATION_KEY=<MÊME clé que REV-EM, ≥ 32 car., openssl rand -base64 48> \
   INTEGRATION_SELF_APP_URL=https://lex-note-svfr.vercel.app/ \

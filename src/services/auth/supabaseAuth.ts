@@ -1,5 +1,5 @@
 import type { SupabaseClient, User } from '@supabase/supabase-js';
-import { AuthError, emptyProfile, type AuthEvent, type AuthRepository, type AuthUser, type Profile, type ProfileRepository, type SignUpResult } from './types';
+import { AuthError, emptyProfile, type AuthEvent, type AuthRepository, type AuthUser, type DeviceRepository, type Profile, type ProfileRepository, type SignUpResult } from './types';
 
 const toUser = (u: User | null | undefined): AuthUser | null => (u ? { id: u.id, email: u.email ?? '' } : null);
 
@@ -44,13 +44,38 @@ export class SupabaseAuth implements AuthRepository {
     return { needsConfirmation: !data.session, user: data.session ? toUser(data.user) : null };
   }
 
+  async adoptSession(tokens: { access_token: string; refresh_token: string }) {
+    const { data, error } = await this.client.auth.setSession(tokens);
+    if (error || !data.user) throw mapError(error ?? { message: 'session' });
+    return toUser(data.user)!;
+  }
+
+  readonly devices: DeviceRepository = {
+    touch: async (d) => {
+      const { error } = await this.client.rpc('user_device_touch', { p_device: d.deviceId, p_label: d.label, p_standalone: d.standalone, p_remember: d.remember });
+      if (error) throw mapError(error);
+    },
+    list: async () => {
+      const { data, error } = await this.client.from('user_devices').select('device_id, label, standalone, remember, created_at, last_seen_at, session_id').order('last_seen_at', { ascending: false });
+      if (error) throw mapError(error);
+      return (data ?? []).map((r) => ({ deviceId: r.device_id, label: r.label, standalone: r.standalone, remember: r.remember, createdAt: r.created_at, lastSeenAt: r.last_seen_at, hasSession: !!r.session_id }));
+    },
+    revoke: async (deviceId) => {
+      const { data, error } = await this.client.rpc('user_device_revoke', { p_device: deviceId });
+      if (error || (data as { reason?: string } | null)?.reason !== 'OK') throw mapError(error ?? { message: 'device' });
+    },
+    forgetAll: async () => { await this.client.rpc('user_device_forget_all', {}); },
+  };
+
   async signIn(email: string, password: string) {
     const { data, error } = await this.client.auth.signInWithPassword({ email: email.trim(), password });
     if (error) throw mapError(error);
     return toUser(data.user)!;
   }
-  async signOut() {
-    const { error } = await this.client.auth.signOut();
+  async signOut(opts: { scope?: 'local' | 'global' } = {}) {
+    // Avant : `signOut()` sans portée = GLOBALE par défaut dans supabase-js → se déconnecter sur un appareil révoquait les sessions de
+    // TOUS les autres, qui découvraient au rafraîchissement suivant une « session expirée ». Désormais : cet appareil, sauf demande explicite.
+    const { error } = await this.client.auth.signOut({ scope: opts.scope ?? 'local' });
     if (error && !/session/i.test(error.message)) throw mapError(error);
   }
   async requestPasswordReset(email: string) {

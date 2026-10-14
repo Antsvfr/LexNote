@@ -31,10 +31,7 @@ export function createPeerClient(cfg: IntegrationConfig, opts: { fetch?: FetchLi
       // Une réponse n'est digne de confiance que si elle est signée par le partenaire. Sinon : échec générique, sans effet d'état.
       let verified = false;
       try { await verifyRequest({ method: 'POST', headers: res.headers, body: text, self: cfg.self, expectedSender: cfg.peer, keys: cfg.keys, now: now() }); verified = true; } catch { /* non signée */ }
-      if (!verified) {
-        const code = res.status === 401 ? 'UNAUTHENTICATED' : res.status === 403 ? 'FORBIDDEN' : res.status === 429 ? 'RATE_LIMITED' : res.status >= 500 ? 'UNAVAILABLE' : 'INVALID_PAYLOAD';
-        return { ok: false, error: integrationError(code, `Réponse non authentifiée du partenaire (HTTP ${res.status}).`) };
-      }
+      if (!verified) return { ok: false, error: classifyUnsigned(res.status, text) };
       let raw: unknown; try { raw = JSON.parse(text); } catch { return { ok: false, error: integrationError('INVALID_PAYLOAD', 'Réponse illisible.') }; }
       const parsed = parseEnvelope(raw, now());
       if (!parsed.ok) return { ok: false, error: parsed.error };
@@ -50,9 +47,31 @@ export function createPeerClient(cfg: IntegrationConfig, opts: { fetch?: FetchLi
       return r.ok ? { ok: true, response: r.payload as LinkResponse } : r;
     },
     async sendLaunch(payload) {
-      const r = await exchange(payload, payload.linkId, 'course-launch-response');
+      const r = await exchange(payload, payload.linkId ?? 'launch-identify', 'course-launch-response');
       return r.ok ? { ok: true, response: r.payload as CourseLaunchResponse } : r;
     },
   };
+}
+/**
+ * Réponse NON signée du partenaire = il n'a pas pu (ou pas voulu) authentifier NOTRE serveur, ou la requête n'a jamais atteint son code.
+ * Avant : un 401 devenait `UNAUTHENTICATED`, affiché à l'étudiant comme « Votre session a expiré » alors que sa session LexNote était valide.
+ * Désormais la cause serveur ↔ serveur est explicite (`PEER_AUTH_FAILED` + raison), pour l'interface comme pour les journaux.
+ */
+export function classifyUnsigned(status: number, text: string): IntegrationError {
+  let body: { kind?: unknown; code?: unknown; details?: { reason?: unknown }; message?: unknown; msg?: unknown } | null = null;
+  try { body = JSON.parse(text); } catch { /* corps non JSON */ }
+  const ours = body?.kind === 'integration-error' && typeof body.code === 'string';        // refus émis par la passerelle lexnote-revem/v1 elle-même
+  const reason = ours && typeof body?.details?.reason === 'string' ? body.details.reason.slice(0, 60) : undefined;
+  const at = `HTTP ${status}`;
+  if (status === 401) {
+    // Passerelle déployée SANS `--no-verify-jwt` : la plateforme Supabase exige un JWT utilisateur et répond avant notre code.
+    if (!ours) return integrationError('PEER_AUTH_FAILED', `Passerelle du partenaire protégée par JWT (${at}) : redéployer avec --no-verify-jwt.`, { details: { reason: 'gateway-verify-jwt' } });
+    return integrationError('PEER_AUTH_FAILED', `Authentification serveur refusée par le partenaire (${at}).`, { details: { reason: reason ?? 'signature' } });
+  }
+  if (status === 403 && ours) return integrationError(String(body!.code) === 'FORBIDDEN' ? 'PEER_AUTH_FAILED' : 'FORBIDDEN', `Requête serveur refusée par le partenaire (${at}).`, { details: { reason: reason ?? 'forbidden' } });
+  if (status === 404) return integrationError('UNAVAILABLE', `Passerelle du partenaire introuvable (${at}) : fonction non déployée ?`, { details: { reason: 'gateway-not-found' } });
+  if (status === 429) return integrationError('RATE_LIMITED', `Partenaire saturé (${at}).`);
+  if (status >= 500) return integrationError('UNAVAILABLE', `Partenaire indisponible (${at}).`, { details: { reason: ours && reason ? reason : 'server-error' } });
+  return integrationError('INVALID_PAYLOAD', `Réponse non authentifiée du partenaire (${at}).`, reason ? { details: { reason } } : {});
 }
 export { H };

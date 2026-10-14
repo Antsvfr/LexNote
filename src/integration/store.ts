@@ -10,6 +10,8 @@ export interface LinkRow {
   localReference: string; externalReference: string;
   linkedAt: string | null; revokedAt: string | null; revokedBy: 'self' | 'partner' | null; errorCode: string | null;
   createdAt: string; updatedAt: string;
+  /** Consentement « connexion automatique depuis REV-EM » (colonne LexNote ; toujours faux côté REV-EM). */
+  autoLogin: boolean;
 }
 /** Raisons renvoyées par les fonctions SQL. */
 export type Reason = 'OK' | 'NOT_FOUND' | 'EXPIRED' | 'NONCE_MISMATCH' | 'CANCELLED' | 'CONFIRMED' | 'USED' | 'ALREADY_LINKED' | 'REPLAY' | 'PENDING' | 'CONNECTED' | 'REVOKED' | 'ERROR';
@@ -26,6 +28,8 @@ export interface LinkStore {
   getLink(linkId: string, partnerRef: string | null): Promise<LinkRow | null>;
   getUserLink(userId: string): Promise<LinkRow | null>;
   registerNonce(sender: string, nonce: string, expiresAt: Date): Promise<boolean>;
+  /** LexNote : accorde / retire le consentement « connexion automatique » sur la liaison CONNECTED de l'utilisateur. */
+  setAutoLogin(userId: string, enabled: boolean): Promise<{ reason: Reason }>;
 }
 
 export interface RpcClient { rpc(fn: string, args: Record<string, unknown>): PromiseLike<{ data: unknown; error: { message: string } | null }> }
@@ -33,6 +37,7 @@ export interface RpcClient { rpc(fn: string, args: Record<string, unknown>): Pro
 const toRow = (j: Record<string, any>): LinkRow => ({
   linkId: j.link_id, userId: j.user_id, provider: j.provider, status: j.status, localReference: j.local_reference, externalReference: j.external_reference,
   linkedAt: j.linked_at ?? null, revokedAt: j.revoked_at ?? null, revokedBy: j.revoked_by ?? null, errorCode: j.error_code ?? null, createdAt: j.created_at, updatedAt: j.updated_at,
+  autoLogin: j.auto_login === true,
 });
 
 export function createRpcStore(db: RpcClient): LinkStore {
@@ -53,6 +58,7 @@ export function createRpcStore(db: RpcClient): LinkStore {
     async markError(linkId, code) { await call('integration_mark_error', { p_link_id: linkId, p_code: code }); },
     async getLink(linkId, partnerRef) { const r = await call('integration_get_link', { p_link_id: linkId, p_partner_ref: partnerRef }); return r.reason === 'OK' ? toRow(r.link) : null; },
     async getUserLink(userId) { const r = await call('integration_get_user_link', { p_user: userId }); return r.reason === 'OK' ? toRow(r.link) : null; },
+    async setAutoLogin(userId, enabled) { const r = await call('integration_set_auto_login', { p_user: userId, p_enabled: enabled }); return { reason: r.reason }; },
     async registerNonce(sender, nonce, expiresAt) { const r = await call('integration_register_nonce', { p_sender: sender, p_nonce: nonce, p_expires: expiresAt.toISOString() }); return r.reason === 'OK'; },
   };
 }
@@ -66,6 +72,8 @@ export interface LaunchStore {
   startLaunch(a: { userId: string; linkId: string; eventKey: string; event: unknown; nonceHash: string; ttlSeconds: number }): Promise<{ reason: LaunchReason; intentId?: string; expiresAt?: string }>;
   /** Atomique : consomme l'intention (PENDING→REDEEMED). Un mauvais nonce ne la consomme PAS. */
   redeemLaunch(a: { intentId: string; nonceHash: string; linkId: string }): Promise<{ reason: LaunchReason; event?: unknown; expiresAt?: string }>;
+  /** Lecture seule (connexion automatique) : liaison de l'intention, sans la consommer. Intention récente uniquement (≤ 120 s). */
+  identifyLaunch(a: { intentId: string; nonceHash: string }): Promise<{ reason: LaunchReason; linkId?: string; localReference?: string; expiresAt?: string }>;
 }
 
 /** Paramètres de création / récupération d'une séance, déjà validés et normalisés (aucun JSON du navigateur). */
@@ -87,6 +95,7 @@ export function createRpcLaunchStore(db: RpcClient): LaunchStore & CourseStore {
   return {
     async startLaunch(a) { const r = await call('integration_launch_start', { p_user: a.userId, p_link_id: a.linkId, p_event_key: a.eventKey, p_event: a.event, p_nonce_hash: a.nonceHash, p_ttl_seconds: a.ttlSeconds }); return { reason: r.reason, intentId: r.intent_id, expiresAt: r.expires_at }; },
     async redeemLaunch(a) { const r = await call('integration_launch_redeem', { p_intent: a.intentId, p_nonce_hash: a.nonceHash, p_link_id: a.linkId }); return { reason: r.reason, event: r.event, expiresAt: r.expires_at }; },
+    async identifyLaunch(a) { const r = await call('integration_launch_identify', { p_intent: a.intentId, p_nonce_hash: a.nonceHash, p_max_age_seconds: 120 }); return { reason: r.reason, linkId: r.link_id, localReference: r.local_reference, expiresAt: r.expires_at }; },
     async openCourse(a) {
       const r = await call('integration_course_open', {
         p_user: a.userId, p_provider: a.provider, p_link_id: a.linkId, p_event_key: a.eventKey, p_subject_key: a.subjectKey, p_subject_name: a.subjectName,

@@ -459,3 +459,60 @@ Non connecté à LexNote → intention gardée (10 min) puis reprise après conn
   demandera une évolution compatible du contrat (nouvelle version mineure, champ facultatif côté REV-EM).
 - Le type de séance `PROJECT` (Projet), ajouté côté LexNote, est transmis comme `OTHER` dans `lexnote-session-reference`.
 - Une séance ouverte depuis REV-EM est une séance LexNote ordinaire : toutes les actions sur la transcription s'y appliquent.
+
+## 14. Authentification durable LexNote ⇄ REV-EM (session persistante, appareils, connexion automatique)
+
+Aucun mot de passe n'est stocké nulle part (ni en clair, ni chiffré, ni dans Supabase), ni `service_role`, ni `INTEGRATION_KEY`, ni JWT dans
+une URL. Tout repose sur Supabase Auth (jeton d'accès + jeton de rafraîchissement) et sur `lexnote-revem/v1`.
+
+### 14.1 Diagnostic du « Votre session a expiré » pendant l'autorisation
+Ce libellé correspondait au code `UNAUTHENTICATED`, produit par **quatre** causes dont trois sans rapport avec la session de l'étudiant :
+1. **Passerelle du partenaire déployée avec vérification JWT** (`integration-gateway` sans `--no-verify-jwt`, réglage non versionné) : la
+   plateforme Supabase répond 401 avant notre code ; `peer.ts` traduisait tout 401 non signé en `UNAUTHENTICATED`. **Cause la plus probable**
+   quand la session LexNote est valide.
+2. **Signature serveur ↔ serveur refusée** (clé ou `kid` différents, horloges décalées de plus de 300 s, rejeu) : même traduction.
+3. **Session non rafraîchissable masquée** : `functions.invoke` (supabase-js 2.117) retombe silencieusement sur la clé publique quand
+   `getSession()` ne peut pas rafraîchir (réseau instable, jeton de rafraîchissement refusé) ; l'interface se croyait connectée (et le mode
+   « hors ligne » rouvrait l'espace du dernier utilisateur sans jeton valide).
+4. **Déconnexion GLOBALE involontaire** : `signOut()` sans portée = `global` dans supabase-js : se déconnecter sur un appareil révoquait les
+   sessions de tous les autres, qui découvraient au rafraîchissement suivant une session expirée.
+
+Corrections : `PEER_AUTH_FAILED` (+ `details.reason` : `gateway-verify-jwt`, `bad-signature`, `expired`, `replay`…) distinct, affiché avec un
+code de diagnostic ; `supabase/config.toml` versionne `verify_jwt = false` pour `integration-gateway` (et `integration-link`, qui authentifie
+elle-même) ; le navigateur vérifie / rafraîchit la session AVANT l'appel, transmet le jeton explicitement, retente une fois après
+rafraîchissement, et renvoie à la connexion (`SESSION_REQUIRED`, demande en cours conservée) au lieu d'un appel anonyme ; `signOut` local par
+défaut, « Déconnecter tous les appareils » explicite. Vérification en production (depuis votre machine) :
+`curl -s -X POST -d '{}' https://<ref>.supabase.co/functions/v1/integration-gateway` doit renvoyer un JSON `{"kind":"integration-error",…}`
+(notre code) et **non** `{"code":401,"message":"Missing authorization header"}` (plateforme).
+
+### 14.2 Rafraîchissement et « Rester connecté sur cet appareil »
+- La session Supabase (clé `lexnote-auth` du localStorage) est partagée par tous les onglets ET par l'application installée du même profil
+  de navigateur (Chrome / Edge sur ordinateur, Chrome Android) ; supabase-js rafraîchit le jeton d'accès (≈ 1 h) avant expiration, un seul
+  rafraîchissement à la fois (verrou inter-onglets), avec rotation du jeton de rafraîchissement.
+- Case **décochée** (défaut d'un nouvel appareil) : un cookie de session sans secret (`lexnote_bs=1`) marque la session du navigateur ; à la
+  réouverture du navigateur (cookie absent), la session stockée est **révoquée** (portée locale) puis effacée avant tout usage. Les nouveaux
+  onglets de la même session restent connectés (indispensable à l'ouverture depuis REV-EM). Limite : un navigateur qui restaure les cookies
+  de session (« Reprendre là où vous vous étiez arrêté ») prolonge la session.
+- Case **cochée** : la session survit à la fermeture et au redémarrage ; elle n'expire que si le jeton de rafraîchissement est révoqué ou
+  inutilisé au-delà de la durée configurée dans Supabase Auth.
+- Appareil déjà connecté avant cette version : traité comme « coché » (pas de déconnexion surprise à la mise à jour).
+- iOS / iPadOS : l'application ajoutée à l'écran d'accueil a un stockage SÉPARÉ de Safari → deux sessions, deux appareils dans la liste.
+
+### 14.3 Appareils (`user_devices`, migration `20261017000000`)
+UUID tiré au hasard localement, libellé grossier (« Chrome — macOS », « · application » si installée), case « rester connecté », date de
+dernière utilisation, et l'identifiant de **session Supabase** lu par le serveur dans le JWT (`session_id`). « Déconnecter » un appareil
+supprime SA ligne `auth.sessions` (jeton de rafraîchissement inutilisable immédiatement ; le jeton d'accès déjà émis expire au plus tard dans
+l'heure). « Déconnecter tous les appareils » = déconnexion globale Supabase. Aucune empreinte de navigateur.
+
+### 14.4 Connexion automatique depuis REV-EM
+Consentement EXPLICITE (case jamais cochée d'office) à l'autorisation ou dans Réglages, stocké sur la liaison (`integration_links.auto_login`),
+retiré automatiquement par la base dès que la liaison n'est plus `CONNECTED`. Comportement au clic « Prendre mes notes dans LexNote » :
+- **A** session valide → ouverture immédiate ; **B** jeton expiré mais rafraîchissable → rafraîchi par supabase-js, aucune demande ;
+- **C** aucune session + consentement → `launch-signin` (seule action sans session) : `IDENTIFY_LAUNCH` signé (lecture seule, ≤ 120 s) →
+  consentement + liaison vérifiés en base LexNote → `REDEEM_LAUNCH` (usage unique) → **session Supabase ordinaire** créée par le serveur
+  (`auth.admin.generateLink` + `verifyOtp` dans l'Edge Function : le jeton à usage unique est consommé côté serveur, aucun e-mail envoyé) et
+  remise dans le CORPS de la réponse (`no-store`), installée par `setSession` ;
+- **D** consentement absent / retiré, partenaire ancien, panne → connexion LexNote normale, puis reprise du même lancement (non consommé).
+Protections : nonce 32 octets dans le fragment (jamais envoyé aux serveurs ni dans `Referer`, effacé de l'historique), intention à usage
+unique (verrou de ligne), fenêtre 120 s, mauvais nonce sans consommation, rejeu des messages signés refusé (registre des nonces), vérification
+du consentement juste avant la création de session, mauvais compte → `WRONG_ACCOUNT`, double clic / onglets → une seule session.

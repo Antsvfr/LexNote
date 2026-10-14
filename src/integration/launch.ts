@@ -8,6 +8,11 @@
  *                                                                    ─▶ openCourse (RPC) : matière + séance, IDEMPOTENTES (contraintes UNIQUE en base)
  *                                                                    ─▶ { sessionId } → le navigateur ouvre /session/<id>?panel=transcript
  *
+ * Connexion automatique (aucune session LexNote dans ce navigateur, consentement explicite de l'étudiant) :
+ *   signInLaunch ─▶ IDENTIFY_LAUNCH (signé, lecture seule, ≤ 120 s) ─▶ [REV-EM] renvoie la liaison de l'intention, sans la consommer
+ *                ─▶ liaison CONNECTED + consentement « connexion automatique » vérifiés ICI (base LexNote)
+ *                ─▶ openLaunch habituel (REDEEM_LAUNCH : usage unique) ─▶ session Supabase ordinaire créée par le serveur (voir sessions.ts)
+ *
  * Sécurité : le navigateur ne transmet jamais le cours (seulement un identifiant d'événement à REV-EM, puis intention + nonce à LexNote) ;
  * le cours vient du serveur de REV-EM (`LaunchSource`), il est validé par zod, borné et normalisé ici avant tout usage.
  */
@@ -20,6 +25,7 @@ import type { CourseOpenResult, CourseStore, LaunchReason, LaunchStore, LinkStor
 import { randomToken, sha256Hex } from './signing';
 import { INTEGRATION_VERSION } from './version';
 import type { CourseLaunchRequest, CourseLaunchResponse } from './contracts';
+import type { MintedSession, SessionMinter } from './sessions';
 
 export const LAUNCH_TTL_SECONDS = 300;
 export const LAUNCH_PATH = (initiator: string) => `integrations/${initiator}/launch`;
@@ -36,6 +42,7 @@ export interface LaunchDeps {
   cfg: IntegrationConfig; links: LinkService; linkStore: LinkStore; launchStore: LaunchStore; peer: PeerClient;
   /** Côté REV-EM seulement. */ source?: LaunchSource;
   /** Côté LexNote seulement. */ courses?: CourseStore;
+  /** Côté LexNote seulement : création d'une session Supabase pour la connexion automatique. */ sessions?: SessionMinter;
   token?: (bytes: number) => string;
 }
 
@@ -66,7 +73,19 @@ export function createLaunchService(d: LaunchDeps) {
   const { cfg, links, linkStore, launchStore, peer } = d;
   const token = d.token ?? randomToken;
 
-  return {
+  /** LexNote → REV-EM : à quelle liaison appartient cette intention ? (lecture seule ; erreurs du partenaire propagées telles quelles) */
+  async function identify(intentId: string, nonce: string): Promise<{ linkId: string; partnerRef: string }> {
+    const res = await peer.sendLaunch({ integrationVersion: INTEGRATION_VERSION, kind: 'course-launch-request', operation: 'IDENTIFY_LAUNCH', launchIntentId: intentId, nonce });
+    if (!res.ok) throw new IntegrationFailure({ ...res.error, code: normalizeErrorCode(res.error.code) });
+    if (!res.response.ok || !res.response.linkId || !res.response.receiverReference) return fail('NOT_FOUND', 'Lancement introuvable.');
+    return { linkId: res.response.linkId, partnerRef: res.response.receiverReference };
+  }
+  /** Le lancement vise-t-il une AUTRE liaison que celle de l'utilisateur connecté ? (seulement après un nonce vérifié par REV-EM) */
+  async function belongsToAnotherAccount(intentId: string, nonce: string, ownLinkId: string | null): Promise<boolean> {
+    try { const id = await identify(intentId, nonce); return id.linkId !== ownLinkId; } catch { return false; }
+  }
+
+  const service = {
     /** REV-EM · action de l'étudiant (JWT vérifié) : prépare l'ouverture et renvoie l'URL de LexNote. */
     async startLaunch(userId: string, input: { eventId: string; tz?: string }) {
       if (!d.source) return fail('INTERNAL', 'Source de planning non configurée.');
@@ -92,10 +111,18 @@ export function createLaunchService(d: LaunchDeps) {
     async openLaunch(userId: string, intentId: string, nonce: string): Promise<CourseOpenResult & { sessionId: string; subjectId: string }> {
       if (!d.courses) return fail('INTERNAL', 'Création de séances non configurée.');
       const link = await linkStore.getUserLink(userId);
-      if (!link) return fail('LINK_NOT_FOUND', 'REV-EM n’est pas connecté.');
-      if (link.status !== 'CONNECTED') return fail(link.status === 'REVOKED' ? 'LINK_REVOKED' : 'LINK_PENDING', 'Liaison non active.');
+      if (!link || link.status !== 'CONNECTED') {
+        // Compte LexNote différent de celui lié au compte REV-EM qui a lancé : le dire clairement (jamais d'ouverture « au mauvais endroit »).
+        if (await belongsToAnotherAccount(intentId, nonce, null)) return fail('WRONG_ACCOUNT', 'Ce cours est lié à un autre compte LexNote.');
+        if (!link) return fail('LINK_NOT_FOUND', 'REV-EM n’est pas connecté.');
+        return fail(link.status === 'REVOKED' ? 'LINK_REVOKED' : 'LINK_PENDING', 'Liaison non active.');
+      }
       const res = await peer.sendLaunch({ integrationVersion: INTEGRATION_VERSION, kind: 'course-launch-request', operation: 'REDEEM_LAUNCH', launchIntentId: intentId, nonce, linkId: link.linkId, senderReference: link.localReference });
-      if (!res.ok) throw new IntegrationFailure({ ...res.error, code: normalizeErrorCode(res.error.code) });
+      if (!res.ok) {
+        const code = normalizeErrorCode(res.error.code);
+        if (code === 'NOT_FOUND' && (await belongsToAnotherAccount(intentId, nonce, link.linkId))) return fail('WRONG_ACCOUNT', 'Ce cours est lié à un autre compte LexNote.');
+        throw new IntegrationFailure({ ...res.error, code });
+      }
       if (!res.response.ok || !res.response.event) return fail('NOT_FOUND', 'Cours introuvable.');
       const params = planCourseOpen(res.response.event, { userId, linkId: link.linkId, provider: cfg.peer });
       const out = await d.courses.openCourse(params);
@@ -103,13 +130,39 @@ export function createLaunchService(d: LaunchDeps) {
       return { ...out, sessionId: out.sessionId, subjectId: out.subjectId };
     },
 
+    /**
+     * LexNote · SANS session (route publique) : connexion automatique depuis un lancement REV-EM.
+     * Refus explicites et sans effet de bord tant que l'intention n'est pas consommée : consentement absent → AUTO_LOGIN_DISABLED,
+     * liaison révoquée → LINK_REVOKED, intention trop ancienne / déjà utilisée / mauvais nonce → erreur de REV-EM.
+     */
+    async signInLaunch(intentId: string, nonce: string): Promise<CourseOpenResult & { sessionId: string; subjectId: string; userId: string; session: MintedSession }> {
+      if (!d.sessions) return fail('INTERNAL', 'Connexion automatique non configurée.');
+      const id = await identify(intentId, nonce);
+      const link = await linkStore.getLink(id.linkId, id.partnerRef);
+      if (!link || link.status !== 'CONNECTED') return fail('LINK_REVOKED', 'Liaison non active.');
+      if (!link.autoLogin) return fail('AUTO_LOGIN_DISABLED', 'Connexion automatique non autorisée.');
+      const opened = await service.openLaunch(link.userId, intentId, nonce);              // consomme l'intention (usage unique)
+      // Re-vérification juste avant de créer la session : une révocation survenue entre-temps l'emporte.
+      const again = await linkStore.getLink(id.linkId, id.partnerRef);
+      if (!again || again.status !== 'CONNECTED' || !again.autoLogin) return fail('AUTO_LOGIN_DISABLED', 'Connexion automatique retirée.');
+      const session = await d.sessions.mint(link.userId);
+      return { ...opened, userId: link.userId, session };
+    },
+
     /** REV-EM · côté serveur (requête signée de LexNote, déjà authentifiée) : consomme l'intention, renvoie le cours figé. */
     async handlePeerLaunch(r: CourseLaunchRequest): Promise<CourseLaunchResponse> {
+      if (r.operation === 'IDENTIFY_LAUNCH') {
+        const x = await launchStore.identifyLaunch({ intentId: r.launchIntentId, nonceHash: await sha256Hex(r.nonce) });
+        if (x.reason !== 'OK' || !x.linkId || !x.localReference) return failReason(x.reason === 'OK' ? 'NOT_FOUND' : x.reason);
+        return { integrationVersion: INTEGRATION_VERSION, kind: 'course-launch-response', operation: r.operation, ok: true, linkId: x.linkId, receiverReference: x.localReference, expiresAt: x.expiresAt };
+      }
+      if (!r.linkId || !r.senderReference) return fail('INVALID_PAYLOAD', 'Liaison manquante.');
       const link = await links.assertLinkUsable(r.linkId, r.senderReference);
       const x = await launchStore.redeemLaunch({ intentId: r.launchIntentId, nonceHash: await sha256Hex(r.nonce), linkId: link.linkId });
       if (x.reason !== 'OK') return failReason(x.reason);
       return { integrationVersion: INTEGRATION_VERSION, kind: 'course-launch-response', operation: r.operation, ok: true, linkId: link.linkId, event: x.event as ExternalCourseEvent, expiresAt: x.expiresAt };
     },
   };
+  return service;
 }
 export type LaunchService = ReturnType<typeof createLaunchService>;

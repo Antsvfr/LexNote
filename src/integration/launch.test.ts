@@ -43,11 +43,11 @@ describe('comptes non liés / non connectés : rien n’est créé', () => {
     expect(s.json).toMatchObject({ ok: false, error: { code: 'LINK_NOT_FOUND' } });
     expect((await w.R.db.query('select 1 from integration_launch_intents')).rows).toHaveLength(0);
   });
-  it('LexNote : utilisateur sans liaison → LINK_NOT_FOUND, aucune matière ni séance', async () => {
+  it('LexNote : utilisateur sans liaison → WRONG_ACCOUNT (le lancement appartient à un autre compte), aucune matière ni séance', async () => {
     await link(U.revemA, U.lexA); give(U.revemA, ev());
     const { intent, nonce } = intentOf((await startLaunch()).json.launchUrl);
-    const r = await open(intent, nonce, U.lexB);                 // B n'est lié à personne
-    expect(r.json).toMatchObject({ ok: false, error: { code: 'LINK_NOT_FOUND' } });
+    const r = await open(intent, nonce, U.lexB);                 // B n'est lié à personne ; l'intention (nonce valide) vise la liaison de A
+    expect(r.json).toMatchObject({ ok: false, error: { code: 'WRONG_ACCOUNT' } });
     expect(await count('course_sessions')).toBe(0); expect(await count('subjects')).toBe(0);
   });
   it('utilisateur LexNote non authentifié → 401, rien créé', async () => {
@@ -224,7 +224,7 @@ describe('sécurité des intentions', () => {
     await link(U.revemB, U.lexB);
     const { intent, nonce } = intentOf((await startLaunch('evt_1', U.revemA)).json.launchUrl);
     const r = await open(intent, nonce, U.lexB);
-    expect(r.json).toMatchObject({ ok: false, error: { code: 'NOT_FOUND' } });
+    expect(r.json).toMatchObject({ ok: false, error: { code: 'WRONG_ACCOUNT' } });          // message clair, sans rien consommer
     expect(await sessions(U.lexA)).toHaveLength(0); expect(await sessions(U.lexB)).toHaveLength(0);
     expect((await open(intent, nonce, U.lexA)).json.ok).toBe(true);           // A, lui, peut toujours l'utiliser
   });

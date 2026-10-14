@@ -79,7 +79,9 @@ async function signedResponse(cfg: IntegrationConfig, linkId: string, payload: P
 /* ====================================================================================================== fonction utilisateur */
 
 export interface UserDeps { cfg: IntegrationConfig; service: LinkService; launch?: LaunchService; authenticate(req: Request): Promise<string> }
-const ACTIONS = ['start', 'cancel', 'inspect', 'confirm', 'status', 'revoke', 'launch-start', 'launch-open'] as const;
+const ACTIONS = ['start', 'cancel', 'inspect', 'confirm', 'status', 'revoke', 'auto-login', 'launch-start', 'launch-open', 'launch-signin'] as const;
+/** Seule action SANS session : la connexion automatique. Elle n'accepte qu'une intention + nonce (capacité à usage unique, ≤ 120 s). */
+const PUBLIC_ACTIONS: ReadonlySet<string> = new Set(['launch-signin']);
 
 function cors(origin: string | null): Record<string, string> {
   return origin ? { 'access-control-allow-origin': origin, 'access-control-allow-headers': 'authorization, x-client-info, apikey, content-type', 'access-control-allow-methods': 'POST, OPTIONS', vary: 'Origin' } : { vary: 'Origin' };
@@ -94,10 +96,11 @@ export async function handleUserRequest(req: Request, deps: UserDeps): Promise<R
   const reply = (body: unknown, status = 200) => jsonResponse(JSON.stringify(body), status, cors(origin));
   try {
     if (req.method !== 'POST') return reply({ ok: false, error: integrationError('INVALID_PAYLOAD', 'Méthode non autorisée.') }, 405);
-    const userId = await deps.authenticate(req);                                  // identité issue du JETON, jamais du corps
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const action = String(body.action ?? '') as (typeof ACTIONS)[number];
     if (!ACTIONS.includes(action)) return fail('INVALID_PAYLOAD', 'Action inconnue.');
+    // Identité issue du JETON, jamais du corps ; toutes les actions l'exigent, sauf la connexion automatique (qui n'en a pas encore).
+    const userId = PUBLIC_ACTIONS.has(action) ? '' : await deps.authenticate(req);
     const uuid = (v: unknown) => (typeof v === 'string' && /^[0-9a-f-]{36}$/i.test(v) ? v : fail('INVALID_PAYLOAD', 'Identifiant invalide.'));
     const nonce = (v: unknown) => (typeof v === 'string' && /^[A-Za-z0-9_-]{32,100}$/.test(v) ? v : fail('INVALID_PAYLOAD', 'Code invalide.'));
     switch (action) {
@@ -105,12 +108,16 @@ export async function handleUserRequest(req: Request, deps: UserDeps): Promise<R
       case 'cancel': await service.cancelLink(userId); return reply({ ok: true });
       case 'inspect': return reply({ ok: true, ...(await service.inspect(uuid(body.linkIntentId), nonce(body.nonce))) });
       case 'confirm': {
-        const state = await service.confirm(userId, uuid(body.linkIntentId), nonce(body.nonce));
+        const state = await service.confirm(userId, uuid(body.linkIntentId), nonce(body.nonce), { autoLogin: body.autoLogin === true });
         const back = new URL(cfg.peerAppUrl); back.searchParams.set(`${cfg.self}_link`, 'connected');
         return reply({ ok: true, state, returnUrl: back.toString() });
       }
       case 'status': return reply({ ok: true, state: await service.getState(userId, { probe: body.probe !== false }) });
       case 'revoke': return reply({ ok: true, ...(await service.revoke(userId)) });
+      case 'auto-login': {
+        if (typeof body.enabled !== 'boolean') return fail('INVALID_PAYLOAD', 'Valeur attendue : enabled (booléen).');
+        return reply({ ok: true, state: await service.setAutoLogin(userId, body.enabled) });
+      }
       case 'launch-start': {
         if (!deps.launch) return fail('INVALID_PAYLOAD', 'Action non disponible.');
         const eventId = typeof body.eventId === 'string' && /^[A-Za-z0-9._:~@-]{1,128}$/.test(body.eventId) ? body.eventId : fail('INVALID_PAYLOAD', 'Évènement invalide.');
@@ -121,6 +128,12 @@ export async function handleUserRequest(req: Request, deps: UserDeps): Promise<R
         if (!deps.launch) return fail('INVALID_PAYLOAD', 'Action non disponible.');
         const r = await deps.launch.openLaunch(userId, uuid(body.launchIntentId), nonce(body.nonce));
         return reply({ ok: true, sessionId: r.sessionId, subjectId: r.subjectId, createdSession: !!r.createdSession, createdSubject: !!r.createdSubject });
+      }
+      case 'launch-signin': {
+        if (!deps.launch) return fail('INVALID_PAYLOAD', 'Action non disponible.');
+        const r = await deps.launch.signInLaunch(uuid(body.launchIntentId), nonce(body.nonce));
+        // Session ordinaire de l'utilisateur lié, dans le CORPS de la réponse (no-store) : jamais dans une URL, jamais de secret serveur.
+        return reply({ ok: true, session: r.session, sessionId: r.sessionId, subjectId: r.subjectId, createdSession: !!r.createdSession, createdSubject: !!r.createdSubject });
       }
     }
   } catch (e) {

@@ -11,3 +11,4 @@ export * from './peer';
 export * from './linking';
 export * from './launch';
 export * from './gateway';
+export * from './sessions';

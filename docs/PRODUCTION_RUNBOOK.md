@@ -51,6 +51,11 @@ Il est lui-même testé : vert sur les deux migrations, rouge quand on dégrade 
 > `16 study_ai_usage` (#11). Seules **14, 15, 16** restent à appliquer, dans cet ordre, après fusion de #12 → #10 → #11, puis
 > `verify-schema` (13 PASS). `study-ai` : voir `docs/TRANSCRIPT_ACTIONS.md` §7 (secrets, déploiement, smoke test réel).
 
+> **Authentification durable (PR `claude/persistent-revem-auth`)** : appliquer `20261017000000_auth_devices_auto_login.sql` (LexNote) et
+> `009_integration_launch_identify.sql` (REV-EM) ; redéployer `integration-link` et `integration-gateway` des deux projets — `supabase/config.toml`
+> fixe `verify_jwt = false` pour les passerelles (et `integration-link` côté LexNote). Contrôle : un POST vide sur `…/integration-gateway`
+> doit renvoyer un JSON `integration-error`, pas `Missing authorization header`. Détails : `docs/REVEM_LEXNOTE_INTEGRATION.md` §14.
+
 ## 3. Secrets (identiques à la clé près, un jeu par projet)
 
 ```bash

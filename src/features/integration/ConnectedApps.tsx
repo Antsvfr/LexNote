@@ -3,13 +3,14 @@ import { useLocation } from 'react-router-dom';
 import { Link2, Link2Off, RefreshCw, ShieldCheck } from 'lucide-react';
 import { confirm } from '@/components/confirm';
 import { toast } from '@/store/toasts';
-import { errorText, useConnection } from './useConnection';
+import { errorCodeLabel, errorText, useConnection } from './useConnection';
+import { DevicesPanel } from './DevicesPanel';
 
 const formatDate = (iso: string) => new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
 
 /** Réglages › Applications connectées › REV-EM. L'affichage « Connecté » exige que les DEUX côtés le confirment. */
 export function ConnectedApps() {
-  const { state, error, busy, refresh, revoke } = useConnection();
+  const { state, error, busy, refresh, revoke, setAutoLogin } = useConnection();
   const { hash } = useLocation();
   useEffect(() => { if (hash === '#apps-h') document.getElementById('apps-h')?.scrollIntoView({ block: 'start' }); }, [hash]);
   const s = state?.state;
@@ -20,6 +21,16 @@ export function ConnectedApps() {
     const r = await revoke();
     if (r?.ok) toast.success(r.peerNotified ? 'REV-EM est déconnecté.' : 'Déconnecté de LexNote. REV-EM l’apprendra à sa prochaine synchronisation.');
     else toast.error('La déconnexion a échoué. Réessayez.');
+  }
+
+  async function toggleAutoLogin(enabled: boolean) {
+    if (enabled) {
+      const ok = await confirm({ title: 'Autoriser la connexion automatique ?', message: 'Lorsque vous êtes connecté à votre compte REV-EM, vous pourrez ouvrir LexNote sans ressaisir votre mot de passe sur les appareils autorisés. Vous pourrez désactiver cette autorisation à tout moment.', confirmLabel: 'Autoriser' });
+      if (!ok) return;
+    }
+    const r = await setAutoLogin(enabled);
+    if (r.ok) toast.success(enabled ? 'Connexion automatique depuis REV-EM activée.' : 'Connexion automatique désactivée. La liaison avec REV-EM est conservée.');
+    else toast.error('Le réglage n’a pas pu être enregistré. Réessayez.');
   }
 
   return (
@@ -37,15 +48,22 @@ export function ConnectedApps() {
           {(s === 'ERROR' || (error && !state)) && <span className="tag tag--warn" data-testid="revem-status">Vérification impossible</span>}
         </div>
         {s === 'CONNECTED' && <p className="muted" data-testid="revem-since">Connecté depuis le {state?.linkedAt ? formatDate(state.linkedAt) : '—'}. Seules des références (titres, dates, compteurs) peuvent être échangées — jamais vos notes, transcriptions ni fichiers audio.</p>}
+        {s === 'CONNECTED' && (
+          <label className="check" data-testid="revem-auto">
+            <input type="checkbox" checked={state?.autoLogin === true} disabled={busy} onChange={(e) => void toggleAutoLogin(e.target.checked)} data-testid="revem-auto-toggle" />
+            <span><strong>Connexion automatique depuis REV-EM</strong><small>{state?.autoLogin ? 'Activée : depuis REV-EM, LexNote s’ouvre sans mot de passe. Décochez pour la retirer immédiatement (la liaison reste).' : 'Désactivée : LexNote vous demandera de vous connecter si votre session n’est plus ouverte.'}</small></span>
+          </label>
+        )}
         {s === 'NOT_CONNECTED' && <p className="muted" data-testid="revem-howto">Pour connecter REV-EM : ouvrez REV-EM › Réglages › Applications connectées › LexNote › <em>Connecter</em>. Vous reviendrez ici pour autoriser.</p>}
         {s === 'REVOKED' && <p className="muted" data-testid="revem-revoked">{state?.revokedBy === 'partner' ? 'REV-EM a mis fin à la connexion' : 'Vous avez mis fin à la connexion'}{state?.revokedAt ? ` le ${formatDate(state.revokedAt)}` : ''}. Vos données n’ont pas été supprimées. Pour reconnecter, relancez la connexion depuis REV-EM.</p>}
         {s === 'ERROR' && <p className="muted" role="status">{state?.errorCode === 'PEER_UNREACHABLE' ? 'REV-EM est injoignable pour le moment : la connexion n’a pas pu être vérifiée.' : state?.errorCode === 'PEER_MISSING' ? 'REV-EM ne reconnaît plus cette connexion. Déconnectez puis reconnectez depuis REV-EM.' : 'La connexion est dans un état incohérent. Déconnectez-la puis reconnectez-la depuis REV-EM.'}</p>}
-        {error && !state && <p className="muted" role="alert">{errorText(error)}</p>}
+        {error && !state && <p className="muted" role="alert">{errorText(error)} <small data-testid="revem-error-code">Code : {errorCodeLabel(error)}</small></p>}
         <div className="row-actions">
           {(s === 'CONNECTED' || s === 'ERROR' || s === 'PENDING') && <button className="btn btn--danger" onClick={disconnect} disabled={busy} data-testid="revem-disconnect"><Link2Off /> Déconnecter</button>}
           <button className="btn btn--ghost" onClick={() => void refresh()} disabled={busy} aria-label="Revérifier la connexion" data-testid="revem-refresh"><RefreshCw /> Vérifier</button>
         </div>
       </div>
+      <DevicesPanel />
     </section>
   );
 }

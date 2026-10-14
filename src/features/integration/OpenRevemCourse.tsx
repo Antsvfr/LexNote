@@ -5,7 +5,10 @@ import { getBackend } from '@/services/backend';
 import { syncNow } from '@/services/workspace';
 import { useLibrary } from '@/store/library';
 import type { IntegrationFailureBody } from '@/services/integration/types';
+import { useAuth } from '@/store/auth';
 import { clearPendingLaunch, readLaunchResult, readPendingLaunch, saveLaunchResult } from './launchPending';
+import { LAUNCH_STILL_USABLE } from './autoSignIn';
+import { errorCodeLabel } from './useConnection';
 
 const LINK_CODES = new Set(['LINK_NOT_FOUND', 'LINK_REVOKED', 'LINK_PENDING']);
 const TEXT: Record<string, string> = {
@@ -16,7 +19,11 @@ const TEXT: Record<string, string> = {
   GONE: 'Cette ouverture a déjà été utilisée ou le cours est annulé. Retournez dans REV-EM et cliquez de nouveau sur « Prendre mes notes dans LexNote ».',
   NOT_FOUND: 'Cette ouverture est introuvable. Retournez dans REV-EM et cliquez de nouveau sur « Prendre mes notes dans LexNote ».',
   FORBIDDEN: 'Cette ouverture n’est pas valide pour ce compte. Retournez dans REV-EM et recommencez.',
-  UNAUTHENTICATED: 'Votre session LexNote a expiré. Reconnectez-vous, puis relancez depuis REV-EM.',
+  UNAUTHENTICATED: 'Votre session LexNote n’a pas été reconnue. Reconnectez-vous : l’ouverture reprendra.',
+  SESSION_REQUIRED: 'Votre session LexNote a expiré. Reconnectez-vous : l’ouverture reprendra.',
+  WRONG_ACCOUNT: 'Ce cours est lié à un AUTRE compte LexNote que celui connecté ici. Déconnectez-vous pour continuer avec le bon compte.',
+  PEER_AUTH_FAILED: 'Les serveurs de LexNote et de REV-EM n’ont pas pu s’authentifier mutuellement (configuration du service). Votre session n’est pas en cause.',
+  OFFLINE: 'Vous êtes hors ligne. Reconnectez-vous à Internet puis réessayez.',
   RATE_LIMITED: 'Trop de tentatives. Patientez un instant puis réessayez.',
   UNAVAILABLE: 'LexNote ou REV-EM est momentanément injoignable. Vérifiez votre connexion puis réessayez.',
   TIMEOUT: 'REV-EM ne répond pas. Réessayez dans un instant.',
@@ -30,7 +37,8 @@ function openOnce(intent: string, nonce: string) {
   if (!p) {
     p = getBackend().then((b) => b.integration.call('launch-open', { launchIntentId: intent, nonce })).then((r) => {
       if (r.ok && r.sessionId) { saveLaunchResult(intent, r.sessionId); clearPendingLaunch(); return { ok: true as const, sessionId: r.sessionId }; }
-      clearPendingLaunch();                         // l'intention est consommée ou invalide : inutile de la garder
+      // Intention consommée ou invalide : inutile de la garder. Sinon (session, réseau, mauvais compte…) elle reste utilisable.
+      if (r.ok || !LAUNCH_STILL_USABLE.has(r.error.code)) clearPendingLaunch();
       return { ok: false as const, error: r.ok ? { code: 'INTERNAL', message: '', retryable: false } : r.error };
     }).catch(() => ({ ok: false as const, error: { code: 'UNAVAILABLE', message: '', retryable: true } }));
     inflight.set(intent, p);
@@ -63,6 +71,14 @@ export function OpenRevemCourse() {
   const [attempt, setAttempt] = useState(0);
   const pending = readPendingLaunch(intent);
   const known = readLaunchResult(intent);
+  const { sessionLost, signOut } = useAuth();
+  // Session LexNote réellement perdue : retour à la connexion ; l'intention (sessionStorage, ≤ 10 min) est reprise après.
+  useEffect(() => { if (error?.code === 'SESSION_REQUIRED') void sessionLost(); }, [error, sessionLost]);
+  /** Mauvais compte : on se déconnecte (cet appareil) puis on repasse par l'entrée de lancement (connexion automatique ou manuelle). */
+  async function switchAccount() {
+    await signOut();
+    navigate(`/integrations/revem/launch?intent=${encodeURIComponent(intent)}`, { replace: true });
+  }
 
   const run = useCallback(async (signal: { cancelled: boolean }) => {
     setError(null); setSlow(null);
@@ -102,8 +118,9 @@ export function OpenRevemCourse() {
         {error && (
           <>
             <h1>Impossible d’ouvrir ce cours</h1>
-            <div className="banner banner--warn" role="alert" data-testid="open-error"><TriangleAlert size={16} aria-hidden /> {errorText(error)}</div>
+            <div className="banner banner--warn" role="alert" data-testid="open-error"><TriangleAlert size={16} aria-hidden /> <span>{errorText(error)} <small className="muted" data-testid="open-error-code">Code : {errorCodeLabel(error)}</small></span></div>
             <div className="row-actions">
+              {error.code === 'WRONG_ACCOUNT' && <button className="btn btn--primary" onClick={() => void switchAccount()} data-testid="open-switch-account">Changer de compte</button>}
               {LINK_CODES.has(error.code) && <Link className="btn btn--primary" to="/settings#apps-h" data-testid="open-connect"><Link2 size={14} aria-hidden /> Applications connectées</Link>}
               <Link className="btn" to="/">Ouvrir LexNote</Link>
             </div>

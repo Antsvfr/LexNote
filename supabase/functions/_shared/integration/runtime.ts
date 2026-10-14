@@ -2,7 +2,7 @@
 // Ici : lecture des secrets du projet, client service role (serveur uniquement), authentification de l'utilisateur par SON jeton.
 // @ts-nocheck — le paquet généré n'a pas de déclarations de types.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { createLaunchService, createLinkService, createPeerClient, createRpcLaunchStore, createRpcStore, fail, readIntegrationConfig } from './lexnote-revem-v1.mjs';
+import { createLaunchService, createLinkService, createPeerClient, createRpcLaunchStore, createRpcStore, createSessionMinter, fail, readIntegrationConfig } from './lexnote-revem-v1.mjs';
 
 export const SELF = 'lexnote';   // ← REV-EM : 'revem'
 
@@ -18,7 +18,12 @@ export function runtime() {
   const service = createLinkService({ cfg, store, peer });
   // Ouverture d'un cours REV-EM : LexNote crée / retrouve matière + séance (RPC idempotente) ; la lecture du planning n'existe que côté REV-EM.
   const launchStore = createRpcLaunchStore(admin);
-  const launch = createLaunchService({ cfg, links: service, linkStore: store, launchStore, peer, courses: launchStore });
+  // Connexion automatique (LexNote seulement) : session Supabase ordinaire pour l'utilisateur de la liaison, créée par Auth admin dans CE processus.
+  // Ni la clé service_role ni le jeton à usage unique ne quittent le serveur ; le navigateur reçoit une paire access / refresh standard.
+  const sessions = SELF === 'lexnote'
+    ? createSessionMinter(admin.auth.admin, () => createClient(env('SUPABASE_URL'), env('SUPABASE_ANON_KEY'), { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } }).auth)
+    : undefined;
+  const launch = createLaunchService({ cfg, links: service, linkStore: store, launchStore, peer, courses: launchStore, sessions });
   // L'identité vient du jeton de l'appelant, vérifié par Supabase Auth — jamais d'un champ du corps de la requête.
   const authenticate = async (req) => {
     const auth = req.headers.get('Authorization') ?? '';

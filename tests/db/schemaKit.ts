@@ -15,6 +15,7 @@ export const OFFICIAL_MIGRATIONS = [
   '20261014000000_revem_course_refs.sql',
   '20261015000000_transcript_derived_artifacts.sql',
   '20261016000000_study_ai_usage.sql',
+  '20261017000000_auth_devices_auto_login.sql',
 ] as const;
 export const A = '11111111-1111-4111-8111-111111111111';
 export const B = '22222222-2222-4222-8222-222222222222';
@@ -28,6 +29,7 @@ export async function supabaseShim(): Promise<PGlite> {
     create role anon nologin; create role authenticated nologin; create role service_role nologin bypassrls;
     create schema auth;
     create table auth.users (id uuid primary key, email text, raw_user_meta_data jsonb default '{}'::jsonb);
+    create table auth.sessions (id uuid primary key, user_id uuid not null references auth.users (id) on delete cascade);
     create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
     grant usage on schema auth to anon, authenticated, service_role; grant execute on function auth.uid() to anon, authenticated;
     grant usage on schema public to anon, authenticated, service_role;

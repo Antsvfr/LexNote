@@ -46,13 +46,28 @@ export interface AuthRepository {
   onAuthChange(cb: (event: AuthEvent, user: AuthUser | null) => void): () => void;
   signUp(email: string, password: string): Promise<SignUpResult>;
   signIn(email: string, password: string): Promise<AuthUser>;
-  signOut(): Promise<void>;
+  /** `local` (défaut) : CET appareil seulement. `global` : révoque toutes les sessions du compte (« Déconnecter tous les appareils »). */
+  signOut(opts?: { scope?: 'local' | 'global' }): Promise<void>;
+  /** Installe une session ordinaire remise par le serveur (connexion automatique depuis REV-EM). Jamais de mot de passe. */
+  adoptSession(tokens: { access_token: string; refresh_token: string }): Promise<AuthUser>;
+  /** Registre des appareils (affichage + déconnexion d'un appareil). Absent sans backend. */
+  devices?: DeviceRepository;
   requestPasswordReset(email: string): Promise<void>;
   updatePassword(newPassword: string): Promise<void>;
   /** Suppression définitive du compte : nécessite une fonction serveur (voir supabase/functions/delete-account). */
   deleteAccount(): Promise<void>;
   /** Jeton de session (pour appeler une fonction serveur du moteur de cours). */
   getAccessToken?(): Promise<string | null>;
+}
+
+export interface UserDevice { deviceId: string; label: string; standalone: boolean; remember: boolean; createdAt: string; lastSeenAt: string; hasSession: boolean }
+export interface DeviceRepository {
+  touch(d: { deviceId: string; label: string; standalone: boolean; remember: boolean }): Promise<void>;
+  list(): Promise<UserDevice[]>;
+  /** Supprime la session Supabase de cet appareil (son jeton de rafraîchissement cesse de fonctionner) et le retire de la liste. */
+  revoke(deviceId: string): Promise<void>;
+  /** Après une déconnexion globale : vide la liste. */
+  forgetAll(): Promise<void>;
 }
 
 export interface ProfileRepository {

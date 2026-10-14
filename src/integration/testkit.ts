@@ -19,7 +19,7 @@ export const U = {
 export const EMAIL = { revemA: 'alice@revem.test', revemB: 'bob@revem.test', lexA: 'alice@lexnote.test', lexB: 'bob@lexnote.test' };
 const LEX_SQL = 'supabase/migrations/20261011000000_integration_links.sql';
 /** Schéma LexNote COMPLET (matières, séances, …) : l'ouverture d'un cours crée de vraies lignes, la RLS et les clés composites s'appliquent. */
-const LEX_SCHEMA = ['20261007000000_lexnote_init', '20261008000000_study_artifacts', '20261009000000_course_engine', '20261010000000_study_artifacts_from_course', '20261011000000_integration_links', '20261012000000_fk_indexes', '20261013000000_security_hardening', '20261014000000_revem_course_refs'].map((f) => `supabase/migrations/${f}.sql`);
+const LEX_SCHEMA = ['20261007000000_lexnote_init', '20261008000000_study_artifacts', '20261009000000_course_engine', '20261010000000_study_artifacts_from_course', '20261011000000_integration_links', '20261012000000_fk_indexes', '20261013000000_security_hardening', '20261014000000_revem_course_refs', '20261017000000_auth_devices_auto_login'].map((f) => `supabase/migrations/${f}.sql`);
 const REVEM_REPO = process.env.REVEM_REPO ?? '/home/user/rev-em';
 const REVEM_SQL = `${REVEM_REPO}/supabase/migrations/006_integration_links.sql`;
 /** Migration REV-EM du lancement de cours : lue dans le dépôt REV-EM s'il est présent, sinon copie versionnée (CI sans dépôt voisin).
@@ -27,12 +27,17 @@ const REVEM_SQL = `${REVEM_REPO}/supabase/migrations/006_integration_links.sql`;
 export const REVEM_LAUNCH_FIXTURE = 'tests/fixtures/revem/008_integration_launch.sql';
 export const REVEM_LAUNCH_REPO_SQL = `${REVEM_REPO}/supabase/migrations/008_integration_launch.sql`;
 const REVEM_LAUNCH_SQL = existsSync(REVEM_LAUNCH_REPO_SQL) ? REVEM_LAUNCH_REPO_SQL : REVEM_LAUNCH_FIXTURE;
+/** Migration REV-EM de la connexion automatique (identification d'un lancement, sans consommation) : même règle que 008. */
+export const REVEM_IDENTIFY_FIXTURE = 'tests/fixtures/revem/009_integration_launch_identify.sql';
+export const REVEM_IDENTIFY_REPO_SQL = `${REVEM_REPO}/supabase/migrations/009_integration_launch_identify.sql`;
+const REVEM_IDENTIFY_SQL = existsSync(REVEM_IDENTIFY_REPO_SQL) ? REVEM_IDENTIFY_REPO_SQL : REVEM_IDENTIFY_FIXTURE;
 
 export async function makeDb(kind: 'revem' | 'lexnote', users: [string, string, string][]): Promise<PGlite> {
   const db = new PGlite();
   await db.exec(`
     create role anon nologin; create role authenticated nologin; create role service_role nologin bypassrls;
     create schema auth; create table auth.users (id uuid primary key, email text);
+    create table auth.sessions (id uuid primary key, user_id uuid not null references auth.users (id) on delete cascade);
     create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
     grant usage on schema auth to anon, authenticated; grant execute on function auth.uid() to anon, authenticated;
     grant usage on schema public to anon, authenticated, service_role;
@@ -43,6 +48,7 @@ export async function makeDb(kind: 'revem' | 'lexnote', users: [string, string, 
   if (kind === 'lexnote') { for (const f of LEX_SCHEMA) await db.exec(readFileSync(f, 'utf8')); } else {
     await db.exec(sql);
     if (existsSync(REVEM_LAUNCH_SQL)) await db.exec(readFileSync(REVEM_LAUNCH_SQL, 'utf8'));
+    await db.exec(readFileSync(REVEM_IDENTIFY_SQL, 'utf8'));
   }
   for (const [id, email, name] of users) {
     await db.query('insert into auth.users values ($1,$2)', [id, email]);      // LexNote : le déclencheur crée le profil
@@ -72,6 +78,8 @@ export interface World {
   clock: { now: Date }; netDown: { value: boolean }; hook: { before?: (op: string) => void };
   /** Cours de REV-EM par `${userId}:${eventId}` — ce que la source côté serveur de REV-EM renverrait (le vrai mapper est testé dans le dépôt REV-EM). */
   events: Record<string, ExternalCourseEvent>;
+  /** Sessions créées par la connexion automatique (utilisateur LexNote) — le vrai `SessionMinter` est testé à part (sessions.test.ts). */
+  minted: string[];
   reset(): Promise<void>;
   userReq(side: 'R' | 'L', userId: string | null, body: unknown, origin?: string | null): Promise<{ status: number; json: any; headers: Headers }>;
 }
@@ -104,25 +112,28 @@ export async function makeWorld(): Promise<World> {
     return { status: res.status, text: async () => text, headers: { get: (n: string) => res.headers.get(n) } };
   };
   const events: World['events'] = {};
+  const minted: string[] = [];
+  const sessions = { async mint(userId: string) { minted.push(userId); return { access_token: `at-${userId}`, refresh_token: `rt-${userId}`, expires_in: 3600, expires_at: Math.floor(Date.now() / 1000) + 3600, token_type: 'bearer' as const }; } };
   const source: LaunchSource = { async resolveEvent(userId, { eventId }) { return events[`${userId}:${eventId}`] ?? null; } };
   const build = (cfg: IntegrationConfig, db: PGlite, peerTarget: 'R' | 'L'): Side => {
     const store = createRpcStore(rpcOf(db));
     const peer = createPeerClient(cfg, { fetch: netTo(peerTarget), now });
     const service = createLinkService({ cfg, store, peer, now });
     const lstore = createRpcLaunchStore(rpcOf(db));
-    const launch = createLaunchService({ cfg, links: service, linkStore: store, launchStore: lstore, peer, ...(cfg.self === 'revem' ? { source } : { courses: lstore }) });
+    const launch = createLaunchService({ cfg, links: service, linkStore: store, launchStore: lstore, peer, ...(cfg.self === 'revem' ? { source } : { courses: lstore, sessions }) });
     const authenticate = async (req: Request) => { const a = req.headers.get('authorization') ?? ''; const m = /^Bearer test-(.+)$/.exec(a); return m ? m[1]! : fail('UNAUTHENTICATED', 'Jeton absent ou invalide.'); };
     return { cfg, db, store, service, launch, gw: { cfg, store, service, launch, now }, user: { cfg, service, launch, authenticate } };
   };
   sides.R = build(Rcfg, Rdb, 'L'); sides.L = build(Lcfg, Ldb, 'R');
 
   return {
-    R: sides.R, L: sides.L, traffic, clock, netDown, hook, events,
+    R: sides.R, L: sides.L, traffic, clock, netDown, hook, events, minted,
     async reset() {
       for (const db of [Rdb, Ldb]) await db.exec('truncate integration_links, integration_link_intents, integration_nonces');
       await Rdb.exec('truncate integration_launch_intents');
       await Ldb.exec('truncate integration_course_refs, integration_subject_refs; delete from course_sessions; delete from subjects');
       for (const k of Object.keys(events)) delete events[k];
+      minted.length = 0;
       traffic.length = 0; netDown.value = false; hook.before = undefined; clock.now = start();
     },
     async userReq(side, userId, body, origin = side === 'R' ? 'https://antsvfr.github.io' : 'https://lexnote.example.app') {

@@ -1,0 +1,17 @@
+# Configuration versionnée des Edge Functions (lue par `supabase functions deploy` et `supabase start`).
+#
+# POURQUOI : sans `verify_jwt = false`, la plateforme Supabase exige un JWT UTILISATEUR et répond 401 AVANT d'exécuter la fonction.
+#  * integration-gateway (serveur → serveur) : protégée par la signature HMAC lexnote-revem/v1, jamais par un JWT. Un redéploiement
+#    sans `--no-verify-jwt` (CLI ou tableau de bord) la rendait silencieusement inaccessible au partenaire — refus affiché à l'étudiant comme
+#    « Votre session a expiré ». Le fixer ici rend le réglage durable.
+#  * integration-link : authentifie elle-même chaque action par `auth.getUser()` (jeton de l'utilisateur), SAUF `launch-signin`
+#    (connexion automatique, sans session par définition, protégée par l'intention à usage unique + nonce + consentement).
+#    La vérification de la plateforme est donc désactivée ici : elle refuserait `launch-signin` avec les clés publiques non-JWT.
+# Les autres fonctions gardent la vérification par défaut.
+project_id = "lexnote"
+
+[functions.integration-gateway]
+verify_jwt = false
+
+[functions.integration-link]
+verify_jwt = false
