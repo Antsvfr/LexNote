@@ -143,15 +143,18 @@ export function mustBeFlagged(item: Pick<LegalItem, 'provenance' | 'verification
   return item.provenance === 'AI' || item.verification !== 'VERIFIED';
 }
 
-/** Types de blocs de notes juridiques (édités dans l'éditeur). */
+/**
+ * Types de blocs de notes (édités dans l'éditeur). Les blocs généraux servent à toutes les filières ; « Article » et
+ * « Jurisprudence » sont des blocs SPÉCIALISÉS (droit), proposés à part — les identifiants internes restent inchangés (compatibilité des notes).
+ */
 export type NoteBlockKind = 'article' | 'caselaw' | 'definition' | 'important' | 'example' | 'question';
 
 export const NOTE_BLOCKS: Record<
   NoteBlockKind,
-  { label: string; emoji: string; legalKind: LegalItemKind; hint: string }
+  { label: string; emoji: string; legalKind: LegalItemKind; hint: string; specialty?: string }
 > = {
-  article: { label: 'Article', emoji: '⚖️', legalKind: 'ARTICLE_OF_LAW', hint: 'Texte de loi' },
-  caselaw: { label: 'Jurisprudence', emoji: '📚', legalKind: 'CASE_LAW', hint: 'Arrêt, décision' },
+  article: { label: 'Article', emoji: '⚖️', legalKind: 'ARTICLE_OF_LAW', hint: 'Texte de loi', specialty: 'Droit' },
+  caselaw: { label: 'Jurisprudence', emoji: '📚', legalKind: 'CASE_LAW', hint: 'Arrêt, décision', specialty: 'Droit' },
   definition: { label: 'Définition', emoji: '💡', legalKind: 'LEGAL_DEFINITION', hint: 'Notion à retenir' },
   important: { label: 'Important', emoji: '⭐', legalKind: 'IMPORTANT_POINT', hint: 'Point clé du cours' },
   example: { label: 'Exemple du professeur', emoji: '🧑‍🏫', legalKind: 'PROFESSOR_EXAMPLE', hint: 'Illustration' },

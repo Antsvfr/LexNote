@@ -61,7 +61,7 @@ export function toMarkdown(a: StudyArtifact, opts: { sources?: boolean } = {}): 
       break;
     }
   }
-  return `${lines.join('\n').trim()}\n\n---\n*${ARTIFACT_LABELS[a.type]} générée à partir du cours reconstruit (version ${a.courseVersion}) par LexNote. Vérifiez toujours les références juridiques.*\n`;
+  return `${lines.join('\n').trim()}\n\n---\n*${ARTIFACT_LABELS[a.type]} générée à partir du cours reconstruit (version ${a.courseVersion}) par LexNote. Vérifiez toujours les références et les informations importantes auprès de vos sources.*\n`;
 }
 
 /* ------------------------------------------------------------------ SVG (indépendant de React : même rendu écran / export / impression) */

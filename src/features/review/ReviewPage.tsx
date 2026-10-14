@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
-import { BarChart3, BookOpen, Brain, CalendarClock, FileText, HelpCircle, ListOrdered, Network, TriangleAlert, type LucideIcon } from 'lucide-react';
+import { TriangleAlert } from 'lucide-react';
 import { useLibrary } from '@/store/library';
 import { useArtifacts } from '@/store/artifacts';
 import { useEngine } from '@/store/engine';
@@ -10,16 +10,15 @@ import { SessionSpaces } from '@/components/SessionSpaces';
 import { SubjectDot } from '@/components/SubjectDot';
 import { sessionLabel } from '@/domain/session';
 import { formatRelative } from '@/lib/dates';
-import { ARTIFACT_LABELS, ARTIFACT_TYPES, type ArtifactType } from '@/domain/study';
+import { ARTIFACT_LABELS, ARTIFACT_TYPES, COURSE_ARTIFACT_TYPES, type CourseArtifactType } from '@/domain/study';
+import { ARTIFACT_ICONS as ICONS, ARTIFACT_PLURALS as PLURAL } from '@/features/study/artifactMeta';
 import { isStale, latestCourse, treeOf } from '@/services/study/engine';
 import { suggestSupports } from '@/services/study/generators';
 
-const ICONS: Record<ArtifactType, LucideIcon> = { COURSE_SHEET: FileText, MIND_MAP: Brain, DIAGRAM: Network, COMPARISON_TABLE: BarChart3, TIMELINE: CalendarClock, METHOD: ListOrdered, FLASHCARDS: BookOpen, QUIZ: HelpCircle };
-const CREATE: Record<ArtifactType, string> = {
+const CREATE: Record<CourseArtifactType, string> = {
   COURSE_SHEET: 'Créer une fiche', MIND_MAP: 'Créer une carte mentale', DIAGRAM: 'Créer un schéma', COMPARISON_TABLE: 'Créer un tableau',
   TIMELINE: 'Créer une chronologie', METHOD: 'Créer une méthode', FLASHCARDS: 'Créer des flashcards', QUIZ: 'Créer un quiz',
 };
-const PLURAL: Record<ArtifactType, string> = { COURSE_SHEET: 'Fiches', MIND_MAP: 'Cartes mentales', DIAGRAM: 'Schémas', COMPARISON_TABLE: 'Tableaux comparatifs', TIMELINE: 'Chronologies', METHOD: 'Méthodes', FLASHCARDS: 'Flashcards', QUIZ: 'Quiz' };
 
 /** « Réviser » : la bibliothèque de supports dérivés du cours reconstruit de cette séance. */
 export function ReviewPage() {
@@ -55,7 +54,7 @@ export function ReviewPage() {
       ) : (
         <section className="panel rv" aria-label="Créer un support">
           <div className="rv__make" role="group" aria-label="Créer un support">
-            {ARTIFACT_TYPES.map((t) => { const Icon = ICONS[t]; return (
+            {COURSE_ARTIFACT_TYPES.map((t) => { const Icon = ICONS[t]; return (
               <button key={t} className="btn btn--sm" onClick={() => open({ sessionId: session.id, type: t })} data-testid={`review-create-${t}`}><Icon size={14} aria-hidden /> {CREATE[t]}</button>
             ); })}
           </div>

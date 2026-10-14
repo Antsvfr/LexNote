@@ -13,13 +13,13 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      // "prompt" : on ne recharge jamais l'app sous les doigts de l'étudiant pendant un CM.
+      // "prompt" : on ne recharge jamais l'app sous les doigts de l'étudiant pendant une séance.
       registerType: 'prompt',
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       manifest: {
         name: 'LexNote',
         short_name: 'LexNote',
-        description: 'Assistant de prise de notes pour les cours magistraux de droit.',
+        description: 'Prise de notes, transcription et révisions pour les étudiants de toutes les filières.',
         lang: 'fr',
         start_url: '/',
         scope: '/',

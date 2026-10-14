@@ -47,8 +47,8 @@ export function EditorPage() {
   }, [sessionId, loadNotes]);
 
   if (ready && !session) return <Navigate to="/" replace />;
-  if (loadError) return <div className="page" role="alert"><h1>Impossible de charger ce CM</h1><p className="page__sub">Le stockage local est inaccessible.</p></div>;
-  if (!session || !initial || initial.id !== sessionId) return <div className="editor-loading" aria-busy="true">Chargement du CM…</div>;
+  if (loadError) return <div className="page" role="alert"><h1>Impossible de charger cette séance</h1><p className="page__sub">Le stockage local est inaccessible.</p></div>;
+  if (!session || !initial || initial.id !== sessionId) return <div className="editor-loading" aria-busy="true">Chargement de la séance…</div>;
   // `key` : un autre CM = un éditeur neuf (pas d'état résiduel).
   return <Workspace key={session.id} sessionId={session.id} initialContent={initial.content} />;
 }
@@ -87,7 +87,7 @@ function Workspace({ sessionId, initialContent }: { sessionId: string; initialCo
     immediatelyRender: true,
     shouldRerenderOnTransaction: false,
     editorProps: {
-      attributes: { class: 'note-prose', role: 'textbox', 'aria-multiline': 'true', 'aria-label': 'Notes du CM', spellcheck: 'true', lang: 'fr' },
+      attributes: { class: 'note-prose', role: 'textbox', 'aria-multiline': 'true', 'aria-label': 'Notes de la séance', spellcheck: 'true', lang: 'fr' },
     },
   });
 
@@ -124,9 +124,9 @@ function Workspace({ sessionId, initialContent }: { sessionId: string; initialCo
         const ok = await confirm({
           title: 'Terminer la transcription ?',
           message: cap === 'PAUSED' || cap === 'ERROR'
-            ? 'La transcription de ce CM n’est pas terminée. Elle sera clôturée avec le CM ; tout ce qui a été capturé est conservé.'
-            : 'Un enregistrement est en cours. Il va être arrêté proprement (finalisation de la transcription) avant de terminer le CM.',
-          confirmLabel: 'Arrêter et terminer le CM',
+            ? 'La transcription de cette séance n’est pas terminée. Elle sera clôturée avec la séance ; tout ce qui a été capturé est conservé.'
+            : 'Un enregistrement est en cours. Il va être arrêté proprement (finalisation de la transcription) avant de terminer la séance.',
+          confirmLabel: 'Arrêter et terminer la séance',
         });
         if (!ok) return;
         await captureManager.stop(sessionId); // ne lève jamais : une panne ici ne doit pas empêcher de terminer

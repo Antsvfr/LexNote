@@ -29,7 +29,7 @@ export function TranscriptionSettings() {
   const rows = sessions.filter((x) => usage[x.id]).sort((a, b) => (usage[b.id] ?? 0) - (usage[a.id] ?? 0));
 
   async function removeAudio(id: string, label: string) {
-    const ok = await confirm({ title: 'Supprimer l’audio de ce CM ?', message: `L’audio de « ${label} » sera supprimé de cet appareil. La transcription, les marqueurs et les notes sont conservés.`, confirmLabel: 'Supprimer l’audio', danger: true });
+    const ok = await confirm({ title: 'Supprimer l’audio de cette séance ?', message: `L’audio de « ${label} » sera supprimé de cet appareil. La transcription, les marqueurs et les notes sont conservés.`, confirmLabel: 'Supprimer l’audio', danger: true });
     if (!ok) return;
     await captureManager.deleteAudio(id);
     toast.success('Audio supprimé.');

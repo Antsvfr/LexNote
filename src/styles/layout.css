@@ -54,6 +54,10 @@
 .revem span:last-child { display: grid; line-height: 1.25; }
 .revem strong { font-size: 14.5px; }
 .revem small { font-size: 12.5px; color: var(--text-secondary); }
+.revem small.is-live { color: var(--accent-green); }
+a.revem { text-decoration: none; color: inherit; cursor: pointer; }
+a.revem:hover { border-color: rgb(255 62 92 / 0.5); }
+a.revem:focus-visible { outline: 2px solid var(--accent-red, #ff3e5c); outline-offset: 2px; }
 .sidebar__sync { display: flex; align-items: center; gap: 10px; padding: 0 14px; font-size: 13px; color: var(--text-secondary); }
 .status-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent-green); box-shadow: 0 0 10px rgb(34 197 139 / 0.7); flex: none; }
 .status-dot.is-warn { background: var(--accent-orange); box-shadow: 0 0 10px rgb(245 165 36 / 0.7); }

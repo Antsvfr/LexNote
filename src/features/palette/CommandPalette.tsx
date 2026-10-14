@@ -28,7 +28,7 @@ interface Item {
   run: () => void;
 }
 
-/** Palette de commandes (Cmd/Ctrl + K) : navigation, blocs juridiques, mise en forme. Les commandes IA sont listées mais désactivées. */
+/** Palette de commandes (Cmd/Ctrl + K) : navigation, blocs de notes, mise en forme. Les commandes IA de l'éditeur sont listées mais désactivées. */
 export function CommandPalette() {
   const { paletteOpen, setPalette, openNewSession, theme, setTheme, focus, setFocus } = useUI();
   const editor = useEditorBridge((s) => s.editor);

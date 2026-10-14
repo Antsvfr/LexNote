@@ -107,7 +107,7 @@ export function GlobalRecPill() {
   const elapsed = useActiveRecordedMs();
   if (!active || (active.status !== 'RECORDING' && active.status !== 'REQUESTING_PERMISSION' && active.status !== 'STARTING')) return null;
   return (
-    <Link to={`/session/${active.sessionId}`} className="rec__pill is-live rec__pill--global" data-testid="global-rec" aria-label="Enregistrement en cours — retourner au CM">
+    <Link to={`/session/${active.sessionId}`} className="rec__pill is-live rec__pill--global" data-testid="global-rec" aria-label="Enregistrement en cours — retourner à la séance">
       <span className="rec__dot" aria-hidden /> <strong>REC</strong> <span className="rec__time">{formatHMS(elapsed)}</span>
     </Link>
   );

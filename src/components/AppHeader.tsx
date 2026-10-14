@@ -32,7 +32,7 @@ export function AppHeader() {
         <Search size={18} aria-hidden />
         <input
           aria-label="Rechercher dans LexNote" data-testid="header-search" value={q} onChange={(e) => setQ(e.target.value)}
-          placeholder="Rechercher une matière, un CM, une note, un document..."
+          placeholder="Rechercher une matière, une séance, une note, un document…"
         />
         <button type="button" className="searchbar__kbd" onClick={() => setPalette(true)} aria-label="Ouvrir la palette de commandes" title="Palette de commandes">
           <kbd>{modKeyLabel} K</kbd>
@@ -73,7 +73,7 @@ export function AppHeader() {
               <div className="menu__sep" />
               <div className="menu__label" style={{ textTransform: 'none', letterSpacing: 0 }} data-testid="account-email">{profile?.email}</div>
               <button className="menu__item" role="menuitem" onClick={() => { close(); void logout(); }} data-testid="logout"><LogOut />Se déconnecter</button>
-              <div className="menu__item" aria-disabled="true" style={{ cursor: 'default', opacity: 0.6 }}><GraduationCap />REV-EM · connexion bientôt disponible</div>
+              <button className="menu__item" role="menuitem" onClick={() => { close(); navigate('/settings#apps-h'); }} data-testid="menu-revem"><GraduationCap />REV-EM · Applications connectées</button>
             </>
           )}
         </Menu>

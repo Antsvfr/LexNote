@@ -250,3 +250,39 @@ export const linkResponseSchema = z.object({
   expiresAt: isoDateTime.optional(),
 });
 export type LinkResponse = z.infer<typeof linkResponseSchema>;
+
+/* ------------------------------------------------------------------ ouverture d'un cours depuis REV-EM (étape « lancement »)
+ * Ajouts COMPATIBLES de `lexnote-revem/v1` (nouveaux `kind`, aucun champ existant modifié).
+ *
+ * Flux : REV-EM crée une INTENTION de lancement (≤ 5 min, usage unique) qui contient l'`ExternalCourseEvent` établi PAR SON SERVEUR à partir de ses
+ * propres données (jamais d'un JSON du navigateur) ; LexNote la consomme par `REDEEM_LAUNCH` (serveur → serveur, signé) puis crée / retrouve la matière
+ * et la séance de façon idempotente. Le navigateur ne transporte qu'un identifiant d'intention et un nonce (fragment d'URL) — jamais le cours.
+ */
+export const LAUNCH_OPERATIONS = ['REDEEM_LAUNCH'] as const;
+export type LaunchOperation = (typeof LAUNCH_OPERATIONS)[number];
+
+/** Requête SERVEUR → SERVEUR : LexNote demande à REV-EM le cours désigné par une intention. */
+export const courseLaunchRequestSchema = z.object({
+  integrationVersion: z.string(),
+  kind: z.literal('course-launch-request'),
+  operation: z.enum(LAUNCH_OPERATIONS),
+  launchIntentId: intentId,
+  /** Capacité à usage unique remise à l'étudiant dans le fragment d'URL ; seule son empreinte est stockée côté REV-EM. */
+  nonce,
+  linkId: ref,
+  /** Pseudonyme de l'EXPÉDITEUR (LexNote) dans cette liaison. */
+  senderReference: ref,
+});
+export type CourseLaunchRequest = z.infer<typeof courseLaunchRequestSchema>;
+
+export const courseLaunchResponseSchema = z.object({
+  integrationVersion: z.string(),
+  kind: z.literal('course-launch-response'),
+  operation: z.enum(LAUNCH_OPERATIONS),
+  ok: z.boolean(),
+  linkId: ref.optional(),
+  /** Le cours à ouvrir (même contrat que le planning : `external-course-event`). */
+  event: externalCourseEventSchema.optional(),
+  expiresAt: isoDateTime.optional(),
+});
+export type CourseLaunchResponse = z.infer<typeof courseLaunchResponseSchema>;

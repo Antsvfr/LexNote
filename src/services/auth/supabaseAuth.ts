@@ -76,11 +76,15 @@ export class SupabaseAuth implements AuthRepository {
 interface ProfileRow {
   id: string; email: string | null; first_name: string | null; last_name: string | null; avatar_url: string | null; institution: string | null;
   academic_year: string | null; usage_type: string | null; onboarding_completed: boolean;
+  /** Ajoutées par la migration 20261015 : absentes tant qu'elle n'est pas appliquée. */
+  field_of_study?: string | null; primary_use?: string | null;
 }
 const fromRow = (r: ProfileRow, u: AuthUser): Profile => ({
   id: u.id, email: u.email, firstName: r.first_name ?? '', lastName: r.last_name ?? '', avatarUrl: r.avatar_url ?? '', institution: r.institution ?? '',
-  academicYear: r.academic_year ?? '', usageType: r.usage_type ?? '', onboardingCompleted: r.onboarding_completed,
+  academicYear: r.academic_year ?? '', usageType: r.usage_type ?? '', fieldOfStudy: r.field_of_study ?? '', primaryUse: r.primary_use ?? '',
+  onboardingCompleted: r.onboarding_completed,
 });
+const NEW_PROFILE_COLUMNS = ['field_of_study', 'primary_use'] as const;
 
 export class SupabaseProfiles implements ProfileRepository {
   constructor(private client: SupabaseClient) {}
@@ -101,7 +105,14 @@ export class SupabaseProfiles implements ProfileRepository {
     if (patch.academicYear !== undefined) row.academic_year = patch.academicYear.trim() || null;
     if (patch.usageType !== undefined) row.usage_type = patch.usageType || null;
     if (patch.onboardingCompleted !== undefined) row.onboarding_completed = patch.onboardingCompleted;
-    const { data, error } = await this.client.from('profiles').upsert(row).select().single();
+    if (patch.fieldOfStudy !== undefined) row.field_of_study = patch.fieldOfStudy.trim() || null;
+    if (patch.primaryUse !== undefined) row.primary_use = patch.primaryUse || null;
+    let { data, error } = await this.client.from('profiles').upsert(row).select().single();
+    // Déploiement progressif : si la migration des colonnes facultatives n'est pas encore appliquée, on enregistre le reste.
+    if (error && NEW_PROFILE_COLUMNS.some((c) => error!.message.includes(c))) {
+      for (const c of NEW_PROFILE_COLUMNS) delete row[c];
+      ({ data, error } = await this.client.from('profiles').upsert(row).select().single());
+    }
     if (error) throw new Error(error.message);
     return fromRow(data as ProfileRow, user);
   }

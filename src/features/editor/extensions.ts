@@ -17,7 +17,8 @@ declare module '@tiptap/core' {
 }
 
 /**
- * Bloc juridique (Article, Jurisprudence, Définition…).
+ * Bloc de notes (Définition, Important, Exemple, Question… et blocs spécialisés Article / Jurisprudence).
+ * Nom technique `legalBlock` conservé : il est enregistré dans les notes existantes (compatibilité).
  * Porte dès maintenant `provenance` et `verification` : ce que l'étudiant écrit est
  * 'USER_NOTE'/'UNVERIFIED' ; une future IA ne pourra y ajouter que du 'AI'/'UNVERIFIED'.
  * Rendu en HTML statique (pas de NodeView React) pour garder la frappe fluide.

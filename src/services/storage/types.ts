@@ -28,6 +28,12 @@ export interface CommitOptions {
    * pierre tombale n'est créée (sinon on renverrait au serveur ce qu'il vient de nous donner).
    */
   remote?: boolean;
+  /**
+   * Écriture locale : par défaut, la `version` serveur DÉJÀ STOCKÉE est conservée (l'appelant peut tenir une copie en
+   * mémoire antérieure au dernier envoi : la réécrire ferait croire à un conflit avec notre propre envoi → copie
+   * « en conflit » et retour aux notes précédentes). `true` = oublier volontairement la version (ré-insertion).
+   */
+  resetVersion?: boolean;
 }
 
 /** Trace d'une suppression locale d'une ligne déjà synchronisée : permet de propager la suppression plus tard. */
