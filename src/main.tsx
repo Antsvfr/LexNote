@@ -12,6 +12,7 @@ import './styles/editor.css';
 import './styles/capture.css';
 import './styles/study.css';
 import './styles/course.css';
+import './styles/transcript.css';
 import { App } from './App';
 import { useAuth } from './store/auth';
 

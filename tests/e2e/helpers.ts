@@ -145,20 +145,23 @@ export async function startRecording(page: import('@playwright/test').Page) {
   await expect(page.getByTestId('rec-pill')).toContainText('REC', { timeout: 10_000 });
 }
 
-export async function capIDB(page: import('@playwright/test').Page, store: string): Promise<any[]> {
-  return page.evaluate((st) => new Promise<any[]>((res, rej) => {
+export const capIDB = (page: import('@playwright/test').Page, store: string) => readIDB(page, 'lexnote-capture-u-', store);
+/** Lecture de la base locale de l'utilisateur (séances, notes…) : pour attendre qu'une écriture soit VRAIMENT enregistrée avant un rechargement. */
+export const libIDB = (page: import('@playwright/test').Page, store: string) => readIDB(page, 'lexnote-u-', store);
+async function readIDB(page: import('@playwright/test').Page, prefix: string, store: string): Promise<any[]> {
+  return page.evaluate(([pre, st]) => new Promise<any[]>((res, rej) => {
     indexedDB.databases().then((dbs) => {
-    const name = dbs.map((d) => d.name ?? '').find((n) => n.startsWith('lexnote-capture-u-'));
-    if (!name) { rej(new Error('base de capture introuvable')); return; }
+    const name = dbs.map((d) => d.name ?? '').find((n) => n.startsWith(pre));
+    if (!name) { rej(new Error(`base ${pre}* introuvable`)); return; }
     const r = indexedDB.open(name);
     r.onerror = () => rej(r.error);
     r.onsuccess = () => {
       const tx = r.result.transaction(st, 'readonly').objectStore(st).getAll();
-      tx.onsuccess = () => res(tx.result as any[]);
+      tx.onsuccess = () => { r.result.close(); res(tx.result as any[]); };
       tx.onerror = () => rej(tx.error);
     };
     }).catch(rej);
-  }), store);
+  }), [prefix, store] as const);
 }
 
 /** Écrit un document de notes (ProseMirror JSON) dans la base locale de l'utilisateur connecté, puis recharge. */

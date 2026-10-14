@@ -34,7 +34,7 @@ export interface Subject extends Entity {
   description?: string;
 }
 
-/** Module / chapitre / unité au sein d'une matière (ex. "Droit des contrats"). */
+/** Module / chapitre / unité au sein d'une matière (ex. « Les marchés », « Cardiologie », « Droit des contrats »). */
 export interface Module extends Entity {
   subjectId: ID;
   name: string;

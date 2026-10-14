@@ -289,3 +289,13 @@ dialog.palette::backdrop { background: var(--scrim); }
 .authorize__icon { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: rgba(255, 59, 92, .12); color: #ff3b5c; }
 .authorize__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: 13.5px; }
 .authorize__list li { display: flex; gap: 8px; align-items: flex-start; } .authorize__list svg { color: #2e9d64; flex: none; margin-top: 2px; }
+.ob-fields { margin: 6px 0 16px; } .authcard .field-label { display: block; margin-top: 4px; }
+
+/* Choix explicites de l'autorisation REV-EM, de la connexion et des appareils */
+.authorize__choices { border: 0; margin: 0; padding: 0; display: grid; gap: 10px; }
+.authorize__choices .check, .authform .check, .appcard .check { align-items: flex-start; gap: 10px; }
+.check input[type='checkbox'] { margin-top: 3px; flex: none; }
+.check small { display: block; color: var(--text-muted, #8b93a7); font-size: 12.5px; line-height: 1.45; margin-top: 2px; }
+.devices { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.devices li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: 10px; background: var(--surface-2, rgba(255, 255, 255, .03)); font-size: 13.5px; }
+.devices li small { display: block; color: var(--text-muted, #8b93a7); font-size: 12px; }

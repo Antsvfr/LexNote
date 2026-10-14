@@ -41,7 +41,7 @@ export function createLinkService(d: LinkDeps) {
     if (!link) return { ...base(), state: 'NOT_CONNECTED', localStatus: null, peerStatus: 'UNKNOWN', verified: false };
     const common = { ...base(), linkId: link.linkId, localStatus: link.status, peerStatus, verified };
     switch (link.status) {
-      case 'CONNECTED': return { ...common, state: 'CONNECTED', linkedAt: link.linkedAt ?? undefined };
+      case 'CONNECTED': return { ...common, state: 'CONNECTED', linkedAt: link.linkedAt ?? undefined, autoLogin: link.autoLogin === true };
       case 'PENDING': return { ...common, state: 'PENDING' };
       case 'REVOKED': return { ...common, state: 'REVOKED', revokedAt: link.revokedAt ?? undefined, revokedBy: link.revokedBy ?? undefined, linkedAt: link.linkedAt ?? undefined };
       default: return { ...common, state: 'ERROR', errorCode: errorCode ?? link.errorCode ?? 'ERROR' };
@@ -66,7 +66,8 @@ export function createLinkService(d: LinkDeps) {
       const r = await unwrap(req('INSPECT', { linkIntentId: intentId, nonce }));
       return { displayHint: r.displayHint ?? '', expiresAt: r.expiresAt ?? '' };
     },
-    async confirm(userId: string, intentId: string, nonce: string): Promise<ConnectionState> {
+    /** `autoLogin` : case « Autoriser REV-EM à me reconnecter automatiquement », cochée EXPLICITEMENT par l'étudiant (jamais par défaut). */
+    async confirm(userId: string, intentId: string, nonce: string, opts: { autoLogin?: boolean } = {}): Promise<ConnectionState> {
       const existing = await store.getUserLink(userId);
       if (existing && existing.status === 'CONNECTED') return failReason('ALREADY_LINKED');
       const localRef = `ref_${token(24)}`;
@@ -83,7 +84,16 @@ export function createLinkService(d: LinkDeps) {
       }
       const act = await store.activateLink(linkId, redeemed.receiverReference);
       if (act.reason !== 'OK') return failReason(act.reason);
+      if (opts.autoLogin === true) await store.setAutoLogin(userId, true);
       return stateOf(await store.getUserLink(userId), 'CONNECTED', true);
+    },
+
+    /** Active / désactive la seule connexion automatique, sans toucher à la liaison. Effet immédiat (lu à chaque lancement). */
+    async setAutoLogin(userId: string, enabled: boolean): Promise<ConnectionState> {
+      const r = await store.setAutoLogin(userId, enabled);
+      if (r.reason !== 'OK') return fail('LINK_NOT_FOUND', 'Aucune liaison active.');
+      const link = await store.getUserLink(userId);
+      return { ...stateOf(link, 'UNKNOWN', false), state: 'PENDING', ...(link ? { autoLogin: link.autoLogin } : {}) };
     },
 
     /* ------------------------------------------------------------------ état (vérifié auprès du partenaire) */
@@ -96,7 +106,8 @@ export function createLinkService(d: LinkDeps) {
       if (opts.probe === false) return unverified('UNKNOWN', 'NOT_VERIFIED', 'PENDING');
       try {
         const r = await unwrap(req('STATUS', { linkId: link.linkId, senderReference: link.localReference }));
-        if (r.status === 'CONNECTED') return stateOf(link, 'CONNECTED', true);
+        // Côté LexNote : le consentement est local. Côté REV-EM : il est connu par la réponse STATUS de LexNote.
+        if (r.status === 'CONNECTED') return { ...stateOf(link, 'CONNECTED', true), autoLogin: link.autoLogin === true || r.autoLogin === true };
         if (r.status === 'REVOKED') { await store.revokeLink(link.linkId, null, 'partner'); return stateOf(await store.getUserLink(userId), 'REVOKED', false); }
         return unverified(r.status === 'PENDING' ? 'PENDING' : 'UNKNOWN', 'PEER_NOT_ACTIVE', 'PENDING');
       } catch (e) {
@@ -146,7 +157,7 @@ export function createLinkService(d: LinkDeps) {
         case 'STATUS': {
           const link = await store.getLink(need(r.linkId, 'linkId'), need(r.senderReference, 'senderReference'));
           if (!link) return failReason('NOT_FOUND');
-          return ok({ linkId: link.linkId, status: link.status });
+          return ok({ linkId: link.linkId, status: link.status, ...(link.autoLogin ? { autoLogin: true } : {}) });
         }
       }
     },

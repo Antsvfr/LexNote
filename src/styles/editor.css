@@ -92,7 +92,7 @@
 .tiptap [data-indent='4'] { margin-left: 6em; } .tiptap [data-indent='5'] { margin-left: 7.5em; }
 .tiptap p.is-editor-empty:first-child::before { content: attr(data-placeholder); float: left; height: 0; pointer-events: none; color: var(--ink-3); font-style: italic; }
 
-/* ====== blocs juridiques : sobres, un fin liseré + une étiquette ====== */
+/* ====== blocs de notes : sobres, un fin liseré + une étiquette ====== */
 :where([data-legal-block]) { --c: var(--ink-3); --bgc: var(--surface-2); }
 .tiptap [data-legal-block], .note-editor--readonly [data-legal-block] {
   position: relative; margin: 1em 0; padding: 1.7em 1em 0.55em 1.1em;

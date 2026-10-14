@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { MailCheck, TriangleAlert } from 'lucide-react';
 import { useAuth } from '@/store/auth';
+import { readDevice, setRemember } from '@/services/auth/device';
 import { AuthLayout, FormError } from './AuthLayout';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -33,19 +34,24 @@ function useAlreadyIn() {
 }
 
 export function LoginPage() {
-  const { signIn, status } = useAuth();
+  const { signIn, status, sessionExpired } = useAuth();
   const dest = useAlreadyIn();
   const [email, setEmail] = useState(''); const [password, setPassword] = useState('');
+  // Décoché par défaut sur un nouvel appareil ; reprend le dernier choix fait sur cet appareil. Seule la session Supabase est conservée.
+  const [remember, setRemember] = useState(() => readDevice().remember);
   const { busy, error, run } = useSubmit();
   if (dest) return <Navigate to={dest} replace />;
   const off = status === 'unconfigured';
-  const submit = (e: FormEvent) => { e.preventDefault(); void run(async () => { await signIn(email, password); }); };
+  const submit = (e: FormEvent) => { e.preventDefault(); void run(async () => { await signIn(email, password, { remember }); }); };
   return (
     <AuthLayout title="Content de vous revoir" subtitle="Connectez-vous pour retrouver vos matières et vos séances." footer={<>Pas encore de compte ? <Link to="/signup">Créer un compte</Link></>}>
       {off && <Unconfigured />}
+      {sessionExpired && <div className="banner banner--warn" role="status" data-testid="session-expired"><TriangleAlert size={16} aria-hidden /> Votre session LexNote a expiré. Reconnectez-vous : vous reprendrez là où vous étiez.</div>}
       <form onSubmit={submit} className="authform" noValidate>
         <div className="field"><label htmlFor="email">E-mail</label><input id="email" type="email" autoComplete="email" className="input input--lg" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus data-testid="auth-email" disabled={off} /></div>
         <div className="field"><label htmlFor="password">Mot de passe</label><input id="password" type="password" autoComplete="current-password" className="input input--lg" value={password} onChange={(e) => setPassword(e.target.value)} required data-testid="auth-password" disabled={off} /></div>
+        <label className="check"><input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} data-testid="auth-remember" disabled={off} />
+          <span><strong>Rester connecté sur cet appareil</strong><small>LexNote conservera votre session sur cet appareil afin de vous reconnecter automatiquement. N’utilisez pas cette option sur un appareil partagé.</small></span></label>
         <FormError message={error} />
         <button className="btn btn--primary btn--lg" type="submit" disabled={busy || off || !email || !password} data-testid="auth-submit">{busy ? 'Connexion…' : 'Se connecter'}</button>
         <Link className="authform__link" to="/forgot-password">Mot de passe oublié ?</Link>
@@ -58,6 +64,7 @@ export function SignupPage() {
   const { signUp, status } = useAuth();
   const dest = useAlreadyIn();
   const [email, setEmail] = useState(''); const [pw, setPw] = useState(''); const [pw2, setPw2] = useState('');
+  const [remember, setRememberChoice] = useState(() => readDevice().remember);
   const { busy, error, setError, run } = useSubmit();
   const [confirm, setConfirm] = useState(false);
   if (dest) return <Navigate to={dest} replace />;
@@ -67,7 +74,7 @@ export function SignupPage() {
     if (!EMAIL_RE.test(email.trim())) return setError('Saisissez une adresse e-mail valide.');
     if (pw.length < 8) return setError('Le mot de passe doit contenir au moins 8 caractères.');
     if (pw !== pw2) return setError('Les deux mots de passe ne correspondent pas.');
-    void run(async () => { const r = await signUp(email, pw); if (r.needsConfirmation) setConfirm(true); });
+    void run(async () => { setRemember(remember); const r = await signUp(email, pw); if (r.needsConfirmation) setConfirm(true); });
   };
   if (confirm) {
     return (
@@ -83,6 +90,8 @@ export function SignupPage() {
         <div className="field"><label htmlFor="email">E-mail</label><input id="email" type="email" autoComplete="email" className="input input--lg" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus data-testid="auth-email" disabled={off} /></div>
         <div className="field"><label htmlFor="pw">Mot de passe</label><input id="pw" type="password" autoComplete="new-password" className="input input--lg" value={pw} onChange={(e) => setPw(e.target.value)} required data-testid="auth-password" disabled={off} /><small className="muted">8 caractères minimum.</small></div>
         <div className="field"><label htmlFor="pw2">Confirmer le mot de passe</label><input id="pw2" type="password" autoComplete="new-password" className="input input--lg" value={pw2} onChange={(e) => setPw2(e.target.value)} required data-testid="auth-password2" disabled={off} /></div>
+        <label className="check"><input type="checkbox" checked={remember} onChange={(e) => setRememberChoice(e.target.checked)} data-testid="auth-remember" disabled={off} />
+          <span><strong>Rester connecté sur cet appareil</strong><small>LexNote conservera votre session sur cet appareil afin de vous reconnecter automatiquement. N’utilisez pas cette option sur un appareil partagé.</small></span></label>
         <FormError message={error} />
         <button className="btn btn--primary btn--lg" type="submit" disabled={busy || off || !email || !pw || !pw2} data-testid="auth-submit">{busy ? 'Création…' : 'Créer mon compte'}</button>
       </form>

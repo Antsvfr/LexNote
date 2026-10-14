@@ -8,6 +8,13 @@ export const ERROR_CODES = [
   'LINK_NOT_FOUND', 'LINK_REVOKED', 'LINK_EXPIRED', 'LINK_PENDING',
   'NOT_FOUND', 'CONFLICT', 'GONE',
   'RATE_LIMITED', 'UNAVAILABLE', 'OFFLINE', 'TIMEOUT', 'INTERNAL',
+  // Serveur ↔ serveur : le partenaire a refusé l'AUTHENTIFICATION DE NOTRE SERVEUR (signature, clé, horloge, rejeu, passerelle mal déployée).
+  // Ce n'est JAMAIS la session de l'étudiant : ne pas l'afficher comme « session expirée ».
+  'PEER_AUTH_FAILED',
+  // Connexion automatique depuis REV-EM : non autorisée par l'étudiant (ou retirée) → connexion LexNote normale.
+  'AUTO_LOGIN_DISABLED',
+  // Le lancement concerne un autre compte LexNote que celui connecté dans ce navigateur.
+  'WRONG_ACCOUNT',
 ] as const;
 export type IntegrationErrorCode = (typeof ERROR_CODES)[number];
 

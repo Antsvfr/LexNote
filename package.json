@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "LexNote — assistant de prise de notes pour les cours magistraux (local-first, PWA)",
+  "description": "LexNote — prise de notes, transcription et révisions pour toutes les filières (local-first, PWA)",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

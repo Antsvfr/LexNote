@@ -40,7 +40,7 @@ export const Timeline = memo(function Timeline({ runs, markers, interruptions, a
   }, [anchors, total]);
 
   return (
-    <div className={`timeline timeline--${size}`} role="group" aria-label="Chronologie du CM" data-testid="timeline">
+    <div className={`timeline timeline--${size}`} role="group" aria-label="Chronologie de la séance" data-testid="timeline">
       <span className="timeline__t">00:00</span>
       <div
         className="timeline__rail"

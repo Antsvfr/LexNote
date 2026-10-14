@@ -9,4 +9,6 @@ export * from './signing';
 export * from './store';
 export * from './peer';
 export * from './linking';
+export * from './launch';
 export * from './gateway';
+export * from './sessions';

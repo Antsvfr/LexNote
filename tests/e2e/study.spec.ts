@@ -152,6 +152,7 @@ test.describe('carte mentale, tableau, chronologie, méthode', () => {
   test('chronologie : dates du cours uniquement ; sans dates → refus (aucune date inventée)', async ({ page }) => {
     await reconstructed(page);
     await create(page, 'TIMELINE');
+    await expect(page.getByTestId('timeline-event').first()).toBeVisible();   // evaluateAll n'attend pas le rendu
     const dates = await page.getByTestId('timeline-event').getByLabel('Date').evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value));
     expect(dates).toEqual(expect.arrayContaining(['1804', '10 février 2016', '2018']));
     expect(dates.join(' ')).not.toMatch(/\b1(132|137|140)\b/); // un numéro d'article n'est pas une date
