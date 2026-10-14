@@ -81,8 +81,12 @@ export class IndexedDbAdapter implements StorageAdapter {
     const isDirty = async (store: Store, id: string) =>
       !!opts.remote && !!((await tx.objectStore(store).get(id)) as { dirty?: boolean } | undefined)?.dirty;
 
-    const put = async (store: Store, table: SyncTable, v: { id: string; dirty?: boolean }) => {
+    const put = async (store: Store, table: SyncTable, v: { id: string; dirty?: boolean; version?: number }) => {
       if (await isDirty(store, v.id)) return false;
+      if (!opts.remote && !opts.resetVersion) {
+        const prev = (await tx.objectStore(store).get(v.id)) as { version?: number } | undefined;
+        v = { ...v, version: prev?.version };   // la version vient du serveur, jamais d'une copie en mémoire périmée
+      }
       await (tx.objectStore(store) as unknown as { put(x: unknown): Promise<unknown> }).put(mark(v));
       await tx.objectStore('tombstones').delete(`${table}:${v.id}`);
       return true;
