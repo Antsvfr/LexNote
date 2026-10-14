@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { PASSWORD, logOut, signUp, trackErrors } from './helpers';
+import { PASSWORD, logOut, signUp, trackErrors, waitSaved } from './helpers';
 
 /**
  * « Prendre mes notes dans LexNote » (arrivée depuis REV-EM) — interface. Backend d'intégration SIMULÉ (VITE_BACKEND=mock) : la sécurité et
@@ -54,7 +54,7 @@ test.describe('arrivée depuis REV-EM', () => {
     await page.goto(entry(uuid(2)));
     await expect(page.getByTestId('editor')).toBeVisible({ timeout: 20_000 });
     const ed = page.locator('.ProseMirror').first(); await ed.click(); await page.keyboard.type('Le consentement doit être libre et éclairé.');
-    await expect(page.getByTestId('save-status')).toContainText(/Enregistr/i, { timeout: 10_000 });
+    await waitSaved(page);   // « Enregistré » : l'écriture locale est terminée (« Enregistrement… » ne suffit pas)
     await page.reload(); await expect(page.locator('.ProseMirror').first()).toContainText('libre et éclairé');
     await page.getByTestId('transcription-btn').click();                                  // le consentement existant s'applique toujours
     await expect(page.getByRole('dialog')).toBeVisible();
