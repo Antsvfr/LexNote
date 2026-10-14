@@ -61,7 +61,10 @@ export interface World {
 }
 
 export async function makeWorld(): Promise<World> {
-  const clock = { now: new Date('2026-10-08T10:00:00.000Z') };
+  // Horloge de test alignée sur l'heure RÉELLE : la base (PGlite) purge les nonces expirés avec now() ; une date figée dans le
+  // passé rendait le test anti-rejeu dépendant du jour d'exécution (vert le 8 octobre, rouge ensuite).
+  const start = () => new Date(Math.floor(Date.now() / 1000) * 1000);
+  const clock = { now: start() };
   const now = () => clock.now;
   const mk = (self: 'revem' | 'lexnote'): IntegrationConfig => readIntegrationConfig(self, (k) => ({
     INTEGRATION_ENV: 'production', INTEGRATION_KEY_ID: 'k1', INTEGRATION_KEY: KEY,
@@ -96,7 +99,7 @@ export async function makeWorld(): Promise<World> {
     R: sides.R, L: sides.L, traffic, clock, netDown, hook,
     async reset() {
       for (const db of [Rdb, Ldb]) await db.exec('truncate integration_links, integration_link_intents, integration_nonces');
-      traffic.length = 0; netDown.value = false; hook.before = undefined; clock.now = new Date('2026-10-08T10:00:00.000Z');
+      traffic.length = 0; netDown.value = false; hook.before = undefined; clock.now = start();
     },
     async userReq(side, userId, body, origin = side === 'R' ? 'https://antsvfr.github.io' : 'https://lexnote.example.app') {
       const headers: Record<string, string> = { 'content-type': 'application/json' };

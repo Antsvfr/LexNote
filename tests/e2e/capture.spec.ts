@@ -67,7 +67,10 @@ test.describe('transcription — capture en direct', () => {
     await page.evaluate(() => (window as any).__say('Pour qu’un contrat soit valablement formé', false));
     await expect(page.locator('.tseg--interim')).toContainText('valablement formé');
     await page.evaluate(() => (window as any).__say('Pour qu’un contrat soit valablement formé, il faut un consentement'));
+    // le dialogue de consentement a pris le focus : l'étudiant revient dans ses notes avant d'écrire
+    await page.locator('.note-prose').click();
     await page.keyboard.type('Formation du contrat : consentement');
+    await expect(page.locator('.note-prose')).toContainText('Formation du contrat : consentement');
     await page.evaluate(() => (window as any).__say('L’article 1128 du Code civil prévoit trois conditions'));
     await expect(page.getByTestId('tseg')).toHaveCount(2);
     await expect(page.getByTestId('tseg').first()).toContainText('consentement');
