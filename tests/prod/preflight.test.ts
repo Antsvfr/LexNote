@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error module .mjs sans types
 import * as C from '../../scripts/prod/lib/preflight-checks.mjs';
 // @ts-expect-error module .mjs sans types
@@ -9,11 +9,14 @@ const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url');
 const jwt = (role: string) => `eyJ${b64({ alg: 'HS256' }).slice(3)}.${b64({ role })}.signaturesignature`;
 const level = (r: { level: string } | { level: string }[]) => (Array.isArray(r) ? r.map((x) => x.level) : r.level);
 
+afterEach(() => { vi.unstubAllEnvs(); });
+
 describe('préflight — dépôt réel', () => {
   it('migrations, fonctions, config.toml, paquet, architecture client, secrets : PASS', () => {
     for (const r of [C.checkMigrations(), C.checkEdgeFunctions(), C.checkConfigToml(), C.checkBundle('/nonexistent'), C.checkClientArchitecture(), C.checkCommittedSecrets()]) expect(r.level, `${r.name}: ${r.msg}`).toBe('PASS');
   });
   it('code de sortie 0 sans FAIL ; WARN pour tout ce qui n’a pas été exécuté', () => {
+    vi.stubEnv('REVEM_REPO', '/nonexistent');   // l'état d'un autre dépôt local ne doit pas influencer ce test
     const lines: string[] = [];
     expect(main([], (l: string) => lines.push(l))).toBe(0);
     const text = lines.join('\n');
@@ -21,6 +24,7 @@ describe('préflight — dépôt réel', () => {
     expect(text).toMatch(/\[WARN\] production-build/);
   });
   it('--target production : variables manquantes → FAIL, code ≠ 0', () => {
+    vi.stubEnv('REVEM_REPO', '/nonexistent');
     const r = runPreflight(['--target', 'production'], {});
     expect(r.filter((x: { level: string }) => x.level === 'FAIL').map((x: { name: string }) => x.name)).toEqual(expect.arrayContaining(['frontend-env', 'server-env']));
   });
