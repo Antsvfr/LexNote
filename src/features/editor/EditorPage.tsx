@@ -185,9 +185,10 @@ function Workspace({ sessionId, initialContent }: { sessionId: string; initialCo
       {consentDialog}
 
       <div className="workspace__body">
-        <div className="note-scroll" onClick={(e) => { if (e.target === e.currentTarget) editor.commands.focus('end'); }}>
+        <main className="note-scroll" onClick={(e) => { if (e.target === e.currentTarget) editor.commands.focus('end'); }}>
+          <h1 className="sr-only">{session.title || typeLabel(session.type)}</h1>
           <EditorContent editor={editor} className="note-editor" data-testid="editor" />
-        </div>
+        </main>
         {assistantOpen && !focus && <button type="button" className="sheet-backdrop" aria-label="Fermer le panneau" tabIndex={-1} onClick={toggleAssistant} />}
         {assistantOpen && !focus && <SidePanel editor={editor} sessionId={sessionId} />}
       </div>
