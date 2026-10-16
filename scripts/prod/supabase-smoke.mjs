@@ -9,7 +9,8 @@
 //   SMOKE_ANON_KEY  SMOKE_SERVICE_ROLE_KEY   clés du projet de TEST (jamais affichées) ; leur claim `ref` doit correspondre à l'URL
 //   SMOKE_MAX_USERS (défaut 10)           un projet qui contient plus de comptes « réels » est refusé (probablement la production)
 //   --with-integration                    enchaîne ensuite scripts/prod/real-e2e.mjs (deux projets de test, variables LEXNOTE_* / REVEM_*, voir son en-tête)
-// Non couvert ici (restent des portes MANUELLES, voir release/gates.json) : connexion automatique REV-EM → LexNote (dépend d'un événement REV-EM réel).
+// Couvert ici : authentification (création, connexion, rafraîchissement, persistance, déconnexion locale puis globale), RLS, version serveur, suppression douce, nettoyage.
+// NON couvert ici (portes MANUELLES, voir docs/TEST_ENVIRONMENT.md §6) : liaison REV-EM ⇄ LexNote (scripts/prod/real-e2e.mjs, deux projets) et connexion automatique depuis un évènement REV-EM réel.
 import { fileURLToPath } from 'node:url';
 import { randomBytes, randomUUID } from 'node:crypto';
 
@@ -94,11 +95,37 @@ export async function run(env, { log = console.log, fetchImpl = fetch } = {}) {
       const rpc = await call(`/rest/v1/rpc/${fn}`, { method: 'POST', token: A.token, body: {} });
       check(`SÉCURITÉ — la fonction ${fn} n'est pas appelable par un utilisateur`, [401, 403, 404].includes(rpc.status), `HTTP ${rpc.status}`);
     }
-    const out = await call('/auth/v1/logout?scope=global', { method: 'POST', token: A.token });
-    const reuse = await call('/auth/v1/token?grant_type=refresh_token', { method: 'POST', body: { refresh_token: A.refresh } });
-    check('SESSION — déconnexion globale : le jeton de rafraîchissement ne fonctionne plus', out.status < 300 && reuse.status >= 400, `${out.status}/${reuse.status}`);
+    // --- SESSION : rafraîchissement, persistance, déconnexion locale (autres appareils épargnés) puis globale
+    const r1 = await call('/auth/v1/token?grant_type=refresh_token', { method: 'POST', body: { refresh_token: A.refresh } });
+    check('SESSION — un jeton de rafraîchissement valide donne une nouvelle session (scénario « refresh token valide »)', r1.status === 200 && !!r1.json?.access_token && !!r1.json?.refresh_token, `HTTP ${r1.status}`);
+    const r2 = await call('/auth/v1/token?grant_type=refresh_token', { method: 'POST', body: { refresh_token: r1.json?.refresh_token } });
+    check('SESSION — session persistante : le jeton renouvelé se renouvelle à son tour (usage prolongé, appareil de confiance)', r2.status === 200 && !!r2.json?.refresh_token, `HTTP ${r2.status}`);
+    const sec = await call('/auth/v1/token?grant_type=password', { method: 'POST', body: { email: A.email, password: A.password } });   // 2e appareil
+    check('SESSION — 2e appareil du même compte connecté', sec.status === 200 && !!sec.json?.refresh_token);
+    const lo = await call('/auth/v1/logout?scope=local', { method: 'POST', token: r2.json?.access_token });
+    const afterLocal1 = await call('/auth/v1/token?grant_type=refresh_token', { method: 'POST', body: { refresh_token: r2.json?.refresh_token } });
+    const afterLocal2 = await call('/auth/v1/token?grant_type=refresh_token', { method: 'POST', body: { refresh_token: sec.json?.refresh_token } });
+    check('SESSION — déconnexion LOCALE : cet appareil est déconnecté, l\'autre appareil reste connecté (vraie session expirée seulement ici)', lo.status < 300 && afterLocal1.status >= 400 && afterLocal2.status === 200, `${lo.status}/${afterLocal1.status}/${afterLocal2.status}`);
+    const tok2 = afterLocal2.json?.access_token;
+    const out = await call('/auth/v1/logout?scope=global', { method: 'POST', token: tok2 });
+    const reuse = await call('/auth/v1/token?grant_type=refresh_token', { method: 'POST', body: { refresh_token: afterLocal2.json?.refresh_token } });
+    check('SESSION — déconnexion GLOBALE : plus aucun jeton de rafraîchissement ne fonctionne (vraie session expirée)', out.status < 300 && reuse.status >= 400, `${out.status}/${reuse.status}`);
     const after = await admin(`/rest/v1/subjects?id=eq.${sid}&select=id`);
-    check('DONNÉES — la matière de A survit à la déconnexion', after.json?.length === 1);
+    check('DONNÉES — la matière de A survit aux déconnexions', after.json?.length === 1);
+
+    // --- DONNÉES : suppression « douce » (ce que fait l'application) et visibilité
+    const A2 = await call('/auth/v1/token?grant_type=password', { method: 'POST', body: { email: A.email, password: A.password } });
+    const del = await call(`/rest/v1/subjects?id=eq.${sid}`, { method: 'PATCH', token: A2.json?.access_token, headers: { prefer: 'return=representation' }, body: { deleted_at: new Date().toISOString() } });
+    check('DONNÉES — suppression douce (deleted_at) acceptée pour le propriétaire', del.json?.[0]?.deleted_at != null, `HTTP ${del.status}`);
+    const pull = await call(`/rest/v1/subjects?select=id,deleted_at&server_updated_at=gte.1970-01-01`, { token: A2.json?.access_token });
+    check('DONNÉES — l\'autre appareil voit la suppression au prochain tirage (pierre tombale conservée)', (pull.json ?? []).some((r) => r.id === sid && r.deleted_at));
+
+    // --- INSCRIPTION PUBLIQUE (si la confirmation par e-mail est désactivée sur le projet de test)
+    const pubEmail = `smoke-pub-${randomBytes(4).toString('hex')}${SMOKE_DOMAIN}`;
+    const su = await call('/auth/v1/signup', { method: 'POST', body: { email: pubEmail, password: randomBytes(18).toString('base64url') } });
+    if (su.json?.id) created.push(su.json.id); else if (su.json?.user?.id) created.push(su.json.user.id);
+    if (su.json?.access_token) check('AUTH — inscription publique : session immédiate (confirmation e-mail désactivée sur ce projet de test)', true);
+    else log(`INFO — inscription publique non testable de bout en bout (HTTP ${su.status} : confirmation e-mail activée ou domaine refusé) — l'inscription est couverte par la création administrateur ci-dessus`);
   } finally {
     for (const id of created) await admin(`/auth/v1/admin/users/${id}`, { method: 'DELETE' });
     const left = await admin('/auth/v1/admin/users?per_page=50');

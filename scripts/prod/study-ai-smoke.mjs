@@ -11,6 +11,8 @@
 //   SMOKE_RATE_LIMIT=1                      rafale d'appels simultanés → attend un 429 « concurrent » (≈ 3 appels courts)
 //   SMOKE_EXPECT_TIMEOUT=1                  projet configuré avec STUDY_AI_TIMEOUT_MS très bas → attend un 504 « timeout »
 //   SMOKE_EXPECT_PROVIDER_ERROR=1           projet configuré avec une clé fournisseur invalide → attend un 503 propre, sans détail interne
+//   SMOKE_EXPECT_DISABLED=1                 projet avec STUDY_AI_ENABLED=false (interrupteur d'urgence) → attend 503 ai_disabled pour tout le monde, aucun appel payant
+//   SMOKE_EXPECT_CAPACITY=1                 projet dont le budget GLOBAL du jour est consommé (ex. STUDY_AI_GLOBAL_MAX_REQUESTS_DAY=1 après un 1er appel) → attend 503 ai_capacity + Retry-After
 // Refus du modèle : non provocable de façon fiable et éthique sur un vrai modèle → SKIP ici ; couvert par les tests Deno (handler.test.ts).
 //
 // Usage : node scripts/prod/study-ai-smoke.mjs     (code de sortie 1 si un contrôle échoue)
@@ -75,6 +77,17 @@ export async function run(env, { log = console.log, fetchImpl = fetch } = {}) {
   const brief = (x) => `${x.status} ${JSON.stringify(x.json?.error ?? '')} ${x.json?.reason ?? ''}`;
   const noLeak = (x) => !/anthropic_api_key|sk-ant|stack|at\s+\w+\s+\(/i.test(x.raw);
 
+  // ---- interrupteur d'urgence : tout est refusé AVANT l'authentification et avant tout appel payant
+  if (env.SMOKE_EXPECT_DISABLED === '1') {
+    const anon1 = await call('summarize', SHORT, {}, { auth: false }); const authed = await call('summarize', SHORT, {});
+    for (const [label, x] of [['sans jeton', anon1], ['avec jeton', authed]]) {
+      check(`INTERRUPTEUR — ${label} : 503 ai_disabled, Retry-After présent, aucun détail interne`, x.status === 503 && x.json?.error === 'ai_disabled' && Number(x.retryAfter) > 0 && noLeak(x), brief(x));
+    }
+    for (const p of PLAN.slice(0, 11)) skip(p.title, 'SMOKE_EXPECT_DISABLED=1 : l\'IA est coupée');
+    const f = results.filter((x) => !x.ok); log(`\n${results.filter((x) => x.ok && !x.skipped).length} PASS, ${f.length} FAIL`);
+    return { results, ok: f.length === 0 };
+  }
+
   // ---- gratuits (rejetés avant tout appel au modèle)
   const u = await call('summarize', SHORT, {}, { auth: false });
   check(PLAN[0].title, u.status === 401, brief(u));
@@ -89,7 +102,8 @@ export async function run(env, { log = console.log, fetchImpl = fetch } = {}) {
     check(`${p.title} (${x.ms} ms, modèle ${x.json?.model ?? '?'})`, x.status === 200 && typeof x.json?.text === 'string' && validDoc(x.json.text),
       x.status === 200 ? 'JSON structuré invalide ou vide' : brief(x));
   };
-  if (!env.SMOKE_EXPECT_TIMEOUT && !env.SMOKE_EXPECT_PROVIDER_ERROR) {
+  const expecting = env.SMOKE_EXPECT_TIMEOUT || env.SMOKE_EXPECT_PROVIDER_ERROR || env.SMOKE_EXPECT_CAPACITY;
+  if (!expecting) {
     await structured(PLAN[3], 'summarize', { mode: 'express' });
     await structured(PLAN[4], 'summarize', { mode: 'detailed' });
     await structured(PLAN[5], 'translate', { targetLanguage: 'en', outputLanguage: 'en' });
@@ -116,6 +130,11 @@ export async function run(env, { log = console.log, fetchImpl = fetch } = {}) {
     const x = await call('summarize', SHORT, { mode: 'express', outputLanguage: 'fr' });
     check(PLAN[10].title, x.status === 503 && ['not_configured', 'unavailable', 'provider_busy'].includes(x.json?.error) && noLeak(x), brief(x));
   } else skip(PLAN[10].title, 'SMOKE_EXPECT_PROVIDER_ERROR=1 non défini (nécessite une clé fournisseur invalide sur un projet de test)');
+
+  if (env.SMOKE_EXPECT_CAPACITY === '1') {
+    const x = await call('summarize', SHORT, { mode: 'express', outputLanguage: 'fr' });
+    check('budget GLOBAL consommé → 503 ai_capacity (pas 429), Retry-After, aucun détail interne', x.status === 503 && x.json?.error === 'ai_capacity' && Number(x.retryAfter) >= 1 && noLeak(x), brief(x));
+  } else skip('budget GLOBAL consommé → 503 ai_capacity', 'SMOKE_EXPECT_CAPACITY=1 non défini');
 
   skip(PLAN[11].title, PLAN[11].manual);
 

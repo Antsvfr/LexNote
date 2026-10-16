@@ -29,7 +29,8 @@ describe('supabase-smoke — garde-fous (jamais contre la production)', () => {
 function fakeProject(opts: { foreignUsers?: number; leakRls?: boolean } = {}) {
   type U = { id: string; email: string; password: string };
   const users: U[] = Array.from({ length: opts.foreignUsers ?? 0 }, (_, i) => ({ id: `real-${i}`, email: `vrai${i}@exemple.fr`, password: 'x' }));
-  const tokens = new Map<string, string>(); const refresh = new Map<string, string>(); const subjects: { id: string; user_id: string; name: string; version: number }[] = [];
+  const tokens = new Map<string, string>(); const sess = new Map<string, string>(); const refresh = new Map<string, string>();   // accès→session, session→utilisateur, rafraîchissement→session
+  const subjects: { id: string; user_id: string; name: string; version: number; deleted_at?: string | null }[] = [];
   const log: string[] = [];
   let n = 0;
   const fetchImpl = (async (input: string, init: RequestInit = {}) => {
@@ -41,12 +42,18 @@ function fakeProject(opts: { foreignUsers?: number; leakRls?: boolean } = {}) {
     if (u.pathname === '/functions/v1/health') return J(200, { status: 'ok', services: { database: 'ok', schema: 'ok' } });
     if (u.pathname === '/auth/v1/admin/users' && m === 'GET') return J(200, { users });
     if (u.pathname === '/auth/v1/admin/users' && m === 'POST') { const x = { id: `u${++n}`, email: body.email, password: body.password }; users.push(x); return J(200, { id: x.id }); }
-    if (u.pathname.startsWith('/auth/v1/admin/users/') && m === 'DELETE') { const id = u.pathname.split('/').pop(); users.splice(users.findIndex((x) => x.id === id), 1); for (let i = subjects.length - 1; i >= 0; i--) if (subjects[i]!.user_id === id) subjects.splice(i, 1); return J(200, {}); }
-    if (u.pathname === '/auth/v1/token' && u.searchParams.get('grant_type') === 'password') { const x = users.find((y) => y.email === body.email && y.password === body.password); if (!x) return J(400, {}); const t = `tok-${x.id}`; tokens.set(t, x.id); refresh.set(`ref-${x.id}`, x.id); return J(200, { access_token: t, refresh_token: `ref-${x.id}` }); }
-    if (u.pathname === '/auth/v1/token') return refresh.has(body.refresh_token) ? J(200, {}) : J(400, {});
-    if (u.pathname === '/auth/v1/logout') { const id = tokens.get(auth); refresh.delete(`ref-${id}`); return J(204, null); }
-    if (u.pathname === '/auth/v1/user') return tokens.has(auth) ? J(200, { id: tokens.get(auth) }) : J(401, {});
-    const uid = tokens.get(auth);
+    if (u.pathname.startsWith('/auth/v1/admin/users/') && m === 'DELETE') { const id = u.pathname.split('/').pop(); users.splice(users.findIndex((x) => x.id === id), 1); for (const [k, o] of [...sess]) if (o === id) sess.delete(k); for (let i = subjects.length - 1; i >= 0; i--) if (subjects[i]!.user_id === id) subjects.splice(i, 1); return J(200, {}); }
+    const mintSession = (userId: string, sid = `s${++n}`) => { sess.set(sid, userId); const t = `tok-${++n}`, r = `ref-${++n}`; tokens.set(t, sid); refresh.set(r, sid); return { access_token: t, refresh_token: r }; };
+    if (u.pathname === '/auth/v1/token' && u.searchParams.get('grant_type') === 'password') { const x = users.find((y) => y.email === body.email && y.password === body.password); return x ? J(200, mintSession(x.id)) : J(400, {}); }
+    if (u.pathname === '/auth/v1/token') { const sid = refresh.get(body.refresh_token); if (!sid || !sess.has(sid)) return J(400, {}); refresh.delete(body.refresh_token); return J(200, mintSession(sess.get(sid)!, sid)); }
+    if (u.pathname === '/auth/v1/logout') {
+      const sid = tokens.get(auth); const owner = sid ? sess.get(sid) : undefined;
+      for (const [id, o] of [...sess]) if (u.searchParams.get('scope') === 'global' ? o === owner : id === sid) sess.delete(id);
+      return J(204, null);
+    }
+    if (u.pathname === '/auth/v1/signup') { const x = { id: `u${++n}`, email: body.email, password: body.password }; users.push(x); return J(200, { id: x.id, email: x.email }); }   // confirmation e-mail requise : pas de session
+    if (u.pathname === '/auth/v1/user') { const sid = tokens.get(auth); return sid && sess.has(sid) ? J(200, { id: sess.get(sid) }) : J(401, {}); }
+    const sidOf = tokens.get(auth); const uid = sidOf ? sess.get(sidOf) : undefined;
     if (u.pathname === '/rest/v1/profiles') return J(200, users.filter((x) => `id=eq.${x.id}` === u.search.slice(1).split('&')[0]).map((x) => ({ id: x.id })));
     if (u.pathname.startsWith('/rest/v1/rpc/')) return J(uid || svcCall ? 403 : 401, {});
     if (u.pathname === '/rest/v1/subjects') {
@@ -55,7 +62,8 @@ function fakeProject(opts: { foreignUsers?: number; leakRls?: boolean } = {}) {
       if (m === 'POST') { if (body.user_id && body.user_id !== uid) return J(403, {}); const s = { id: body.id, user_id: uid!, name: body.name, version: 1 }; subjects.push(s); return J(201, [s]); }
       const id = u.searchParams.get('id')?.replace('eq.', '');
       const rows = subjects.filter((s) => s.id === id && visible(s));
-      if (m === 'PATCH') { rows.forEach((s) => { s.name = body.name; s.version++; }); return J(200, rows); }
+      if (m === 'PATCH') { rows.forEach((s) => { if (body.name) s.name = body.name; if (body.deleted_at) s.deleted_at = body.deleted_at; s.version++; }); return J(200, rows); }
+      if (u.searchParams.get('server_updated_at')) return J(200, subjects.filter((s) => visible(s)));
       return J(200, rows);
     }
     return J(404, {});

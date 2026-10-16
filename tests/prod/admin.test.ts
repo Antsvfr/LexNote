@@ -34,6 +34,18 @@ describe('supabase-admin (API de gestion simulée)', () => {
     expect(body.find((s) => s.name === 'INTEGRATION_ENV')!.value).toBe('production');
     expect(body.find((s) => s.name === 'INTEGRATION_PEER_APP_URL')!.value).toBe('https://lex-note-svfr.vercel.app/');
   });
+  it('projet de TEST : les adresses des applications de test remplacent les adresses officielles (et jamais de joker)', async () => {
+    const m = mock({});
+    const env = { SUPABASE_ACCESS_TOKEN: 'sbp_x', INTEGRATION_KEY: KEY, INTEGRATION_ENV: 'development', INTEGRATION_SELF_APP_URL: 'https://lex-note-test.vercel.app/', INTEGRATION_PEER_APP_URL: 'http://localhost:8080/REV-EM/' };
+    const r = await run(['set-secrets', '--app', 'lexnote', '--project', REF_L, '--peer-ref', REF_R], env, m);
+    expect(r.code).toBe(0);
+    const text = r.text;
+    expect(text).toContain('INTEGRATION_ENV = development');
+    expect(text).toContain('INTEGRATION_SELF_APP_URL = https://lex-note-test.vercel.app/');
+    expect(text).toContain('INTEGRATION_PEER_APP_URL = http://localhost:8080/REV-EM/');
+    expect(text).not.toContain('lex-note-svfr.vercel.app');
+    await expect(run(['set-secrets', '--app', 'lexnote', '--project', REF_L, '--peer-ref', REF_R], { ...env, INTEGRATION_SELF_APP_URL: 'https://*.vercel.app/' }, m)).rejects.toThrow(/joker/);
+  });
   it('set-secrets refuse une clé courte, absente, un joker, une référence invalide', async () => {
     const base = ['set-secrets', '--app', 'lexnote', '--project', REF_L, '--peer-ref', REF_R];
     await expect(run(base, { SUPABASE_ACCESS_TOKEN: 't' }, mock({}))).rejects.toThrow(/INTEGRATION_KEY/);

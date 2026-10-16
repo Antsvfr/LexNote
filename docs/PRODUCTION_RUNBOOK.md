@@ -29,6 +29,20 @@ export LEX_REF=…  REV_REF=…  TEST_REF=…
 `#12 → #10 → #11 → #13 → PR « production readiness » (celle-ci)`. Fusionner **dans cet ordre**, en **fusion simple (merge commit)**, jamais de réécriture d'historique.
 Après chaque fusion, attendre que la CI de la PR suivante repasse au vert (le diff se réduit à son propre contenu).
 REV-EM : `#24 → #25` (puis une éventuelle PR REV-EM de cette phase : **aucune n'est nécessaire**, voir « REV-EM » dans la PR).
+**État réel de la chaîne, vérifié sur GitHub le 2026-10-16** (porte `merge-chain`) — toutes les PR : ouvertes, **brouillon**, `mergeable_state: clean`, base `main` (981d9aa) :
+
+| PR | Tête (SHA) | CI `verify` | Contient la précédente ? |
+|---|---|---|---|
+| LexNote #12 | `05afdba` | ✅ verte | — (base) |
+| LexNote #10 | `8602eb6` | ✅ verte | ✅ contient #12 (`git merge-base --is-ancestor`) |
+| LexNote #11 | `042b3b5` | ✅ verte | ✅ contient #10 |
+| LexNote #13 | `6e305fb` | ✅ verte | ✅ contient #11 |
+| LexNote #14 | `77f1dfd` (avant les ajouts de la phase « READY ») | ✅ verte | ✅ contient #13 |
+| REV-EM #24 | `3e72c32` | ⚠ **aucun contrôle CI** (le dépôt REV-EM n'en exécute pas sur les PR) | — (base) |
+| REV-EM #25 | `b7773d5` | ⚠ aucun contrôle CI | ✅ contient #24 |
+
+Divergences : (1) **REV-EM n'a pas de CI sur ses PR** — leurs tests (`npm test` / suites listées dans les PR) doivent être relancés à la main avant fusion ; (2) le SHA de #14 change à chaque ajout : relire la table avant de fusionner.
+
 Ne pas fusionner avant que les portes `typecheck`, `unit-tests`, `build`, `bundle-check`, `preflight`, `e2e-critical` soient PASS **sur le commit à fusionner** (`node scripts/prod/evidence.mjs run-auto`).
 
 ## I.2 Sauvegarde AVANT déploiement (obligatoire)
@@ -36,21 +50,27 @@ Ne pas fusionner avant que les portes `typecheck`, `unit-tests`, `build`, `bundl
 > Une migration n'a pas de retour arrière automatique. La **seule** protection contre une erreur d'exploitation est une sauvegarde **vérifiée**.
 
 1. **Sauvegarde native Supabase** (tableau de bord → *Database → Backups*) : plan Pro et plus = sauvegardes quotidiennes + **Point-in-Time Recovery** (noter l'heure UTC exacte avant de commencer ; la restauration PITR se demande à cette heure). Plan gratuit : **pas de sauvegarde automatique → la sauvegarde logique ci-dessous est obligatoire**.
-2. **Sauvegarde logique** (depuis votre machine, Supabase CLI ≥ 2 ; chaîne de connexion dans *Project Settings → Database → Connection string*, mot de passe dans l'environnement, jamais dans l'historique du shell) :
+2. **Sauvegarde logique** (depuis votre machine ; chaîne de connexion dans *Project Settings → Database → Connection string*, mot de passe dans l'environnement, jamais dans l'historique du shell). Les trois commandes ci-dessous ont été **répétées avec les vrais outils `pg_dump` / `psql`** (PostgreSQL 16, `scripts/prod/rehearsal.mjs backup-restore`) ; `supabase db dump` appelle `pg_dump` et accepte les mêmes découpages :
    ```bash
    export LEX_DB_URL='postgresql://postgres:…@db.'$LEX_REF'.supabase.co:5432/postgres'
    mkdir -p ~/backups/lexnote-$(date -u +%Y%m%dT%H%M%SZ) && cd $_
-   supabase db dump --db-url "$LEX_DB_URL" -f schema.sql                         # structure (public)
-   supabase db dump --db-url "$LEX_DB_URL" --data-only --use-copy -f data-public.sql
-   supabase db dump --db-url "$LEX_DB_URL" --data-only --use-copy --schema auth -f data-auth.sql   # comptes (hachés), identités, sessions
-   supabase db dump --db-url "$LEX_DB_URL" --role-only -f roles.sql
+   pg_dump "$LEX_DB_URL" --no-owner --schema-only --schema public --schema auth -f schema.sql      # structure — SANS --no-privileges (voir ⚠ 3)
+   pg_dump "$LEX_DB_URL" --no-owner --data-only   --schema public -f data-public.sql
+   pg_dump "$LEX_DB_URL" --no-owner --data-only   --schema auth   -f data-auth.sql                 # comptes (mots de passe hachés), identités, sessions
    sha256sum *.sql > SHA256SUMS && ls -l
    ```
-   Même chose pour `REV_REF` (`REV_DB_URL`). Stocker hors de l'ordinateur (chiffré), conserver ≥ 30 jours.
-3. **Vérifier la sauvegarde** (une sauvegarde non testée n'existe pas) : restaurer `schema.sql` + `data-public.sql` dans le projet de **TEST** (`TEST_REF`) ou une base locale (`supabase start`), puis compter : `select count(*) from public.subjects, public.course_sessions;` doit correspondre à la production.
+   (équivalent CLI : `supabase db dump --db-url "$LEX_DB_URL" -f schema.sql`, `… --data-only --use-copy …`.) Même chose pour `REV_REF` (`REV_DB_URL`). Stocker hors de l'ordinateur (chiffré), conserver ≥ 30 jours.
+3. **Vérifier la sauvegarde par une RESTAURATION** (une sauvegarde non restaurée n'existe pas). **Trois pièges découverts par la répétition réelle** — la procédure ci-dessous les corrige :
+   * ⚠ 1 **Base de restauration neuve** : retirer son schéma `public` avant d'importer (`psql "$RESTORE_URL" -c 'drop schema public cascade'`), sinon `schema "public" already exists`.
+   * ⚠ 2 **Importer les DONNÉES avec les déclencheurs désactivés** : `lx_touch` réécrit `version` / `server_updated_at` à l'insertion (les curseurs de synchronisation seraient faussés) et le déclencheur d'inscription recrée les profils avant leur import (**erreur de doublon**). Faire précéder chaque fichier de données de `set session_replication_role = replica;` :
+     ```bash
+     for f in data-auth.sql data-public.sql; do (echo 'set session_replication_role = replica;'; cat $f) | psql "$RESTORE_URL" -v ON_ERROR_STOP=1; done
+     ```
+   * ⚠ 3 **Conserver les droits** (`GRANT` / `REVOKE`) : un dump fait avec `--no-privileges` restaure des fonctions `SECURITY DEFINER` **exécutables par `anon`** (les `REVOKE` des migrations sont perdus). Après toute restauration, relancer `verify-db` et `verify-schema` (Partie II) avant d'ouvrir le trafic.
+   Restaurer dans un projet de **TEST** ou une base locale (`createdb restore_test`), puis comparer : `select count(*) from public.subjects, public.course_sessions;` et, idéalement, les empreintes de `rehearsal.mjs` (nombre de lignes + md5 du contenu).
 4. **État de la production avant migration** : `node scripts/prod/migration-status.mjs --project $LEX_REF` — enregistrer la sortie (elle prouve l'état de départ).
 5. Noter les **versions déployées** pour le retour arrière : Vercel (URL du déploiement de production actuel), `git rev-parse HEAD` des deux dépôts, `supabase functions list --project-ref $LEX_REF` (versions), `supabase secrets list --project-ref $LEX_REF` (noms seulement).
-6. Enregistrer : `node scripts/prod/evidence.mjs record backup PASS --note "dump 2026-…, restauré sur TEST_REF, comptes OK"`.
+6. Enregistrer : `node scripts/prod/evidence.mjs record backup PASS --note "dump 2026-…, restauré sur un projet de test, comptes OK"` (porte de PRODUCTION : seul l'exploitant la valide ; la procédure elle-même est déjà prouvée par la porte `backup-restore-rehearsal`).
 
 ## I.3 Portes de déploiement (READY / NOT READY)
 
@@ -189,8 +209,11 @@ Principe : **revenir en arrière dans l'ordre inverse du déploiement**, et pré
 | Migration appliquée mais défectueuse | **Ne pas écrire de « migration inverse » dans l'urgence.** 1) `STUDY_AI_ENABLED=false` si concerné ; 2) corriger en avant par une nouvelle migration `2026…` testée sur `TEST_REF` ; 3) en dernier recours, **restaurer la sauvegarde** (ci-dessous) | Les migrations 17 et 18 n'ajoutent que des colonnes/fonctions/tables : les laisser en place est sans danger pour l'ancien code |
 | Perte ou corruption de données | **Restauration** : PITR Supabase à l'heure notée en §I.2 (*Database → Backups → Point in time*), ou depuis le dump logique : `psql "$LEX_DB_URL" -f schema.sql -f data-public.sql` sur une base **vide** (projet de restauration), puis comparer ; ne jamais restaurer par-dessus la production sans avoir sauvegardé son état courant | Suppressions « douces » : `select count(*) from course_sessions where deleted_at is not null;` — restauration ciblée possible par SQL |
 
+⚠ **Limite connue du retour arrière de `study-ai`** (répétée : `rehearsal.mjs db-rollback`) : l'**ancien** code n'applique ni le budget global ni l'interrupteur `STUDY_AI_ENABLED`. Après un retour arrière de cette fonction, **couper l'IA en retirant la clé du fournisseur** : `supabase secrets unset ANTHROPIC_API_KEY --project-ref $LEX_REF` (l'ancienne fonction répond alors `not_configured`), et la rétablir après redéploiement de la version corrigée.
+
 Retour arrière applicatif sûr des **migrations 17 et 18** (uniquement si la sauvegarde ne peut pas servir et après accord) : elles ne suppriment aucune donnée ; les fonctions `study_ai_acquire` (9 paramètres) et `study_ai_release` (7 paramètres) acceptent les anciens appels à 7 et 3 arguments (valeurs par défaut) — aucun SQL de retour arrière n'est nécessaire pour que l'ancien code fonctionne.
-**Répétition obligatoire** (porte `rollback-rehearsed`) : sur `TEST_REF`, appliquer 14→18, déployer, puis exécuter chaque ligne du tableau (kill switch, déploiement précédent, restauration du dump) et noter le résultat.
+**Répétitions déjà faites sans Supabase** (preuves `rollback-db-compat` et `rollback-frontend-local`) : base additive + ancien code compatible (`node scripts/prod/rehearsal.mjs db-rollback`), et retour arrière frontend sur la même origine avec le même profil de navigateur : notes intactes dans les deux sens, l'ancienne version est reçue comme mise à jour proposée (`node scripts/prod/frontend-rollback-drill.mjs --old <dist> --new <dist>`).
+**Répétition complète obligatoire** (porte `rollback-rehearsed`, `docs/TEST_ENVIRONMENT.md` §10) : sur `TEST_REF`, appliquer 14→18, déployer, puis exécuter chaque ligne du tableau (kill switch, déploiement précédent, restauration du dump) et noter le résultat.
 
 ## I.8 Navigateurs
 
@@ -204,6 +227,44 @@ Automatisé (Chromium, `tests/e2e/pwa.spec.ts`) : manifeste (nom, `standalone`, 
 
 ## I.10 Accessibilité (audit rapide)
 `tests/e2e/mobile-a11y.spec.ts` contrôle sur 9 pages + l'éditeur : langue du document, titre, repère `main`, un `h1`, noms accessibles des boutons/liens, étiquettes des champs, `alt` des images, pas de `tabindex` positif, boîtes de dialogue nommées, `id` uniques, cibles ≥ 24 px, absence de défilement horizontal à 390 px. Corrigé par l'audit : l'éditeur n'avait ni `main` ni `h1`. **Non couvert** (à faire avec un lecteur d'écran et axe-core) : contrastes, ordre de tabulation complexe, annonces `aria-live`.
+
+## I.11 Profil de lancement BETA de l'IA (recommandé — non appliqué)
+
+Les valeurs par défaut du code (2 000 requêtes et 20 M de caractères par jour au total ; 200 requêtes et 3 M de caractères par étudiant et par jour) sont des **plafonds techniques**, trop hauts pour un lancement. Profil conseillé pour une beta d'environ 20 à 50 étudiants (à poser à l'étape D, **avec `STUDY_AI_ENABLED=false` jusqu'à la fin des smoke tests**) :
+```bash
+supabase secrets set --project-ref $LEX_REF STUDY_AI_GLOBAL_MAX_REQUESTS_DAY=150 STUDY_AI_GLOBAL_MAX_CHARS_DAY=3000000 \
+  STUDY_AI_MAX_PER_DAY=15 STUDY_AI_MAX_CHARS_PER_DAY=400000 STUDY_AI_MAX_PER_MINUTE=4 STUDY_AI_MAX_CONCURRENT=1
+```
+| Garde-fou | Beta | Défaut du code | Pourquoi |
+|---|---|---|---|
+| Interrupteur | `STUDY_AI_ENABLED` activable à tout moment | activé | arrêt immédiat sans redéploiement |
+| Global / jour | 150 requêtes, 3 M de caractères | 2 000 / 20 M | borne le coût quoi qu'il arrive (503 `ai_capacity`) |
+| Par étudiant / jour | 15 requêtes, 400 000 caractères | 200 / 3 M | ≈ 5 séances entières par jour ; un compte abusif ne consomme pas le budget des autres |
+| Par minute / simultanés | 4 / 1 | 12 / 2 | limite les rafales et les clics répétés |
+| Sortie max. | 15 000 jetons (inchangé) | 15 000 | **ne pas baisser** : la structuration d'un long texte atteint ce plafond, une valeur plus basse la ferait échouer (`truncated`) |
+**Estimation qualitative du risque de coût** (aucun tarif n'est supposé ici : vérifier la grille tarifaire du fournisseur) : pire cas **mécaniquement borné** par jour à ≈ 0,75 M de jetons d'entrée (3 M de caractères ÷ 4) et ≤ 150 × 15 000 = 2,25 M de jetons de sortie (en pratique ~1 M : la plupart des actions plafonnent entre 2 000 et 7 000). Risque **faible et plafonné** ; le risque résiduel est un changement de tarif du fournisseur ou un modèle plus cher que prévu (`STUDY_AI_MODEL`, défaut `claude-opus-5-5`, le plus capable donc le plus coûteux — un modèle moins cher est une option à valider d'abord sur le projet de test). Surveillance : `select public.study_ai_usage_summary(1);` chaque jour la première semaine. Augmenter (×2 maximum à la fois) seulement si l'usage réel reste sous 50 % des plafonds pendant une semaine.
+
+## I.12 Checklist PWA courte (porte `pwa-manual`)
+
+Appareil réel (ordinateur ou téléphone), sur le déploiement de **test** ou de prévisualisation. Répondre uniquement `PWA n PASS` ou `PWA n FAIL (ce que vous voyez)` :
+1. **PWA 1** Installer LexNote (icône d'installation du navigateur, ou *Ajouter à l'écran d'accueil*) ; l'application s'ouvre dans sa propre fenêtre.
+2. **PWA 2** Fermer complètement l'application (pas seulement la fenêtre).
+3. **PWA 3** Rouvrir : l'application démarre.
+4. **PWA 4** Vous êtes toujours connecté (aucun mot de passe demandé) — après avoir coché « Rester connecté » à la connexion.
+5. **PWA 5** Créer une séance et écrire une note ; « Enregistré » s'affiche.
+6. **PWA 6** Passer hors ligne (mode avion) : la note s'écrit encore, « Hors ligne » s'affiche, rien ne disparaît ; fermer/rouvrir hors ligne : la note est là.
+7. **PWA 7** Revenir en ligne : la synchronisation reprend toute seule, aucune erreur.
+8. **PWA 8** Après un nouveau déploiement : « Une nouvelle version de LexNote est disponible » apparaît ; l'application n'a **pas** rechargé d'elle-même.
+9. **PWA 9** Démarrer une transcription puis cliquer « Mettre à jour » : refusé avec le message « Une transcription est en cours… » ; arrêter la transcription, recliquer : la mise à jour s'applique et les notes sont intactes.
+
+## I.13 Règle après CHAQUE fusion (chaîne de PR empilées)
+
+Après chaque fusion dans `main` (ordre : LexNote #12 → #10 → #11 → #13 → #14 ; REV-EM #24 → #25) :
+1. **Attendre la CI de `main`** (job `verify`) : **rouge ⇒ on s'arrête**, on corrige, on ne fusionne pas la suivante.
+2. **Mettre la PR suivante à jour** : GitHub la rebase sur `main` si sa base a été supprimée ; sinon *Update branch* (fusion de `main` dans la branche — **pas de rebase ni de réécriture d'historique**). Si un fichier généré diffère (`lexnote-revem-v1.mjs`), le régénérer avec `node scripts/build-integration-bundle.mjs` depuis un `node_modules` réel, jamais à la main.
+3. **Vérifier la mergeabilité** (pas de conflit) **et** la CI verte du nouveau commit de tête **avant** de fusionner la suivante.
+4. Le SHA de tête de la PR change à chaque mise à jour : les preuves des portes liées au code (`sha: true`) deviennent `NOT_RUN` ⇒ relancer `node scripts/prod/evidence.mjs run-auto` sur le commit final avant le déploiement.
+5. Ne **déployer** (étapes B à G) qu'une fois **toutes** les PR fusionnées et la CI de `main` verte sur le commit final.
 
 ---
 

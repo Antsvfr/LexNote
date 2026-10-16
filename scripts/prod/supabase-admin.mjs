@@ -5,8 +5,9 @@
 //   apply-sql  --project <ref> --file <sql>                 applique une migration (une transaction côté API)
 //   verify-db  --project <ref>                              exécute scripts/prod/verify-db.sql (PASS/FAIL, tables d'intégration) — lecture seule
 //   verify-schema --project <ref>                           exécute supabase/reconciliation/verify-official-schema.sql (13 contrôles du schéma officiel) — lecture seule
-//   set-secrets --app lexnote|revem --project <ref> --peer-ref <réf. de l'autre projet>   (INTEGRATION_KEY lue dans l'environnement)
-//   auth-urls  --app lexnote|revem --project <ref> [--dev]  fusionne les URLs de redirection Auth (n'en supprime aucune)
+//   set-secrets --app lexnote|revem --project <ref> --peer-ref <réf. de l'autre projet>   (INTEGRATION_KEY lue dans l'environnement ;
+//                                          projet de TEST : INTEGRATION_ENV=development, INTEGRATION_SELF_APP_URL, INTEGRATION_PEER_APP_URL)
+//   auth-urls  --app lexnote|revem --project <ref> [--dev]  fusionne les URLs de redirection Auth (n'en supprime aucune) ; TEST : AUTH_REDIRECTS=url1,url2
 //   advisors   --project <ref>                              Security + Performance Advisor, filtrés sur les objets d'intégration
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -60,7 +61,7 @@ export async function main(argv, env, fetchImpl = fetch, out = console.log) {
     if (!key || key.length < 32) throw new Error('INTEGRATION_KEY absente ou trop courte (≥ 32 caractères) dans l’environnement — ex. export INTEGRATION_KEY="$(openssl rand -base64 48)"');
     const secrets = [
       ['INTEGRATION_ENV', env.INTEGRATION_ENV === 'development' ? 'development' : 'production'], ['INTEGRATION_KEY_ID', env.INTEGRATION_KEY_ID || 'k1'], ['INTEGRATION_KEY', key],
-      ['INTEGRATION_SELF_APP_URL', OFFICIAL[app].appUrl], ['INTEGRATION_PEER_APP_URL', OFFICIAL[peer].appUrl], ['INTEGRATION_PEER_GATEWAY_URL', gatewayUrl(peerRef)],
+      ['INTEGRATION_SELF_APP_URL', env.INTEGRATION_SELF_APP_URL || OFFICIAL[app].appUrl], ['INTEGRATION_PEER_APP_URL', env.INTEGRATION_PEER_APP_URL || OFFICIAL[peer].appUrl], ['INTEGRATION_PEER_GATEWAY_URL', gatewayUrl(peerRef)],
     ];
     if (env.INTEGRATION_KEY_PREVIOUS) { secrets.push(['INTEGRATION_KEY_PREVIOUS', env.INTEGRATION_KEY_PREVIOUS], ['INTEGRATION_KEY_PREVIOUS_ID', need(env.INTEGRATION_KEY_PREVIOUS_ID, 'INTEGRATION_KEY_PREVIOUS_ID')]); }
     if (env.INTEGRATION_ALLOWED_ORIGINS) secrets.push(['INTEGRATION_ALLOWED_ORIGINS', env.INTEGRATION_ALLOWED_ORIGINS]);
@@ -72,7 +73,8 @@ export async function main(argv, env, fetchImpl = fetch, out = console.log) {
   }
   if (cmd === 'auth-urls') {
     const app = need(flag('--app'), '--app'); if (!OFFICIAL[app]) throw new Error('--app doit valoir lexnote ou revem');
-    const wanted = [...OFFICIAL[app].redirects, ...(has('--dev') ? OFFICIAL[app].dev : [])];
+    // Projet de TEST : AUTH_REDIRECTS (liste séparée par des virgules) remplace les adresses officielles ; jamais de joker global.
+    const wanted = env.AUTH_REDIRECTS ? env.AUTH_REDIRECTS.split(',').map((x) => x.trim()).filter(Boolean) : [...OFFICIAL[app].redirects, ...(has('--dev') ? OFFICIAL[app].dev : [])];
     if (wanted.some((u) => u === '*' || u === '**' || /^https?:\/\/\*/.test(u))) throw new Error('joker global refusé');
     const cur = await call('GET', `/v1/projects/${project}/config/auth`);
     const existing = String(cur?.uri_allow_list ?? '').split(',').map((s) => s.trim()).filter(Boolean);

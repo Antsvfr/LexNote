@@ -9,7 +9,7 @@ import { PLAN, run, validDoc } from '../../scripts/prod/study-ai-smoke.mjs';
  */
 const ENV = { LEXNOTE_SUPABASE_URL: 'https://proj.example', LEXNOTE_ANON_KEY: 'anon', LEXNOTE_A_EMAIL: 'a@t', LEXNOTE_A_PASSWORD: 'pw' };
 const DOC = JSON.stringify({ blocks: [{ kind: 'heading', text: 'Titre', level: 1 }, { kind: 'paragraph', text: 'Texte.' }] });
-type Mode = { badJson?: boolean; timeout?: boolean; provider?: boolean; noLimit?: boolean; leak?: boolean };
+type Mode = { disabled?: boolean; capacity?: boolean; badJson?: boolean; timeout?: boolean; provider?: boolean; noLimit?: boolean; leak?: boolean };
 
 function fakeProject(m: Mode = {}) {
   const calls: { task?: string }[] = []; let running = 0;
@@ -17,11 +17,13 @@ function fakeProject(m: Mode = {}) {
   const fetchImpl = async (url: string, init: RequestInit) => {
     if (url.includes('/auth/v1/token')) return res(200, { access_token: 'jwt-secret' });
     const body = JSON.parse(String(init.body)) as { task: string; input: string };
+    if (m.disabled) return res(503, { error: 'ai_disabled' }, { 'retry-after': '300' });
     const h = init.headers as Record<string, string>;
     if (!h.authorization) return res(401, { error: 'unauthorized' });
     if (body.task === 'jailbreak') return res(400, { error: 'bad_request' });
     if (body.input.length > 80_000) return res(413, { error: 'payload_too_large', limit: 80_000 });
     if (!m.noLimit && running >= 2) return res(429, { error: 'rate_limited', reason: 'concurrent', limit: 2, retry_after: 10 }, { 'retry-after': '10' });
+    if (m.capacity) return res(503, { error: 'ai_capacity' }, { 'retry-after': '3600' });
     calls.push({ task: body.task }); running++;
     try {
       await new Promise((r) => setTimeout(r, 5));
@@ -48,7 +50,7 @@ describe('smoke test study-ai (auto-test, sans clé)', () => {
     const r = await run({ ...ENV, SMOKE_CONFIRM: '1', SMOKE_RATE_LIMIT: '1' }, { log: q.log, fetchImpl: f.fetchImpl });
     expect(r.ok).toBe(true);
     expect(q.lines.filter((l) => l.startsWith('FAIL'))).toEqual([]);
-    expect(q.lines.filter((l) => l.startsWith('SKIP')).length).toBe(3);   // délai, erreur fournisseur, refus
+    expect(q.lines.filter((l) => l.startsWith('SKIP')).length).toBe(4);   // délai, erreur fournisseur, budget global, refus
     expect(q.lines.join('\n')).not.toMatch(/jwt-secret|pw\b/);
     expect(f.calls.map((c) => c.task)).toEqual(expect.arrayContaining(['summarize', 'translate', 'structure', 'digest']));
   });
@@ -66,6 +68,16 @@ describe('smoke test study-ai (auto-test, sans clé)', () => {
     expect((await run({ ...ENV, SMOKE_CONFIRM: '1', SMOKE_EXPECT_TIMEOUT: '1' }, { log: quiet().log, fetchImpl: fakeProject({ timeout: true }).fetchImpl })).ok).toBe(true);
     expect((await run({ ...ENV, SMOKE_CONFIRM: '1', SMOKE_EXPECT_PROVIDER_ERROR: '1' }, { log: quiet().log, fetchImpl: fakeProject({ provider: true }).fetchImpl })).ok).toBe(true);
     expect((await run({ ...ENV, SMOKE_CONFIRM: '1', SMOKE_EXPECT_PROVIDER_ERROR: '1' }, { log: quiet().log, fetchImpl: fakeProject({ provider: true, leak: true }).fetchImpl })).ok).toBe(false);
+  });
+  it('interrupteur d’urgence : 503 ai_disabled pour tous, aucun appel payant ; un projet qui répond autrement → FAIL', async () => {
+    const off = fakeProject({ disabled: true });
+    expect((await run({ ...ENV, SMOKE_CONFIRM: '1', SMOKE_EXPECT_DISABLED: '1' }, { log: quiet().log, fetchImpl: off.fetchImpl })).ok).toBe(true);
+    expect(off.calls).toEqual([]);
+    expect((await run({ ...ENV, SMOKE_CONFIRM: '1', SMOKE_EXPECT_DISABLED: '1' }, { log: quiet().log, fetchImpl: fakeProject().fetchImpl })).ok).toBe(false);   // l'IA répond encore : l'interrupteur n'est pas actif
+  });
+  it('budget global consommé : 503 ai_capacity attendu ; l’IA qui répond encore → FAIL', async () => {
+    expect((await run({ ...ENV, SMOKE_CONFIRM: '1', SMOKE_EXPECT_CAPACITY: '1' }, { log: quiet().log, fetchImpl: fakeProject({ capacity: true }).fetchImpl })).ok).toBe(true);
+    expect((await run({ ...ENV, SMOKE_CONFIRM: '1', SMOKE_EXPECT_CAPACITY: '1' }, { log: quiet().log, fetchImpl: fakeProject().fetchImpl })).ok).toBe(false);
   });
   it('validDoc', () => {
     expect(validDoc(DOC)).toBe(true);
