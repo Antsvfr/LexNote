@@ -56,7 +56,7 @@ describe('préflight — détection de secrets', () => {
   it('reconnaît clé IA, jeton Supabase, clé privée, JWT service_role ; ignore un JWT anon', () => {
     expect(C.scanText('k = sk-ant-api03-' + 'a'.repeat(40))).toEqual(['clé API Anthropic']);
     expect(C.scanText('t = sbp_' + 'a1'.repeat(20))).toEqual(["jeton d'accès personnel Supabase"]);
-    expect(C.scanText('-----BEGIN PRIVATE KEY-----')).toEqual(['clé privée']);
+    expect(C.scanText('-----BEGIN ' + 'PRIVATE KEY-----')).toEqual(['clé privée']);
     expect(C.scanText(jwt('service_role'))).toEqual(['clé service_role']);
     expect(C.scanText(jwt('anon'))).toEqual([]);
     expect(C.scanText(jwt('service_role'), { fixture: true })).toEqual([]);
