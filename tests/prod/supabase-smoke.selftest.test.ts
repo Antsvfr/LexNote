@@ -33,7 +33,7 @@ function fakeProject(opts: { foreignUsers?: number; leakRls?: boolean } = {}) {
   const log: string[] = [];
   let n = 0;
   const fetchImpl = (async (input: string, init: RequestInit = {}) => {
-    const u = new URL(input); const path = u.pathname + u.search; const m = init.method ?? 'GET';
+    const u = new URL(input); const m = init.method ?? 'GET';
     const auth = String((init.headers as Record<string, string>).authorization).replace('Bearer ', '');
     const body = init.body ? JSON.parse(String(init.body)) : undefined; const svcCall = auth.includes(b64({ role: 'service_role', ref: REF }));
     const J = (s: number, j: unknown) => new Response(s === 204 ? null : JSON.stringify(j), { status: s });

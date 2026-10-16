@@ -8,6 +8,7 @@ import {
   artifactFromRow, artifactToRow, courseFromRow, courseToRow, documentFromRow, documentToRow, moduleFromRow, moduleToRow, segmentFromRow, segmentToRow, sessionFromRow, sessionToRow, subjectFromRow, subjectToRow,
 } from './mappers';
 import { CAPTURE_TABLES, NetworkError, type RemoteRow, type RemoteStore, type RemoteTable, VERSIONED_TABLES } from './types';
+import { log } from '@/lib/log';
 
 /** Ce qui a changé localement à cause du cloud : l'UI se rafraîchit en conséquence. */
 export interface AppliedChanges {
@@ -144,7 +145,7 @@ export class SyncEngine {
         state: offline ? 'offline' : 'error', pending: await this.safePending(),
         error: offline ? null : (err as Error).message,
       });
-      if (!offline) console.error('[LexNote] synchronisation', err);
+      if (!offline) log.sync.error('synchronisation', err);
     } finally {
       this.running = false;
     }

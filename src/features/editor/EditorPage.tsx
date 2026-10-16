@@ -27,6 +27,7 @@ import { captureManager } from '@/services/capture/manager';
 import { confirm } from '@/components/confirm';
 import { modKeyLabel } from './commands';
 import type { CourseSession } from '@/domain/types';
+import { log } from '@/lib/log';
 
 export function EditorPage() {
   const { sessionId } = useParams();
@@ -69,7 +70,7 @@ function Workspace({ sessionId, initialContent }: { sessionId: string; initialCo
   // La capture est un système indépendant : son chargement ne bloque ni n'influence l'éditeur.
   useEffect(() => {
     const focusMs = tParam !== null && Number.isFinite(Number(tParam)) ? Number(tParam) : null;
-    void captureManager.open(sessionId, focusMs).catch((e) => console.warn('[LexNote] capture non chargée', e));
+    void captureManager.open(sessionId, focusMs).catch((e) => log.transcription.warn('capture non chargée', e));
     if (focusMs !== null || params.get('panel') === 'transcript') { useUI.getState().setSideTab('transcript'); if (!useUI.getState().assistantOpen) useUI.getState().toggleAssistant(); }
   }, [sessionId, tParam]); // eslint-disable-line react-hooks/exhaustive-deps
 

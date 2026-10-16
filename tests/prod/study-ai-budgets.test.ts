@@ -6,7 +6,7 @@ import { TASKS } from '../../supabase/functions/study-ai/prompts';
 /** Garde-fous de COÛT de `study-ai` : budgets de sortie par action, limites, budget global, interrupteur. Sans réseau. */
 const env = (o: Record<string, string>) => (k: string) => o[k];
 const SIZES = [0, 1, 200, 4_000, 16_000, 60_000, 80_000];
-const OPTIONS = [{}, { mode: 'express' }, { mode: 'standard' }, { mode: 'detailed' }];
+const OPTIONS: Record<string, string>[] = [{}, { mode: 'express' }, { mode: 'standard' }, { mode: 'detailed' }];
 
 describe('budgets de sortie par action', () => {
   it('chaque action a un budget ; AUCUNE n’approche 64 000 jetons ; plafond absolu respecté pour toute taille d’entrée', () => {

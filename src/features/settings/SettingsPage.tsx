@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Download, LogOut, Monitor, Moon, Sun, Trash2, UserX } from 'lucide-react';
 import { useLibrary } from '@/store/library';
 import { useUI, type ThemePref } from '@/store/ui';
@@ -8,6 +8,7 @@ import { confirm, promptText } from '@/components/confirm';
 import { toast } from '@/store/toasts';
 import { captureManager } from '@/services/capture/manager';
 import { SyncIndicator } from '@/components/SyncIndicator';
+import { getBuildInfo } from '@/lib/buildInfo';
 import { ConnectedApps } from '@/features/integration/ConnectedApps';
 import { FIELDS } from '@/domain/profile';
 import { TranscriptionSettings } from './TranscriptionSettings';
@@ -147,7 +148,7 @@ export function SettingsPage() {
         </div>
       </section>
 
-      <p className="muted" style={{ fontSize: 12.5 }}>LexNote v{__APP_VERSION__}</p>
+      <p className="muted" style={{ fontSize: 12.5 }} data-testid="app-version">LexNote {getBuildInfo().label} · <Link to="/settings/system-status" data-testid="open-diagnostic">Diagnostic</Link></p>
     </div>
   );
 }

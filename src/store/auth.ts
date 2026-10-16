@@ -3,6 +3,7 @@ import { AuthError, emptyProfile, type AuthUser, type Profile } from '@/services
 import { getBackend, type Backend, type BackendKind } from '@/services/backend';
 import { closeWorkspace, openWorkspace } from '@/services/workspace';
 import { deviceLabel, isStandalone, markBrowserSession, readDevice, setRemember, shouldDiscardStoredSession } from '@/services/auth/device';
+import { log } from '@/lib/log';
 
 export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated' | 'unconfigured';
 export type WorkspaceStatus = 'closed' | 'opening' | 'ready' | 'error';
@@ -74,7 +75,7 @@ export const useAuth = create<AuthState>((set, get) => {
         await openWorkspace(user, backend!);
         set({ workspace: 'ready' });
       } catch (e) {
-        console.error('[LexNote] ouverture de l’espace de travail', e);
+        log.auth.error('ouverture de l’espace de travail', e);
         set({ workspace: 'error', workspaceError: (e as Error).message });
         return;
       }

@@ -27,7 +27,8 @@ import { SearchPage } from '@/features/search/SearchPage';
 import { SettingsPage } from '@/features/settings/SettingsPage';
 import { CommandPalette } from '@/features/palette/CommandPalette';
 import { applyTheme, useUI } from '@/store/ui';
-import { usePwaUpdate } from '@/lib/pwa';
+import { SystemStatusPage } from '@/features/settings/SystemStatusPage';
+import { usePwaUpdate, useUnloadGuard } from '@/lib/pwa';
 
 // L'éditeur (TipTap/ProseMirror) est le plus gros morceau : chargé à la demande.
 const EditorPage = lazy(() => import('@/features/editor/EditorPage').then((m) => ({ default: m.EditorPage })));
@@ -36,6 +37,7 @@ const RecapPage = lazy(() => import('@/features/recap/RecapPage').then((m) => ({
 export function App() {
   const theme = useUI((s) => s.theme);
   usePwaUpdate();
+  useUnloadGuard();
 
   // Suit le thème système quand la préférence est "Système".
   useEffect(() => {
@@ -70,6 +72,7 @@ export function App() {
               <Route path="supports/:artifactId" element={<ArtifactPage />} />
               <Route path="search" element={<SearchPage />} />
               <Route path="settings" element={<SettingsPage />} />
+              <Route path="settings/system-status" element={<SystemStatusPage />} />
               <Route path="integrations/revem/authorize" element={<AuthorizeRevem />} />
               <Route path="session/:sessionId/recap" element={<RecapPage />} />
               <Route path="session/:sessionId/course" element={<CoursePage />} />

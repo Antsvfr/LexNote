@@ -23,8 +23,8 @@ export interface HealthDeps {
 }
 
 /** Classe le code renvoyé par un GET non authentifié d'une fonction d'intégration. */
-export function classifyProbe(status: number | null): ServiceState {
-  if (status === null) return 'error';
+export function classifyProbe(status: number | null | undefined): ServiceState {
+  if (status === null || status === undefined) return 'error';
   if (status === 404) return 'not_deployed';
   if (status === 401 || status === 403) return 'jwt_protected'; // verify_jwt actif : la passerelle partenaire serait refusée
   return status < 500 ? 'ok' : 'error';

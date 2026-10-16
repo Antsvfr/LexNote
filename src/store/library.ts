@@ -7,6 +7,7 @@ import type { ChangeSet, StorageAdapter } from '@/services/storage/types';
 import { countWords, makeExcerpt } from '@/lib/text';
 import { nextSubjectColor } from '@/lib/palette';
 import { toast } from './toasts';
+import { log } from '@/lib/log';
 
 export interface NewSessionInput {
   subjectId: string;
@@ -76,7 +77,7 @@ export const onSubjectsRemoved = (h: SubjectsHook) => { subjectHooks.push(h); };
 export const onLibraryWiped = (h: () => Promise<void> | void) => { wipeHooks.push(h); };
 async function notifyRemoved(ids: string[]) {
   if (!ids.length) return;
-  for (const h of removalHooks) { try { await h(ids); } catch (e) { console.error('[LexNote] nettoyage lié à la séance', e); } }
+  for (const h of removalHooks) { try { await h(ids); } catch (e) { log.storage.error('nettoyage lié à la séance', e); } }
 }
 
 const stamp = () => new Date().toISOString();
@@ -93,7 +94,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
     try {
       await db().commit(changes);
     } catch (err) {
-      console.error('[LexNote] Échec d’écriture locale', err);
+      log.storage.error('Échec d’écriture locale', err);
       toast.error("Impossible d'enregistrer sur cet appareil. Exportez vos notes depuis Réglages.");
       throw err;
     }
@@ -143,7 +144,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
       }));
       await persist({ deleteSubjects: [id], deleteModules: mods, deleteSessions: sess });
       await notifyRemoved(sess);
-      for (const h of subjectHooks) { try { await h([id]); } catch (e) { console.error(e); } }
+      for (const h of subjectHooks) { try { await h([id]); } catch (e) { log.storage.error('erreur inattendue', e); } }
     },
 
     /* --- modules --- */
@@ -237,8 +238,8 @@ export const useLibrary = create<LibraryState>((set, get) => {
       set({ subjects: [], modules: [], sessions: [] });
       await persist({ deleteSubjects: subjects.map((x) => x.id), deleteModules: modules.map((x) => x.id), deleteSessions: sessionIds });
       await notifyRemoved(sessionIds);
-      for (const h of subjectHooks) { try { await h(subjects.map((x) => x.id)); } catch (e) { console.error(e); } }
-      for (const h of wipeHooks) { try { await h(); } catch (e) { console.error(e); } }
+      for (const h of subjectHooks) { try { await h(subjects.map((x) => x.id)); } catch (e) { log.storage.error('erreur inattendue', e); } }
+      for (const h of wipeHooks) { try { await h(); } catch (e) { log.storage.error('erreur inattendue', e); } }
     },
   };
 });
