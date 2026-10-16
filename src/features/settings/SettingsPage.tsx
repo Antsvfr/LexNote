@@ -8,6 +8,7 @@ import { confirm, promptText } from '@/components/confirm';
 import { toast } from '@/store/toasts';
 import { captureManager } from '@/services/capture/manager';
 import { SyncIndicator } from '@/components/SyncIndicator';
+import { confirmSafeLogout } from '@/services/safeLogout';
 import { getBuildInfo } from '@/lib/buildInfo';
 import { ConnectedApps } from '@/features/integration/ConnectedApps';
 import { FIELDS } from '@/domain/profile';
@@ -47,7 +48,7 @@ export function SettingsPage() {
   async function changePassword() {
     try { await updatePassword(pw); setPw(''); toast.success('Mot de passe modifié.'); } catch (e) { toast.error((e as Error).message || 'Modification impossible.'); }
   }
-  async function logout() { await signOut(); navigate('/login', { replace: true }); }
+  async function logout() { if (!await confirmSafeLogout()) return; await signOut(); navigate('/login', { replace: true }); }
   async function removeAccount() {
     const ok = await confirm({ title: 'Supprimer votre compte ?', message: 'Votre compte, toutes vos matières, séances, notes et transcriptions synchronisées seront définitivement supprimés du cloud, et les données de cet appareil effacées. Cette action est irréversible.', confirmLabel: 'Continuer', danger: true });
     if (!ok) return;
@@ -67,7 +68,10 @@ export function SettingsPage() {
   }
   async function wipe() {
     const ok = await confirm({ title: 'Supprimer toutes mes séances ?', message: 'Toutes les matières, modules, séances et notes de votre compte seront supprimés (sur cet appareil et dans votre cloud). Votre compte reste ouvert. Cette action est irréversible — pensez à exporter d’abord.', confirmLabel: 'Tout supprimer', danger: true });
-    if (ok) { await lib.wipe(); toast.success('Données supprimées.'); }
+    if (!ok) return;
+    const typed = await promptText({ title: 'Confirmation', label: 'Saisissez SUPPRIMER pour confirmer', placeholder: 'SUPPRIMER', confirmLabel: 'Tout supprimer' });
+    if (typed?.trim() !== 'SUPPRIMER') { if (typed !== null) toast.error('Confirmation incorrecte : rien n’a été supprimé.'); return; }
+    await lib.wipe(); toast.success('Données supprimées.');
   }
 
   return (

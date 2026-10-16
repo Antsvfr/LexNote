@@ -87,6 +87,18 @@ export async function openWorkspace(user: AuthUser, backend: Backend): Promise<v
   if (!engine) setSync({ state: 'disabled' });
 }
 
+/**
+ * Dernière tentative d'envoi avant de quitter la session (déconnexion). Borne le temps d'attente ; ne lève jamais.
+ * Renvoie le nombre d'éléments encore non envoyés (ils restent sur l'appareil, rien n'est supprimé).
+ */
+export async function flushSyncBeforeExit(timeoutMs = 5000): Promise<number> {
+  const eng = current?.engine;
+  if (!eng) return 0;
+  await Promise.race([eng.syncNow().catch(() => undefined), new Promise<void>((r) => setTimeout(r, timeoutMs))]);
+  await eng.refreshPending();
+  return useSync.getState().pending;
+}
+
 export async function closeWorkspace(): Promise<void> {
   const ws = current;
   current = null;

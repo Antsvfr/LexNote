@@ -1,3 +1,4 @@
+import { confirmSafeLogout } from '@/services/safeLogout';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bell, ChevronDown, LogOut, Menu as MenuIcon, Moon, Search, Settings, Sun, GraduationCap, HardDrive } from 'lucide-react';
@@ -19,7 +20,7 @@ export function AppHeader() {
   const [info, setInfo] = useState<StorageInfo | null>(null);
   const dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   const initial = (firstName.trim()[0] ?? 'L').toUpperCase();
-  const logout = async () => { await signOut(); navigate('/login', { replace: true }); };
+  const logout = async () => { if (!await confirmSafeLogout()) return; await signOut(); navigate('/login', { replace: true }); };
 
   useEffect(() => { void estimateStorage().then(setInfo); }, []);
   const lowStorage = info?.level === 'low' || info?.level === 'critical';

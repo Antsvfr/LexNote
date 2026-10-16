@@ -32,7 +32,7 @@ export function SessionRow({ session: s, showContext = true }: Props) {
   async function remove() {
     const ok = await confirm({
       title: 'Supprimer cette séance ?',
-      message: `« ${sessionLabel(s)} » et ses notes, transcription et audio seront définitivement supprimés de cet appareil.`,
+      message: `« ${sessionLabel(s)} » et ses notes, transcription et audio seront supprimés de cet appareil, et la séance sera aussi supprimée de votre cloud et de vos autres appareils.`,
       confirmLabel: 'Supprimer', danger: true,
     });
     if (!ok) return;

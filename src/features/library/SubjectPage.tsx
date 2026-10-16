@@ -27,7 +27,7 @@ export function SubjectPage() {
     const n = sessions.filter((s) => s.subjectId === subject!.id).length;
     const ok = await confirm({
       title: `Supprimer « ${subject!.name} » ?`,
-      message: `Cette matière, ses modules et ses ${n} séance${n > 1 ? 's' : ''} seront définitivement supprimés de cet appareil.`,
+      message: `Cette matière, ses modules et ses ${n} séance${n > 1 ? 's' : ''} seront supprimés de cet appareil, de votre cloud et de vos autres appareils.`,
       confirmLabel: 'Supprimer', danger: true,
     });
     if (!ok) return;
