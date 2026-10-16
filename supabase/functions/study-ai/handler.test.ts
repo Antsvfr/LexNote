@@ -84,10 +84,11 @@ Deno.test('validation de la requête', async () => {
 
 Deno.test('moteur non configuré → 503 not_configured (jamais de réponse simulée)', async () => {
   Deno.env.delete('ANTHROPIC_API_KEY');
-  install({});
-  const r = await post({ task: 'summarize', input: 'Un cours.' });
-  eq(r.status, 503, 'statut'); eq(await r.json(), { error: 'not_configured' }, 'corps');
-  Deno.env.set('ANTHROPIC_API_KEY', 'sk-test-secret');
+  try {
+    install({});
+    const r = await post({ task: 'summarize', input: 'Un cours.' });
+    eq(r.status, 503, 'statut'); eq(await r.json(), { error: 'not_configured', code: 'AI-CONFIG' }, 'corps (avec identifiant diagnostic)');
+  } finally { Deno.env.set('ANTHROPIC_API_KEY', 'sk-test-secret'); }
 });
 
 Deno.test('succès : modèle, cache du préfixe, sortie structurée, plafond de sortie, aucun repli ; la clé ne sort jamais', async () => {
@@ -108,7 +109,9 @@ Deno.test('succès : modèle, cache du préfixe, sortie structurée, plafond de 
   const acq = rpcCalls.find((r) => r.fn === 'study_ai_acquire')!;
   eq(acq.body.p_user, '00000000-0000-4000-a000-000000000001', 'limitation par utilisateur');
   eq(acq.auth, 'Bearer service-role-test', 'contrôle exécuté côté serveur (service role)');
-  eq(rpcCalls.find((r) => r.fn === 'study_ai_release')?.body, { p_id: 42, p_status: 'ok', p_output_tokens: 5 }, 'appel clos');
+  const rel = rpcCalls.find((r) => r.fn === 'study_ai_release')!.body;
+  eq({ ...rel, p_duration_ms: typeof rel.p_duration_ms }, { p_id: 42, p_status: 'ok', p_output_tokens: 5, p_input_tokens: 10, p_model: 'claude-opus-5-5', p_duration_ms: 'number', p_error_code: null }, 'appel clos : métadonnées d’usage (aucun contenu)');
+  eq(acq.body.p_global_per_day, 2000, 'budget global : requêtes/jour par défaut'); eq(acq.body.p_global_chars_per_day, 20_000_000, 'budget global : volume/jour par défaut');
   eq(call.headers.get('x-api-key'), 'sk-test-secret', 'clé envoyée au fournisseur uniquement');
   ok(!JSON.stringify(body).includes('sk-test'), 'la clé n’apparaît jamais dans la réponse');
   ok(!String(call.body.messages[0].content[1].text).includes('not a lang'), 'option de langue invalide ignorée');
@@ -129,6 +132,7 @@ Deno.test('refus du modèle → 422 sans nouvelle tentative ; réponse tronquée
   eq(r.status, 422, 'refus'); eq((await r.json()).error, 'refused', 'erreur structurée');
   eq(seen.filter((s) => s.url.includes('anthropic')).length, 1, 'un seul appel : aucune tentative de contournement');
   eq(rpcCalls.find((x) => x.fn === 'study_ai_release')?.body.p_status, 'refused', 'refus journalisé');
+  eq(rpcCalls.find((x) => x.fn === 'study_ai_release')?.body.p_error_code, 'refused', 'code d’erreur journalisé (sans contenu)');
   install({ stop: 'max_tokens' });
   eq((await post({ task: 'summarize', input: 'x y z' })).status, 502, 'tronqué');
   install({ status: 429 });
@@ -139,7 +143,7 @@ Deno.test('limitation par utilisateur : 429 clair avec Retry-After, AUCUN appel 
   install({ gate: { ok: false, reason: 'per_minute', limit: 12, retry_after: 37 } });
   const r = await post({ task: 'summarize', input: 'Un cours.' });
   eq(r.status, 429, 'statut'); eq(r.headers.get('Retry-After'), '37', 'Retry-After');
-  eq(await r.json(), { error: 'rate_limited', reason: 'per_minute', limit: 12, retry_after: 37 }, 'corps');
+  eq(await r.json(), { error: 'rate_limited', code: 'AI-429', reason: 'per_minute', limit: 12, retry_after: 37 }, 'corps');
   ok(!seen.some((s) => s.url.includes('anthropic')), 'aucun appel payant');
   install({ gate: { ok: false, reason: 'concurrent', limit: 2, retry_after: 10 } });
   eq((await (await post({ task: 'summarize', input: 'Un cours.' })).json()).reason, 'concurrent', 'appels simultanés');
@@ -174,4 +178,54 @@ Deno.test('plafonds de sortie adaptés à la tâche (jamais 64 000 jetons)', asy
   for (const t of ['summarize', 'translate', 'structure', 'clean', 'key-points', 'glossary', 'definitions', 'exam-questions', 'to-remember', 'course-plan', 'concepts', 'important-passages', 'ambiguities', 'teacher-questions', 'explain', 'flashcard', 'digest'] as const) {
     ok(maxTokensFor(t, 80_000, { mode: 'detailed' }) <= 16_000, `${t} ≤ 16 000`);
   }
+});
+
+Deno.test('INTERRUPTEUR D’URGENCE STUDY_AI_ENABLED=false : aucun appel payant, aucune base, aucune authentification, message sans détail', async () => {
+  for (const v of ['false', 'FALSE', '0', 'off', ' no ']) {
+    Deno.env.set('STUDY_AI_ENABLED', v);
+    try {
+      install({});
+      const r = await post({ task: 'summarize', input: 'Un cours confidentiel.' });
+      eq(r.status, 503, `statut (${v})`);
+      eq(await r.json(), { error: 'ai_disabled', code: 'AI-DISABLED' }, `corps (${v})`);
+      eq(r.headers.get('Retry-After'), '300', 'Retry-After');
+      eq(seen.length, 0, `aucun appel réseau du tout (${v}) : ni fournisseur, ni Supabase Auth, ni base`);
+    } finally { Deno.env.delete('STUDY_AI_ENABLED'); }
+  }
+  // réactivé : fonctionne ; valeurs inconnues → activé (jamais bloqué par une faute de frappe)
+  for (const v of [undefined, 'true', '1', 'yes', 'peut-etre']) {
+    if (v !== undefined) Deno.env.set('STUDY_AI_ENABLED', v);
+    try { install({}); eq((await post({ task: 'summarize', input: 'Un cours.' })).status, 200, `activé (${v})`); } finally { Deno.env.delete('STUDY_AI_ENABLED'); }
+  }
+});
+
+Deno.test('BUDGET GLOBAL atteint : 503 « capacité » (pas 429), Retry-After, aucun appel au modèle ; paramètres configurables par secrets', async () => {
+  install({ gate: { ok: false, reason: 'global_per_day', limit: 2000, retry_after: 3600 } });
+  const r = await post({ task: 'summarize', input: 'Un cours.' });
+  eq(r.status, 503, 'statut'); eq(r.headers.get('Retry-After'), '3600', 'Retry-After');
+  eq(await r.json(), { error: 'ai_capacity', code: 'AI-CAPACITY', reason: 'global_per_day', retry_after: 3600 }, 'corps (sans chiffre interne du budget)');
+  ok(!seen.some((s) => s.url.includes('anthropic')), 'aucun appel payant');
+  Deno.env.set('STUDY_AI_GLOBAL_MAX_REQUESTS_DAY', '50'); Deno.env.set('STUDY_AI_GLOBAL_MAX_CHARS_DAY', '1000000'); Deno.env.set('STUDY_AI_MAX_PER_MINUTE', 'abc');
+  try {
+    install({}); await post({ task: 'summarize', input: 'Un cours.' });
+    const acq = rpcCalls.find((x) => x.fn === 'study_ai_acquire')!.body;
+    eq([acq.p_global_per_day, acq.p_global_chars_per_day], [50, 1_000_000], 'budget global lu des secrets');
+    eq(acq.p_per_minute, 12, 'valeur invalide → valeur par défaut (jamais « illimité » par accident)');
+  } finally { for (const k of ['STUDY_AI_GLOBAL_MAX_REQUESTS_DAY', 'STUDY_AI_GLOBAL_MAX_CHARS_DAY', 'STUDY_AI_MAX_PER_MINUTE']) Deno.env.delete(k); }
+});
+
+Deno.test('JOURNAUX : métadonnées uniquement — jamais le texte, le prompt ni la réponse du modèle', async () => {
+  const lines: string[] = []; const orig = console.log;
+  console.log = (...a: unknown[]) => { lines.push(a.map(String).join(' ')); };
+  try {
+    install({ text: '{"blocks":[{"kind":"paragraph","text":"REPONSE-CONFIDENTIELLE"}]}' });
+    await post({ task: 'summarize', input: 'TEXTE-CONFIDENTIEL de la transcription', options: { mode: 'express' } });
+    install({ stop: 'refusal' });
+    await post({ task: 'translate', input: 'AUTRE-TEXTE-CONFIDENTIEL' });
+  } finally { console.log = orig; }
+  const all = lines.join('\n');
+  ok(lines.length >= 2 && lines.every((l) => l.startsWith('[study-ai]')), 'préfixe [study-ai] sur chaque ligne');
+  ok(!/CONFIDENTIEL|sk-test|Bearer|good/.test(all), 'ni texte, ni réponse, ni clé, ni jeton dans les journaux');
+  ok(/"task":"summarize"/.test(all) && /"in_chars":/.test(all) && /"out_tokens":5/.test(all) && /"model":"claude-opus-5-5"/.test(all), 'métadonnées présentes');
+  ok(/"code":"refused"/.test(all), 'code d’erreur journalisé');
 });

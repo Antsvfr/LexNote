@@ -16,6 +16,7 @@ export const OFFICIAL_MIGRATIONS = [
   '20261015000000_transcript_derived_artifacts.sql',
   '20261016000000_study_ai_usage.sql',
   '20261017000000_auth_devices_auto_login.sql',
+  '20261018000000_study_ai_budget_health.sql',
 ] as const;
 export const A = '11111111-1111-4111-8111-111111111111';
 export const B = '22222222-2222-4222-8222-222222222222';

@@ -119,6 +119,9 @@ const isOffline = () => typeof navigator !== 'undefined' && navigator.onLine ===
 export function remoteError(status: number, body: unknown, retryAfterHeader?: string | null): Error {
   const b = (body && typeof body === 'object' ? body : {}) as { error?: unknown; reason?: unknown; limit?: unknown; retry_after?: unknown };
   if (status === 503 && b.error === 'not_configured') return new AINotConfiguredError();
+  // Interrupteur d'urgence (STUDY_AI_ENABLED=false) ou budget GLOBAL atteint : indisponibilité volontaire, inutile de réessayer tout de suite.
+  if (status === 503 && b.error === 'ai_disabled') return new AIUnavailableError('Les fonctions IA sont temporairement indisponibles. (AI-DISABLED)', false);
+  if (status === 503 && b.error === 'ai_capacity') return new AIUnavailableError('Les fonctions IA sont temporairement indisponibles. (AI-CAPACITY)', false);
   if (status === 413) return new AIUnavailableError('Texte trop long pour une seule requête.', false);
   if (status === 422) return new AIUnavailableError('Le moteur IA a refusé de traiter ce contenu. Aucune nouvelle tentative n’est faite automatiquement : reformulez ou réduisez la sélection.', false);
   if (status === 429) {

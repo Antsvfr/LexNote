@@ -15,3 +15,7 @@ verify_jwt = false
 
 [functions.integration-link]
 verify_jwt = false
+
+# Sonde d'exploitation publique : lecture seule, aucune donnée sensible (voir supabase/functions/health/handler.ts).
+[functions.health]
+verify_jwt = false

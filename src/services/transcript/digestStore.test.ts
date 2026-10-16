@@ -90,6 +90,13 @@ describe('erreurs du serveur study-ai → messages clairs', () => {
     expect(remoteError(429, { reason: 'chars_per_day', retry_after: 7200 }).message).toContain('Volume quotidien');
     expect(remoteError(429, null, '12').message).toBe('Trop de demandes en peu de temps. Réessayez dans 12 s.');
   });
+  it('interrupteur d’urgence et budget global → message unique, sans nouvel essai', () => {
+    for (const [error, code] of [['ai_disabled', 'AI-DISABLED'], ['ai_capacity', 'AI-CAPACITY']] as const) {
+      const e = remoteError(503, { error }) as AIUnavailableError;
+      expect(e.message).toBe(`Les fonctions IA sont temporairement indisponibles. (${code})`);
+      expect(e.retryable).toBe(false);
+    }
+  });
   it('refus du modèle (422) : erreur structurée, non relancée', () => {
     const e = remoteError(422, { error: 'refused' }) as AIUnavailableError;
     expect(e.retryable).toBe(false);
