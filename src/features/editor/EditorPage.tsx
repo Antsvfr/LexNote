@@ -2,7 +2,7 @@ import { typeLabel } from '@/domain/sessionType';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { EditorContent, useEditor } from '@tiptap/react';
-import { Command, Focus, Layers, Minimize2, CheckCheck } from 'lucide-react';
+import { Command, Focus, Layers, Minimize2, CheckCheck, Mic } from 'lucide-react';
 import { useLibrary } from '@/store/library';
 import { useUI } from '@/store/ui';
 import { useEditorBridge } from '@/store/editorBridge';
@@ -25,6 +25,7 @@ import { useNoteAnchors } from '@/features/capture/useNoteAnchors';
 import { useCapture } from '@/store/capture';
 import { captureManager } from '@/services/capture/manager';
 import { confirm } from '@/components/confirm';
+import { ConflictBanner } from './ConflictBanner';
 import { modKeyLabel } from './commands';
 import type { CourseSession } from '@/domain/types';
 import { log } from '@/lib/log';
@@ -76,7 +77,8 @@ function Workspace({ sessionId, initialContent }: { sessionId: string; initialCo
 
   // À l'activation de la transcription, le panneau s'ouvre sur l'onglet Transcription.
   useEffect(() => {
-    if (captureStatus === 'RECORDING' && !wasRecording.current) useUI.getState().openTranscript();
+    // Sur petit écran le panneau est une feuille qui couvrirait les notes : on ne l'ouvre pas d'office (bouton « Transcription »).
+    if (captureStatus === 'RECORDING' && !wasRecording.current && !window.matchMedia('(max-width: 860px)').matches) useUI.getState().openTranscript();
     wasRecording.current = captureStatus === 'RECORDING';
   }, [captureStatus]);
 
@@ -172,6 +174,7 @@ function Workspace({ sessionId, initialContent }: { sessionId: string; initialCo
       </header>
 
       <div className="toolrows">
+        <ConflictBanner session={session} flush={flushNow} />
         <ActionBar editor={editor} assistantOpen={assistantOpen} onToggleAssistant={toggleAssistant} />
         {!focus && <FormatBar editor={editor} />}
         {!focus && <div className="timelinebar"><LiveTimeline size="slim" /></div>}
@@ -185,8 +188,14 @@ function Workspace({ sessionId, initialContent }: { sessionId: string; initialCo
         <div className="note-scroll" onClick={(e) => { if (e.target === e.currentTarget) editor.commands.focus('end'); }}>
           <EditorContent editor={editor} className="note-editor" data-testid="editor" />
         </div>
+        {assistantOpen && !focus && <button type="button" className="sheet-backdrop" aria-label="Fermer le panneau" tabIndex={-1} onClick={toggleAssistant} />}
         {assistantOpen && !focus && <SidePanel editor={editor} sessionId={sessionId} />}
       </div>
+      {!assistantOpen && !focus && (
+        <button type="button" className="sheet-fab" onClick={() => useUI.getState().openTranscript()} data-testid="open-transcript-sheet" aria-label="Ouvrir la transcription">
+          {captureStatus === 'RECORDING' && <span className="sheet-fab__dot" aria-hidden="true" />}<Mic size={16} aria-hidden /> Transcription
+        </button>
+      )}
     </div>
   );
 }

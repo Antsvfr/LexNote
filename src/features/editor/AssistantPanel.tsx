@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Editor } from '@tiptap/core';
-import { Mic, ShieldCheck, Sparkles, FileUp } from 'lucide-react';
+import { Mic, ShieldCheck, Sparkles, FileUp, X } from 'lucide-react';
 import { AI_COMMANDS } from '@/services/ai';
 import { PROVENANCE_LABELS, VERIFICATION_LABELS } from '@/domain/legal';
 import { useUI } from '@/store/ui';
@@ -94,6 +94,7 @@ export function SidePanel({ editor, sessionId }: { editor: Editor; sessionId: st
       <div className="sidepanel__tabs" role="tablist">
         <button role="tab" aria-selected={tab === 'transcript'} className={tab === 'transcript' ? 'is-on' : ''} onClick={() => setTab('transcript')} data-testid="tab-transcript"><Mic size={14} aria-hidden /> Transcription</button>
         <button role="tab" aria-selected={tab === 'assistant'} className={tab === 'assistant' ? 'is-on' : ''} onClick={() => setTab('assistant')}><Sparkles size={14} aria-hidden /> Assistant</button>
+        <button type="button" className="btn btn--ghost btn--icon btn--sm sidepanel__close" onClick={() => useUI.getState().toggleAssistant()} aria-label="Fermer le panneau" data-testid="close-sidepanel"><X size={16} aria-hidden /></button>
       </div>
       <div className="sidepanel__body">
         {tab === 'transcript' ? <TranscriptPanel sessionId={sessionId} /> : <AssistantContent editor={editor} />}

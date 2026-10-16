@@ -9,6 +9,7 @@ import {
 } from './mappers';
 import { CAPTURE_TABLES, NetworkError, type RemoteRow, type RemoteStore, type RemoteTable, VERSIONED_TABLES } from './types';
 import { log } from '@/lib/log';
+import { CONFLICT_SUFFIX } from '@/domain/conflict';
 
 /** Ce qui a changé localement à cause du cloud : l'UI se rafraîchit en conséquence. */
 export interface AppliedChanges {
@@ -242,7 +243,7 @@ export class SyncEngine {
     const stamp = new Date().toISOString();
     const copy: CourseSession = {
       ...structuredClone(mine), id: newId(), version: undefined, dirty: undefined, createdAt: stamp, updatedAt: stamp,
-      title: `${mine.title || 'Séance'} (version locale en conflit)`,
+      title: `${mine.title || 'Séance'} ${CONFLICT_SUFFIX}`, conflictOf: mine.id,
     };
     await this.d.local.commit({ putSessions: [copy], putNotes: myNotes === undefined ? [] : [{ sessionId: copy.id, content: myNotes, updatedAt: stamp }] });
     // La version serveur remplace l'originale ; rien n'est perdu : la copie porte le contenu local.

@@ -132,6 +132,8 @@ export interface CourseSession extends Entity {
   completedAt: ISODateTime | null;
   /** Vignette choisie ; sinon déterministe selon la matière (voir `lib/thumbs.ts`). */
   thumbnail?: ThumbKey;
+  /** Renseigné sur la COPIE créée par la synchronisation quand deux versions des notes ont divergé : identifiant de la séance d'origine. */
+  conflictOf?: ID;
 
   /* Dérivés des notes — dupliqués ici pour lister/rechercher sans charger le contenu. */
   wordCount: number;
