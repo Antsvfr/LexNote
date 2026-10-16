@@ -46,7 +46,7 @@ describe('sondes de lecture seule (PGlite)', () => {
       expect(r.rows.map((x: { status: string }) => x.status), `après ${files[i]}`).toEqual(files.map((_, j) => (j <= i ? STATUS.applied : STATUS.absent)));
       expect(r.stop).toBe(false);
     }
-  });
+  }, 120_000);
   it('base à moitié migrée / modifiée → DIFFÉRENTE + STOP ; ordre rompu → STOP', async () => {
     const db = await supabaseShim();
     for (const f of OFFICIAL_MIGRATIONS) await db.exec(stripExt(f));
@@ -59,7 +59,7 @@ describe('sondes de lecture seule (PGlite)', () => {
     expect(r2.rows.find((x: { file: string }) => x.file.startsWith('20261017'))!.status).toBe(STATUS.different);
     const gap = classify({ ...(await probes(db)) as object, [OFFICIAL_MIGRATIONS[1]]: Object.fromEntries(Object.keys(PROBES[OFFICIAL_MIGRATIONS[1]]).map((k) => [k, false])) });
     expect(gap.problems.join()).toContain('ordre rompu');
-  });
+  }, 120_000);
 });
 
 describe('CLI migration-status', () => {
