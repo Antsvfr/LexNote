@@ -11,7 +11,13 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "build:mock": "tsc --noEmit && VITE_BACKEND=mock vite build"
+    "build:mock": "tsc --noEmit && VITE_BACKEND=mock vite build",
+    "preflight": "node scripts/prod/preflight.mjs",
+    "preflight:prod": "node scripts/prod/preflight.mjs --target production --with-typecheck --with-build --with-schema",
+    "release:gates": "node scripts/prod/release-gates.mjs",
+    "migration-status": "node scripts/prod/migration-status.mjs",
+    "test:e2e:critical": "playwright test tests/e2e/release-critical.spec.ts",
+    "test:e2e:browsers": "ALL_BROWSERS=1 playwright test tests/e2e/release-critical.spec.ts tests/e2e/mobile-a11y.spec.ts"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",
