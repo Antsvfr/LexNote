@@ -4,6 +4,7 @@ import type { Transaction } from '@tiptap/pm/state';
 import { debounce } from '@/lib/debounce';
 import { captureManager, FLUSH_ANCHORS_EVENT } from '@/services/capture/manager';
 import { useCapture } from '@/store/capture';
+import { log } from '@/lib/log';
 
 const SETTLE_MS = 1500; // on ancre quand l'étudiant marque une pause d'écriture…
 const MAX_WAIT_MS = 10_000; // …ou au plus toutes les 10 s pendant une écriture continue.
@@ -23,7 +24,7 @@ export function useNoteAnchors(editor: Editor | null, sessionId: string) {
         const { $head } = editor.state.selection;
         captureManager.recordAnchor(sessionId, { notePosition: $head.pos, textSnippet: $head.parent.textContent, at: lastEditAt });
       } catch (err) {
-        console.warn('[LexNote] ancrage ignoré', err); // n'affecte jamais les notes
+        log.transcription.warn('ancrage ignoré', err); // n'affecte jamais les notes
       }
     }, SETTLE_MS, MAX_WAIT_MS);
     const onUpdate = ({ transaction }: { transaction: Transaction }) => {

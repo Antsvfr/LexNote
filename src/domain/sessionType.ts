@@ -9,6 +9,7 @@ export const SESSION_TYPES = [
   { id: 'COURSE', label: 'Cours', long: 'Cours', tone: 'orange' },
   { id: 'SEMINAR', label: 'Séminaire', long: 'Séminaire', tone: 'purple' },
   { id: 'WORKSHOP', label: 'Atelier', long: 'Atelier', tone: 'cyan' },
+  { id: 'PROJECT', label: 'Projet', long: 'Séance de projet', tone: 'cyan' },
   { id: 'REVISION', label: 'Révision', long: 'Séance de révision', tone: 'pink' },
   { id: 'OTHER', label: 'Autre', long: 'Autre', tone: 'slate' },
 ] as const;

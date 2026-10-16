@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { BarChart3, BookOpen, Brain, CalendarClock, FileText, HelpCircle, ListOrdered, Network, Plus, Search, type LucideIcon } from 'lucide-react';
+import { Plus, Search } from 'lucide-react';
 import { useArtifacts } from '@/store/artifacts';
 import { useLibrary } from '@/store/library';
 import { useUI } from '@/store/ui';
@@ -8,11 +8,12 @@ import { SubjectDot } from '@/components/SubjectDot';
 import { formatRelative } from '@/lib/dates';
 import { normalize } from '@/lib/text';
 import { ARTIFACT_LABELS, type ArtifactType } from '@/domain/study';
+import { ARTIFACT_ICONS as ICONS } from './artifactMeta';
 
-const ICONS: Record<ArtifactType, LucideIcon> = { COURSE_SHEET: FileText, MIND_MAP: Brain, DIAGRAM: Network, COMPARISON_TABLE: BarChart3, TIMELINE: CalendarClock, METHOD: ListOrdered, FLASHCARDS: BookOpen, QUIZ: HelpCircle };
 const TABS: { id: '' | ArtifactType; label: string }[] = [
   { id: '', label: 'Tous' }, { id: 'COURSE_SHEET', label: 'Fiches' }, { id: 'MIND_MAP', label: 'Cartes mentales' }, { id: 'DIAGRAM', label: 'Schémas' },
   { id: 'COMPARISON_TABLE', label: 'Tableaux' }, { id: 'TIMELINE', label: 'Chronologies' }, { id: 'METHOD', label: 'Méthodes' }, { id: 'FLASHCARDS', label: 'Flashcards' }, { id: 'QUIZ', label: 'Quiz' },
+  { id: 'SUMMARY', label: 'Résumés' }, { id: 'TRANSLATION', label: 'Traductions' }, { id: 'STRUCTURED_NOTES', label: 'Cours structurés' }, { id: 'KEY_POINTS', label: 'Points clés' },
 ];
 
 export function SupportsPage() {
@@ -32,7 +33,7 @@ export function SupportsPage() {
   return (
     <div className="page page-enter">
       <header className="page__head">
-        <div><h1>Mes supports</h1><p className="page__sub">{list.length} support{list.length > 1 ? 's' : ''} · fiches, cartes mentales, schémas… dérivés de vos cours</p></div>
+        <div><h1>Mes supports</h1><p className="page__sub">{list.length} support{list.length > 1 ? 's' : ''} · fiches, résumés, traductions, flashcards… dérivés de vos cours</p></div>
         <button className="btn btn--primary" onClick={() => open()} data-testid="supports-new"><Plus /> Créer un support</button>
       </header>
       <div className="filters">

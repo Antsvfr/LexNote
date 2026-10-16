@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Download, LogOut, Monitor, Moon, Sun, Trash2, UserX } from 'lucide-react';
 import { useLibrary } from '@/store/library';
 import { useUI, type ThemePref } from '@/store/ui';
@@ -8,7 +8,10 @@ import { confirm, promptText } from '@/components/confirm';
 import { toast } from '@/store/toasts';
 import { captureManager } from '@/services/capture/manager';
 import { SyncIndicator } from '@/components/SyncIndicator';
+import { confirmSafeLogout } from '@/services/safeLogout';
+import { getBuildInfo } from '@/lib/buildInfo';
 import { ConnectedApps } from '@/features/integration/ConnectedApps';
+import { FIELDS } from '@/domain/profile';
 import { TranscriptionSettings } from './TranscriptionSettings';
 
 interface BeforeInstallPromptEvent extends Event { prompt(): Promise<void>; userChoice: Promise<{ outcome: string }> }
@@ -28,7 +31,7 @@ export function SettingsPage() {
   const [standalone] = useState(() => window.matchMedia('(display-mode: standalone)').matches);
   const [persisted, setPersisted] = useState<boolean | null>(null);
   const [usage, setUsage] = useState<string>('');
-  const [form, setForm] = useState({ firstName: profile?.firstName ?? '', lastName: profile?.lastName ?? '', institution: profile?.institution ?? '', academicYear: profile?.academicYear ?? '' });
+  const [form, setForm] = useState({ firstName: profile?.firstName ?? '', lastName: profile?.lastName ?? '', institution: profile?.institution ?? '', academicYear: profile?.academicYear ?? '', fieldOfStudy: profile?.fieldOfStudy ?? '' });
   const [pw, setPw] = useState('');
 
   useEffect(() => {
@@ -45,7 +48,7 @@ export function SettingsPage() {
   async function changePassword() {
     try { await updatePassword(pw); setPw(''); toast.success('Mot de passe modifié.'); } catch (e) { toast.error((e as Error).message || 'Modification impossible.'); }
   }
-  async function logout() { await signOut(); navigate('/login', { replace: true }); }
+  async function logout() { if (!await confirmSafeLogout()) return; await signOut(); navigate('/login', { replace: true }); }
   async function removeAccount() {
     const ok = await confirm({ title: 'Supprimer votre compte ?', message: 'Votre compte, toutes vos matières, séances, notes et transcriptions synchronisées seront définitivement supprimés du cloud, et les données de cet appareil effacées. Cette action est irréversible.', confirmLabel: 'Continuer', danger: true });
     if (!ok) return;
@@ -65,7 +68,10 @@ export function SettingsPage() {
   }
   async function wipe() {
     const ok = await confirm({ title: 'Supprimer toutes mes séances ?', message: 'Toutes les matières, modules, séances et notes de votre compte seront supprimés (sur cet appareil et dans votre cloud). Votre compte reste ouvert. Cette action est irréversible — pensez à exporter d’abord.', confirmLabel: 'Tout supprimer', danger: true });
-    if (ok) { await lib.wipe(); toast.success('Données supprimées.'); }
+    if (!ok) return;
+    const typed = await promptText({ title: 'Confirmation', label: 'Saisissez SUPPRIMER pour confirmer', placeholder: 'SUPPRIMER', confirmLabel: 'Tout supprimer' });
+    if (typed?.trim() !== 'SUPPRIMER') { if (typed !== null) toast.error('Confirmation incorrecte : rien n’a été supprimé.'); return; }
+    await lib.wipe(); toast.success('Données supprimées.');
   }
 
   return (
@@ -82,6 +88,13 @@ export function SettingsPage() {
         <div className="row2">
           <div className="field"><label htmlFor="inst">Établissement</label><input id="inst" className="input" value={form.institution} maxLength={120} onChange={(e) => setForm({ ...form, institution: e.target.value })} /></div>
           <div className="field"><label htmlFor="yr">Année / niveau</label><input id="yr" className="input" value={form.academicYear} maxLength={60} onChange={(e) => setForm({ ...form, academicYear: e.target.value })} /></div>
+        </div>
+        <div className="field"><label htmlFor="fos">Domaine d’études <span className="muted">(facultatif — ne limite aucune fonctionnalité)</span></label>
+          <select id="fos" className="select" value={form.fieldOfStudy} onChange={(e) => setForm({ ...form, fieldOfStudy: e.target.value })} data-testid="profile-field">
+            <option value="">Non précisé</option>
+            {FIELDS.map((f) => <option key={f} value={f}>{f}</option>)}
+            {form.fieldOfStudy && !(FIELDS as readonly string[]).includes(form.fieldOfStudy) && <option value={form.fieldOfStudy}>{form.fieldOfStudy}</option>}
+          </select>
         </div>
         <div className="row-actions">
           <button className="btn btn--primary" onClick={saveProfile} data-testid="profile-save">Enregistrer le profil</button>
@@ -139,7 +152,7 @@ export function SettingsPage() {
         </div>
       </section>
 
-      <p className="muted" style={{ fontSize: 12.5 }}>LexNote v{__APP_VERSION__}</p>
+      <p className="muted" style={{ fontSize: 12.5 }} data-testid="app-version">LexNote {getBuildInfo().label} · <Link to="/settings/system-status" data-testid="open-diagnostic">Diagnostic</Link></p>
     </div>
   );
 }

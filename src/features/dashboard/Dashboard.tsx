@@ -17,7 +17,7 @@ import { computeDashboardStats, groupProgress, pickResumeSession, type StatCard 
 import { THUMBS, thumbFor } from '@/lib/thumbs';
 import { SessionRow } from '@/features/library/SessionRow';
 import { SubjectDot } from '@/components/SubjectDot';
-import heroArt from '@/assets/art/hero-courthouse.svg';
+import heroArt from '@/assets/art/hero-portico.svg';
 import booksArt from '@/assets/art/books.svg';
 
 function Stat({ tone, icon, label, card }: { tone: 'blue' | 'red' | 'orange' | 'green'; icon: React.ReactNode; label: string; card: StatCard }) {
@@ -85,7 +85,7 @@ export function Dashboard() {
         <div>
           <p className="hero__date">{dateLabel}</p>
           <h1 className="hero__title" data-testid="greeting">{greeting(firstName)}</h1>
-          <p className="hero__sub">Retrouvez vos notes, continuez vos CM et progressez.</p>
+          <p className="hero__sub">Organisez vos cours, prenez vos notes et transformez vos séances en supports de révision.</p>
         </div>
         <p className="hero__quote">« {DEFAULT_QUOTE.replace(/^«\s*|\s*»$/g, '')} »</p>
       </section>
@@ -98,7 +98,7 @@ export function Dashboard() {
           <div className="welcome__body">
             <span className="eyebrow">Bienvenue sur LexNote</span>
             <h2 className="resume__title">Commencez par créer votre première matière.</h2>
-            <p className="resume__meta">Une matière (Droit, Économie…) regroupe vos CM, TD et TP. Aucune donnée d’exemple : cet espace est le vôtre.</p>
+            <p className="resume__meta">Organisez vos cours, prenez vos notes et transformez vos séances en supports de révision. Une matière (Microéconomie, Anatomie, Algorithmique…) regroupe vos cours, TD, TP et autres séances. Aucune donnée d’exemple : cet espace est le vôtre.</p>
             <ol className="steps"><li><b>1</b> Matière</li><li><b>2</b> Module <i>(facultatif)</i></li><li><b>3</b> Première séance</li></ol>
           </div>
           <button className="btn btn--primary welcome__cta" onClick={createSubject} data-testid="create-first-subject"><FolderPlus /> Créer ma première matière</button>
@@ -145,7 +145,7 @@ export function Dashboard() {
                 <div className="resume__body resume__body--empty" data-testid="empty-sessions">
                   <span className="eyebrow">Matière créée</span>
                   <h2 className="resume__title">Prêt pour votre première séance ?</h2>
-                  <p className="resume__meta">Créez votre premier CM, TD ou TP : vos notes restent d’abord sur cet appareil.</p>
+                  <p className="resume__meta">Créez votre première séance (cours, TD, TP…) : vos notes restent d’abord sur cet appareil.</p>
                 </div>
                 <div className="resume__actions">
                   <button className="btn btn--primary resume__go" onClick={() => openNewSession({ type: 'CM' })} data-testid="first-session"><Plus /> Nouvelle séance</button>
@@ -162,7 +162,7 @@ export function Dashboard() {
         <section aria-labelledby="recent-h">
           <div className="section-head"><h2 id="recent-h">Mes dernières séances</h2><Link to="/sessions" className="link">Tout voir <ArrowRight size={15} /></Link></div>
           {recent.length === 0
-            ? <div className="panel empty"><strong>Aucune séance pour l’instant.</strong>Créez votre premier CM, TD ou TP.<div style={{ marginTop: 12 }}><button className="btn btn--primary btn--sm" onClick={() => openNewSession()}><Plus /> Nouvelle séance</button></div></div>
+            ? <div className="panel empty"><strong>Aucune séance pour l’instant.</strong>Créez votre première séance : cours, TD, TP, séminaire…<div style={{ marginTop: 12 }}><button className="btn btn--primary btn--sm" onClick={() => openNewSession()}><Plus /> Nouvelle séance</button></div></div>
             : <ul className="panel rows">{recent.map((s) => <SessionRow key={s.id} session={s} />)}</ul>}
         </section>
 
@@ -170,7 +170,7 @@ export function Dashboard() {
           <section className="panel" aria-labelledby="subj-h">
             <div className="section-head section-head--inset"><h2 id="subj-h">Mes matières</h2><Link to="/subjects" className="link">Gérer <ChevronRight size={15} /></Link></div>
             {subjects.length === 0 ? (
-              <div className="empty"><strong>Aucune matière</strong>Elles se créent avec votre premier CM.</div>
+              <div className="empty"><strong>Aucune matière</strong>Elles se créent avec votre première séance.</div>
             ) : (
               <ul className="subjlist">
                 {subjects.map((s) => {

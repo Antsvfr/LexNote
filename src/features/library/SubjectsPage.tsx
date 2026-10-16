@@ -20,7 +20,7 @@ export function SubjectsPage() {
       <header className="page__head">
         <div>
           <h1>Mes matières</h1>
-          <p className="page__sub">Une matière regroupe vos séances (CM, TD, TP…), éventuellement classées en modules.</p>
+          <p className="page__sub">Une matière regroupe vos séances (cours, CM, TD, TP, séminaires…), éventuellement classées en modules.</p>
         </div>
         <button className="btn btn--primary" onClick={() => void createSubject()} data-testid="new-subject"><FolderPlus /> Nouvelle matière</button>
       </header>

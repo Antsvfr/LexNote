@@ -48,7 +48,7 @@ export function SubjectDialog() {
     >
       <div className="field">
         <label htmlFor="sub-name">Nom de la matière *</label>
-        <input id="sub-name" className="input" value={name} maxLength={160} autoFocus placeholder="ex. Droit des contrats" onChange={(e) => setName(e.target.value)} data-testid="subject-name" />
+        <input id="sub-name" className="input" value={name} maxLength={160} autoFocus placeholder="ex. Microéconomie" onChange={(e) => setName(e.target.value)} data-testid="subject-name" />
       </div>
       <div className="field">
         <span className="field-label">Couleur</span>

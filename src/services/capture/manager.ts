@@ -10,6 +10,7 @@ import { estimateStorage } from './quota';
 import { ChunkPlayer } from './playback';
 import { requestSyncSoon } from '@/services/sync/hook';
 import { createCaptureStorage, type CaptureStorage } from './storage';
+import { log } from '@/lib/log';
 
 export const FLUSH_ANCHORS_EVENT = 'lexnote:flush-anchors';
 
@@ -111,7 +112,7 @@ class CaptureManager {
       c = new CaptureController(sessionId, this.deps());
       this.controllers.set(sessionId, c);
       this.unsubs.set(sessionId, c.subscribe((e) => this.onEvent(sessionId, e)));
-      try { await c.load(); } catch (err) { console.error('[LexNote] chargement de la capture', err); }
+      try { await c.load(); } catch (err) { log.transcription.error('chargement de la capture', err); }
     }
     this.syncView(c);
     await this.player?.dispose();
@@ -194,7 +195,7 @@ class CaptureManager {
     for (const id of new Set(sessionIds)) {
       const c = this.controllers.get(id);
       if (!c || c.isActive) continue;
-      try { await c.load(); this.syncView(c); } catch (e) { console.warn('[LexNote] rafraîchissement capture', e); }
+      try { await c.load(); this.syncView(c); } catch (e) { log.transcription.warn('rafraîchissement capture', e); }
     }
     this.index.clear(); // reconstruit à la prochaine recherche
   }

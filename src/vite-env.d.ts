@@ -1,5 +1,8 @@
 /// <reference types="vite/client" />
 declare const __APP_VERSION__: string;
+/** Commit Git du build (40 caractères, ou `unknown`). */
+declare const __BUILD_SHA__: string;
+declare const __BUILD_TIME__: string;
 interface ImportMetaEnv {
   readonly VITE_SUPABASE_URL?: string;
   readonly VITE_SUPABASE_ANON_KEY?: string;
@@ -7,4 +10,6 @@ interface ImportMetaEnv {
   readonly VITE_BACKEND?: string;
   /** Point d'accès (Edge Function) du moteur de cours distant — facultatif ; aucune clé de modèle dans l'application. */
   readonly VITE_ENGINE_URL?: string;
+  /** Point d'accès (Edge Function `study-ai`) des actions IA sur la transcription — facultatif ; aucune clé de modèle dans l'application. */
+  readonly VITE_AI_URL?: string;
 }

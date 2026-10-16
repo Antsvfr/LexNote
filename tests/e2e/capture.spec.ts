@@ -67,7 +67,10 @@ test.describe('transcription — capture en direct', () => {
     await page.evaluate(() => (window as any).__say('Pour qu’un contrat soit valablement formé', false));
     await expect(page.locator('.tseg--interim')).toContainText('valablement formé');
     await page.evaluate(() => (window as any).__say('Pour qu’un contrat soit valablement formé, il faut un consentement'));
+    // le dialogue de consentement a pris le focus : l'étudiant revient dans ses notes avant d'écrire
+    await page.locator('.note-prose').click();
     await page.keyboard.type('Formation du contrat : consentement');
+    await expect(page.locator('.note-prose')).toContainText('Formation du contrat : consentement');
     await page.evaluate(() => (window as any).__say('L’article 1128 du Code civil prévoit trois conditions'));
     await expect(page.getByTestId('tseg')).toHaveCount(2);
     await expect(page.getByTestId('tseg').first()).toContainText('consentement');
@@ -231,7 +234,7 @@ test.describe('transcription — capture en direct', () => {
 });
 
 test.describe('transcription — après le CM', () => {
-  test('Terminer le CM pendant l’enregistrement, récapitulatif, recherche dans la transcription, réécoute, suppression', async ({ page }) => {
+  test('Terminer la séance pendant l’enregistrement, récapitulatif, recherche dans la transcription, réécoute, suppression', async ({ page }) => {
     await page.goto('/');
     await createCm(page, { subject: 'Fin', module: 'M', title: 'Vices du consentement' });
     await page.locator('.note-prose').click();
@@ -244,15 +247,17 @@ test.describe('transcription — après le CM', () => {
     // Terminer pendant l'enregistrement → confirmation
     await page.getByTestId('finish-cm').click();
     await expect(page.getByRole('dialog')).toContainText('Un enregistrement est en cours');
-    await page.getByRole('button', { name: 'Arrêter et terminer le CM' }).click();
+    await page.getByRole('button', { name: 'Arrêter et terminer la séance' }).click();
     await expect(page.getByTestId('recap-title')).toContainText('Vices du consentement');
     await expect(page.getByTestId('recap-words')).toContainText('5');
     await expect(page.getByTestId('recap-twords')).toContainText('6');
     await expect(page.getByTestId('recap-markers')).toHaveText('1');
     await expect(page.getByTestId('recap-interruptions')).toHaveText('0');
     await expect(page.getByTestId('recap-audio')).not.toHaveText('—');
-    await expect(page.getByText('Cours restructuré')).toBeVisible(); // toujours désactivé ; résumé, fiche, flashcards, questions sont désormais de vrais supports
-    await expect(page.locator('.future li[aria-disabled="true"]')).toHaveCount(3);
+    // « Exploiter la transcription » remplace les anciens emplacements « bientôt » ; sans moteur IA, l'état est affiché honnêtement
+    await expect(page.getByTestId('transcript-actions')).toContainText('6 mots');
+    await expect(page.getByTestId('ai-status')).toHaveText('Fonction IA non configurée');
+    await expect(page.locator('.future li[aria-disabled="true"]')).toHaveCount(0);
 
     // Onglets
     await page.getByTestId('recap-tab-transcript').click();

@@ -213,6 +213,8 @@ export const connectionStateSchema = z.object({
   peerStatus: z.enum(PEER_STATUSES),
   verified: z.boolean(),
   checkedAt: isoDateTime,
+  /** Connexion automatique depuis REV-EM autorisée par l'étudiant (consentement stocké côté LexNote, sur la liaison). Absent = non. */
+  autoLogin: z.boolean().optional(),
 }).refine((c) => c.state !== 'CONNECTED' || (c.verified && c.peerStatus === 'CONNECTED' && c.localStatus === 'CONNECTED'), { message: 'CONNECTED exige les deux côtés vérifiés', path: ['state'] });
 export type ConnectionState = z.infer<typeof connectionStateSchema>;
 
@@ -248,5 +250,52 @@ export const linkResponseSchema = z.object({
   /** INSPECT : prénom / pseudo de l'étudiant qui a initié la liaison — affiché pour qu'il reconnaisse son propre compte. */
   displayHint: z.string().max(40).optional(),
   expiresAt: isoDateTime.optional(),
+  /** STATUS (réponse de LexNote) : l'étudiant a autorisé la connexion automatique depuis REV-EM. */
+  autoLogin: z.boolean().optional(),
 });
 export type LinkResponse = z.infer<typeof linkResponseSchema>;
+
+/* ------------------------------------------------------------------ ouverture d'un cours depuis REV-EM (étape « lancement »)
+ * Ajouts COMPATIBLES de `lexnote-revem/v1` (nouveaux `kind`, aucun champ existant modifié).
+ *
+ * Flux : REV-EM crée une INTENTION de lancement (≤ 5 min, usage unique) qui contient l'`ExternalCourseEvent` établi PAR SON SERVEUR à partir de ses
+ * propres données (jamais d'un JSON du navigateur) ; LexNote la consomme par `REDEEM_LAUNCH` (serveur → serveur, signé) puis crée / retrouve la matière
+ * et la séance de façon idempotente. Le navigateur ne transporte qu'un identifiant d'intention et un nonce (fragment d'URL) — jamais le cours.
+ */
+/**
+ * IDENTIFY_LAUNCH (connexion automatique) : LexNote, SANS session dans le navigateur, demande à REV-EM à quelle liaison appartient l'intention.
+ * Lecture seule, nonce vérifié, intention récente (≤ 120 s) ; ne la consomme PAS. LexNote vérifie ensuite le consentement « connexion
+ * automatique » de SON côté, puis consomme l'intention par REDEEM_LAUNCH (usage unique inchangé). Un REV-EM qui ne connaît pas cette
+ * opération la refuse (INVALID_PAYLOAD, réponse signée) : LexNote revient alors à la connexion normale.
+ */
+export const LAUNCH_OPERATIONS = ['REDEEM_LAUNCH', 'IDENTIFY_LAUNCH'] as const;
+export type LaunchOperation = (typeof LAUNCH_OPERATIONS)[number];
+
+/** Requête SERVEUR → SERVEUR : LexNote demande à REV-EM le cours désigné par une intention. */
+export const courseLaunchRequestSchema = z.object({
+  integrationVersion: z.string(),
+  kind: z.literal('course-launch-request'),
+  operation: z.enum(LAUNCH_OPERATIONS),
+  launchIntentId: intentId,
+  /** Capacité à usage unique remise à l'étudiant dans le fragment d'URL ; seule son empreinte est stockée côté REV-EM. */
+  nonce,
+  /** REDEEM_LAUNCH : obligatoire. IDENTIFY_LAUNCH : absent (c'est précisément ce que LexNote demande). */
+  linkId: ref.optional(),
+  /** Pseudonyme de l'EXPÉDITEUR (LexNote) dans cette liaison. REDEEM_LAUNCH : obligatoire. */
+  senderReference: ref.optional(),
+});
+export type CourseLaunchRequest = z.infer<typeof courseLaunchRequestSchema>;
+
+export const courseLaunchResponseSchema = z.object({
+  integrationVersion: z.string(),
+  kind: z.literal('course-launch-response'),
+  operation: z.enum(LAUNCH_OPERATIONS),
+  ok: z.boolean(),
+  linkId: ref.optional(),
+  /** IDENTIFY_LAUNCH : pseudonyme de REV-EM dans la liaison (LexNote le connaît comme référence du partenaire). */
+  receiverReference: ref.optional(),
+  /** Le cours à ouvrir (même contrat que le planning : `external-course-event`). */
+  event: externalCourseEventSchema.optional(),
+  expiresAt: isoDateTime.optional(),
+});
+export type CourseLaunchResponse = z.infer<typeof courseLaunchResponseSchema>;

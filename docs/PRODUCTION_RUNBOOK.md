@@ -1,7 +1,276 @@
-# Mise en production — liaison REV-EM ⇄ LexNote
+# Mise en production — LexNote (+ liaison REV-EM ⇄ LexNote)
 
-> **État honnête de cette étape.** Tout ce qui peut être préparé et validé *hors* des projets Supabase l'est (code, migrations durcies, outils, audit SQL,
-> auto-test du test de bout en bout). **Rien n'a été appliqué ni déployé sur les vrais projets** : l'environnement de développement n'a ni accès réseau à
+> **Ce document décrit la procédure ; il ne déploie rien.** Aucune commande ci-dessous n'a été exécutée contre la production par cette PR.
+> Partie I : mise en production complète (ordre, sauvegarde, retour arrière, exploitation). Partie II (§0 à §8, plus bas) : détail de la liaison REV-EM ⇄ LexNote.
+> Verdict de préparation : `node scripts/prod/release-gates.mjs` (READY / NOT READY, voir §I.3). **Tant qu'une porte est NOT_RUN ou FAIL, on ne déploie pas.**
+
+## I.0 Variables et noms réels
+
+| Élément | Valeur |
+|---|---|
+| Dépôt LexNote / REV-EM | `Antsvfr/LexNote` / `Antsvfr/REV-EM` (GitHub Pages : `https://antsvfr.github.io/REV-EM/`) |
+| Application LexNote | Vercel — `https://lex-note-svfr.vercel.app` (build : `npm run build`, sortie `dist/`) |
+| Projets Supabase | `LEX_REF` (LexNote), `REV_REF` (REV-EM) — **deux projets distincts** ; un 3ᵉ projet **de TEST** `TEST_REF` pour les smoke tests |
+| Migrations LexNote | `20261007000000_lexnote_init` … `20261018000000_study_ai_budget_health` (12 fichiers, `supabase/migrations/`) |
+| Migrations REV-EM | `006_integration_links`, `007_math_practice`, `008_integration_launch`, `009_integration_launch_identify` (`supabase/migrations/`) |
+| Edge Functions LexNote | `health`, `study-ai`, `integration-link`, `integration-gateway`, `course-engine`, `delete-account` |
+| Edge Functions REV-EM | `integration-link`, `integration-gateway` (+ `brightspace-*`, inchangées) |
+| Secrets LexNote | `ANTHROPIC_API_KEY`, `APP_ORIGINS`, `STUDY_AI_ENABLED`, `STUDY_AI_GLOBAL_MAX_REQUESTS_DAY`, `STUDY_AI_GLOBAL_MAX_CHARS_DAY`, `STUDY_AI_MODEL` (opt.), `RELEASE_VERSION`, `INTEGRATION_ENV`, `INTEGRATION_KEY`, `INTEGRATION_KEY_ID`, `INTEGRATION_SELF_APP_URL`, `INTEGRATION_PEER_APP_URL`, `INTEGRATION_PEER_GATEWAY_URL` |
+| Variables Vercel (publiques) | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_AI_URL` (`https://<LEX_REF>.supabase.co/functions/v1/study-ai`), `VITE_ENGINE_URL` (opt.). **Jamais** `VITE_BACKEND=mock`, jamais une clé `service_role` |
+
+```bash
+export SUPABASE_ACCESS_TOKEN=…      # jeton personnel — jamais dans Git
+export LEX_REF=…  REV_REF=…  TEST_REF=…
+```
+
+## I.1 Ordre exact de fusion GitHub (étape A)
+
+**Rien n'est fusionné par cette PR.** Les PR LexNote sont empilées ; chacune a `main` pour base et contient les précédentes :
+`#12 → #10 → #11 → #13 → PR « production readiness » (celle-ci)`. Fusionner **dans cet ordre**, en **fusion simple (merge commit)**, jamais de réécriture d'historique.
+Après chaque fusion, attendre que la CI de la PR suivante repasse au vert (le diff se réduit à son propre contenu).
+REV-EM : `#24 → #25` (puis une éventuelle PR REV-EM de cette phase : **aucune n'est nécessaire**, voir « REV-EM » dans la PR).
+**État réel de la chaîne, vérifié sur GitHub le 2026-10-16** (porte `merge-chain`) — toutes les PR : ouvertes, **brouillon**, `mergeable_state: clean`, base `main` (981d9aa) :
+
+| PR | Tête (SHA) | CI `verify` | Contient la précédente ? |
+|---|---|---|---|
+| LexNote #12 | `05afdba` | ✅ verte | — (base) |
+| LexNote #10 | `8602eb6` | ✅ verte | ✅ contient #12 (`git merge-base --is-ancestor`) |
+| LexNote #11 | `042b3b5` | ✅ verte | ✅ contient #10 |
+| LexNote #13 | `6e305fb` | ✅ verte | ✅ contient #11 |
+| LexNote #14 | `77f1dfd` (avant les ajouts de la phase « READY ») | ✅ verte | ✅ contient #13 |
+| REV-EM #24 | `3e72c32` | ⚠ **aucun contrôle CI** (le dépôt REV-EM n'en exécute pas sur les PR) | — (base) |
+| REV-EM #25 | `b7773d5` | ⚠ aucun contrôle CI | ✅ contient #24 |
+
+Divergences : (1) **REV-EM n'a pas de CI sur ses PR** — leurs tests (`npm test` / suites listées dans les PR) doivent être relancés à la main avant fusion ; (2) le SHA de #14 change à chaque ajout : relire la table avant de fusionner.
+
+Ne pas fusionner avant que les portes `typecheck`, `unit-tests`, `build`, `bundle-check`, `preflight`, `e2e-critical` soient PASS **sur le commit à fusionner** (`node scripts/prod/evidence.mjs run-auto`).
+
+## I.2 Sauvegarde AVANT déploiement (obligatoire)
+
+> Une migration n'a pas de retour arrière automatique. La **seule** protection contre une erreur d'exploitation est une sauvegarde **vérifiée**.
+
+1. **Sauvegarde native Supabase** (tableau de bord → *Database → Backups*) : plan Pro et plus = sauvegardes quotidiennes + **Point-in-Time Recovery** (noter l'heure UTC exacte avant de commencer ; la restauration PITR se demande à cette heure). Plan gratuit : **pas de sauvegarde automatique → la sauvegarde logique ci-dessous est obligatoire**.
+2. **Sauvegarde logique** (depuis votre machine ; chaîne de connexion dans *Project Settings → Database → Connection string*, mot de passe dans l'environnement, jamais dans l'historique du shell). Les trois commandes ci-dessous ont été **répétées avec les vrais outils `pg_dump` / `psql`** (PostgreSQL 16, `scripts/prod/rehearsal.mjs backup-restore`) ; `supabase db dump` appelle `pg_dump` et accepte les mêmes découpages :
+   ```bash
+   export LEX_DB_URL='postgresql://postgres:…@db.'$LEX_REF'.supabase.co:5432/postgres'
+   mkdir -p ~/backups/lexnote-$(date -u +%Y%m%dT%H%M%SZ) && cd $_
+   pg_dump "$LEX_DB_URL" --no-owner --schema-only --schema public --schema auth -f schema.sql      # structure — SANS --no-privileges (voir ⚠ 3)
+   pg_dump "$LEX_DB_URL" --no-owner --data-only   --schema public -f data-public.sql
+   pg_dump "$LEX_DB_URL" --no-owner --data-only   --schema auth   -f data-auth.sql                 # comptes (mots de passe hachés), identités, sessions
+   sha256sum *.sql > SHA256SUMS && ls -l
+   ```
+   (équivalent CLI : `supabase db dump --db-url "$LEX_DB_URL" -f schema.sql`, `… --data-only --use-copy …`.) Même chose pour `REV_REF` (`REV_DB_URL`). Stocker hors de l'ordinateur (chiffré), conserver ≥ 30 jours.
+3. **Vérifier la sauvegarde par une RESTAURATION** (une sauvegarde non restaurée n'existe pas). **Trois pièges découverts par la répétition réelle** — la procédure ci-dessous les corrige :
+   * ⚠ 1 **Base de restauration neuve** : retirer son schéma `public` avant d'importer (`psql "$RESTORE_URL" -c 'drop schema public cascade'`), sinon `schema "public" already exists`.
+   * ⚠ 2 **Importer les DONNÉES avec les déclencheurs désactivés** : `lx_touch` réécrit `version` / `server_updated_at` à l'insertion (les curseurs de synchronisation seraient faussés) et le déclencheur d'inscription recrée les profils avant leur import (**erreur de doublon**). Faire précéder chaque fichier de données de `set session_replication_role = replica;` :
+     ```bash
+     for f in data-auth.sql data-public.sql; do (echo 'set session_replication_role = replica;'; cat $f) | psql "$RESTORE_URL" -v ON_ERROR_STOP=1; done
+     ```
+   * ⚠ 3 **Conserver les droits** (`GRANT` / `REVOKE`) : un dump fait avec `--no-privileges` restaure des fonctions `SECURITY DEFINER` **exécutables par `anon`** (les `REVOKE` des migrations sont perdus). Après toute restauration, relancer `verify-db` et `verify-schema` (Partie II) avant d'ouvrir le trafic.
+   Restaurer dans un projet de **TEST** ou une base locale (`createdb restore_test`), puis comparer : `select count(*) from public.subjects, public.course_sessions;` et, idéalement, les empreintes de `rehearsal.mjs` (nombre de lignes + md5 du contenu).
+4. **État de la production avant migration** : `node scripts/prod/migration-status.mjs --project $LEX_REF` — enregistrer la sortie (elle prouve l'état de départ).
+5. Noter les **versions déployées** pour le retour arrière : Vercel (URL du déploiement de production actuel), `git rev-parse HEAD` des deux dépôts, `supabase functions list --project-ref $LEX_REF` (versions), `supabase secrets list --project-ref $LEX_REF` (noms seulement).
+6. Enregistrer : `node scripts/prod/evidence.mjs record backup PASS --note "dump 2026-…, restauré sur un projet de test, comptes OK"` (porte de PRODUCTION : seul l'exploitant la valide ; la procédure elle-même est déjà prouvée par la porte `backup-restore-rehearsal`).
+
+## I.3 Portes de déploiement (READY / NOT READY)
+
+`release/gates.json` définit 16 portes ; `release/evidence.json` (local, non versionné) porte les preuves (statut, **commit**, date, note). Une preuve ne compte que si elle est **PASS**, **récente** (7 jours) et — pour les portes liées au code — **sur le commit courant**. Sans preuve = `NOT_RUN` = bloquant.
+```bash
+node scripts/prod/evidence.mjs run-auto        # typecheck, unit-tests, build, bundle-check, preflight, e2e-critical
+node scripts/prod/evidence.mjs record deno-tests PASS --note "deno test study-ai + health : N passed"   # Deno n'est pas lancé par run-auto
+node scripts/prod/evidence.mjs record <porte> PASS --note "…"      # portes réelles : voir §I.4
+node scripts/prod/release-gates.mjs            # lisible ; --json pour une machine ; code de sortie 0 = READY
+node scripts/prod/preflight.mjs --target production --with-typecheck --with-build --with-schema    # PASS/WARN/FAIL ; FAIL = arrêt
+```
+
+## I.4 Vérifications RÉELLES préalables (sur le projet de TEST, jamais la production)
+
+```bash
+# 1. Migrations sur le projet de test, dans l'ordre (voir I.5-B pour la commande)  → record migrations-on-test
+# 2. Smoke Supabase de test : authentification, RLS, version serveur, fonctions réservées, déconnexion globale, nettoyage
+SMOKE_CONFIRM=1 SMOKE_SUPABASE_URL=https://$TEST_REF.supabase.co SMOKE_EXPECTED_REF=$TEST_REF SMOKE_PRODUCTION_REFS=$LEX_REF,$REV_REF \
+  SMOKE_ANON_KEY=… SMOKE_SERVICE_ROLE_KEY=… node scripts/prod/supabase-smoke.mjs        # → record supabase-smoke
+# 3. Diagnostic d'intégration entre les deux projets de test (HMAC, kid, horloge, CORS)
+INTEGRATION_KEY=… LEXNOTE_SUPABASE_URL=https://$TEST_REF.supabase.co REVEM_SUPABASE_URL=… node scripts/prod/integration-diagnostic.mjs   # → record integration-diagnostic
+# 4. Liaison complète + attaques : scripts/prod/real-e2e.mjs (Partie II §6) sur les projets de test
+# 5. IA réelle (payant) : SMOKE_CONFIRM=1 … node scripts/prod/study-ai-smoke.mjs (docs/TRANSCRIPT_ACTIONS.md §7) ; puis kill switch : STUDY_AI_ENABLED=false → 503 ai_disabled  → record ai-real-smoke
+# 6. Firefox + WebKit : ALL_BROWSERS=1 npx playwright install firefox webkit && npm run test:e2e:browsers   → record browsers-firefox-webkit
+# 7. PWA à la main (§I.9)  → record pwa-manual ;  répétition du retour arrière sur TEST (§I.7) → record rollback-rehearsed
+```
+`supabase-smoke.mjs` **refuse de tourner** sans `SMOKE_CONFIRM=1`, si `SMOKE_EXPECTED_REF` ≠ projet de l'URL, si le projet est dans `SMOKE_PRODUCTION_REFS`, si une clé n'appartient pas au projet (claim `ref`), ou s'il contient plus de `SMOKE_MAX_USERS` (10) comptes non jetables.
+
+## I.5 Procédure de déploiement, dans l'ordre
+
+### A. Fusion GitHub — voir §I.1.
+
+### B. Migrations Supabase (production LexNote `LEX_REF`)
+La production a déjà `20261007` … `20261013` (réconciliation + durcissement). **Ne jamais rejouer** `supabase/reconciliation/*` ni une migration déjà appliquée.
+
+| # | Migration (`supabase/migrations/`) | Production (état connu) |
+|---|---|---|
+| 07 | `20261007000000_lexnote_init` | appliquée |
+| 08 | `20261008000000_study_artifacts` | appliquée |
+| 09 | `20261009000000_course_engine` | appliquée |
+| 10 | `20261010000000_study_artifacts_from_course` | appliquée |
+| 11 | `20261011000000_integration_links` | appliquée |
+| 12 | `20261012000000_fk_indexes` | appliquée |
+| 13 | `20261013000000_security_hardening` | appliquée |
+| 14 | `20261014000000_revem_course_refs` | **à appliquer** (#10) |
+| 15 | `20261015000000_transcript_derived_artifacts` | **à appliquer** (#11) |
+| 16 | `20261016000000_study_ai_usage` | **à appliquer** (#11) |
+| 17 | `20261017000000_auth_devices_auto_login` | **à appliquer** (#13) |
+| 18 | `20261018000000_study_ai_budget_health` | **à appliquer** (cette PR) |
+
+*« État connu » = d'après la documentation du 2026-10-13 ; l'état réel se lit avec `migration-status.mjs`, jamais avec cette table.*
+```bash
+node scripts/prod/migration-status.mjs --project $LEX_REF      # attendu : 07…13 « DÉJÀ APPLIQUÉE », 14…18 « ABSENTE » ; toute ligne DIFFÉRENTE ou « ordre rompu » = STOP
+for f in 20261014000000_revem_course_refs 20261015000000_transcript_derived_artifacts 20261016000000_study_ai_usage \
+         20261017000000_auth_devices_auto_login 20261018000000_study_ai_budget_health; do
+  node scripts/prod/supabase-admin.mjs apply-sql --project $LEX_REF --file supabase/migrations/$f.sql            # simulation
+  node scripts/prod/supabase-admin.mjs apply-sql --project $LEX_REF --file supabase/migrations/$f.sql --apply    # une à la fois ; s'arrêter à la première erreur
+done
+node scripts/prod/migration-status.mjs --project $LEX_REF      # attendu : 12 « DÉJÀ APPLIQUÉE », « Aucune migration à appliquer »
+node scripts/prod/supabase-admin.mjs verify-schema --project $LEX_REF     # 13 PASS
+node scripts/prod/supabase-admin.mjs verify-db     --project $LEX_REF     # 24 PASS
+```
+REV-EM (`REV_REF`), depuis le dépôt REV-EM : après avoir confirmé l'état de `006`/`007` (procédure de readiness en lecture seule du dépôt REV-EM), appliquer `008_integration_launch.sql` puis `009_integration_launch_identify.sql` avec le même outil, puis `verify-db`.
+**Les migrations 17 et 18 sont additives et rétro-compatibles** (nouveaux paramètres avec valeurs par défaut) : l'ancienne version des fonctions Edge continue de fonctionner tant qu'elle n'est pas redéployée.
+
+### C. Edge Functions LexNote (après B, avant D)
+```bash
+supabase functions deploy health              --project-ref $LEX_REF --no-verify-jwt
+supabase functions deploy study-ai            --project-ref $LEX_REF
+supabase functions deploy integration-gateway --project-ref $LEX_REF --no-verify-jwt
+supabase functions deploy integration-link    --project-ref $LEX_REF --no-verify-jwt
+curl -s https://$LEX_REF.supabase.co/functions/v1/health        # {"status":"ok",…,"services":{"database":"ok","schema":"ok",…}}  (aucune donnée sensible)
+```
+`course-engine` et `delete-account` ne changent pas. REV-EM : `supabase functions deploy integration-gateway --no-verify-jwt` et `integration-link` (`--project-ref $REV_REF`).
+**Déployer `study-ai` avec l'IA coupée** : poser `STUDY_AI_ENABLED=false` (étape D) avant d'ouvrir le trafic ; l'activer seulement après les smoke tests (étape G).
+
+### D. Secrets (Supabase → *Edge Functions → Secrets* ou CLI)
+```bash
+supabase secrets set --project-ref $LEX_REF \
+  STUDY_AI_ENABLED=false STUDY_AI_GLOBAL_MAX_REQUESTS_DAY=2000 STUDY_AI_GLOBAL_MAX_CHARS_DAY=20000000 \
+  APP_ORIGINS=https://lex-note-svfr.vercel.app RELEASE_VERSION=$(node -p "require('./package.json').version")
+# ANTHROPIC_API_KEY (déjà posée si study-ai a été déployé avant) : supabase secrets set ANTHROPIC_API_KEY=…  (saisie masquée, jamais dans un fichier)
+# Clés d'intégration : Partie II §3 (INTEGRATION_KEY identique des deux côtés)
+supabase secrets list --project-ref $LEX_REF      # NOMS uniquement : contrôler que rien ne manque
+```
+Valeurs par défaut du code si une variable est absente : `STUDY_AI_GLOBAL_MAX_REQUESTS_DAY=2000`, `STUDY_AI_GLOBAL_MAX_CHARS_DAY=20 000 000`, `STUDY_AI_MAX_PER_DAY=200`/utilisateur, `STUDY_AI_MAX_CHARS_PER_DAY=3 000 000`/utilisateur, sortie ≤ 15 000 jetons (jamais 64 000). `0` désactive explicitement un plafond global — à éviter.
+
+### E. Vercel (LexNote)
+Variables d'environnement *Production* : `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_AI_URL`. La fusion sur `main` déclenche le déploiement (ou *Deployments → Redeploy* **sans** cache de build si seules les variables ont changé). `VERCEL_GIT_COMMIT_SHA` alimente le SHA affiché.
+Contrôle : ouvrir `https://lex-note-svfr.vercel.app/settings/system-status` (connecté) : la version et le SHA sont ceux du commit fusionné ; `Serveur LexNote (health)` = ok.
+
+### F. REV-EM — GitHub Pages
+Fusion de REV-EM `#24 → #25` sur `main` : le workflow Pages publie `https://antsvfr.github.io/REV-EM/`. Contrôle : la page s'ouvre, *Réglages → Applications connectées* affiche LexNote.
+
+### G. Smoke tests post-déploiement (production, lecture seule ou comptes de test dédiés)
+```bash
+node scripts/prod/preflight.mjs --target production                              # variables lues dans l'environnement de l'opérateur
+node scripts/prod/migration-status.mjs --project $LEX_REF                        # 12 « DÉJÀ APPLIQUÉE »
+curl -s https://$LEX_REF.supabase.co/functions/v1/health
+INTEGRATION_KEY=… LEXNOTE_SUPABASE_URL=https://$LEX_REF.supabase.co REVEM_SUPABASE_URL=https://$REV_REF.supabase.co node scripts/prod/integration-diagnostic.mjs
+node scripts/prod/real-e2e.mjs                                                   # Partie II §6, comptes de test dédiés
+supabase secrets set STUDY_AI_ENABLED=true --project-ref $LEX_REF                # PUIS, et seulement si tout est vert :
+SMOKE_CONFIRM=1 node scripts/prod/study-ai-smoke.mjs                             # compte de test ; vérifier ensuite le journal agrégé (§I.6)
+```
+`supabase-smoke.mjs` **ne se lance jamais sur la production** (il crée des comptes). Test manuel navigateur : Partie II §6 (« Complément manuel »).
+
+## I.6 Exploitation et observabilité
+
+* **Santé publique** : `GET https://<LEX_REF>.supabase.co/functions/v1/health` → `{status: ok|degraded|down, version, time, services:{database, schema, integration, ai}, missing?}`. `503` si la base est injoignable. Aucune clé, URL interne, identifiant ni message d'erreur brut. `missing` liste les éléments de schéma absents (= migration à appliquer).
+* **Diagnostic côté étudiant** : *Réglages → Diagnostic* (`/settings/system-status`) : compte, synchronisation, REV-EM, transcription, IA, stockage local, PWA, version + SHA, derniers événements ; bouton « Copier le diagnostic » (expurgé, sans contenu).
+* **Journaux** (*Edge Functions → Logs*) : préfixes `[study-ai]`, `[integration]`, `[integration-gateway]`, `[integration-link]` — **métadonnées uniquement** (tâche, tailles, jetons, modèle, durée, code). Jamais de transcription, note, prompt, document ni réponse du modèle. Côté navigateur : `[auth] [sync] [integration] [study-ai] [transcription]` (+ `[storage] [pwa] [ui]`), expurgés (jetons, e-mails).
+* **Coût IA** — requête SQL de lecture seule (service_role, éditeur SQL) : `select public.study_ai_usage_summary(7);` → totaux par jour/tâche/état (requêtes, caractères, jetons d'entrée/sortie, durée moyenne). Rétention : 30 jours.
+* **INTERRUPTEUR D'URGENCE IA** : `supabase secrets set STUDY_AI_ENABLED=false --project-ref $LEX_REF` — effet aux prochains démarrages de la fonction (en pratique quelques secondes), **sans redéploiement** ; à vérifier lors du test réel (porte `ai-real-smoke`) ; `study-ai` répond `503 ai_disabled` avant tout appel payant ; l'application affiche « Les fonctions IA sont temporairement indisponibles. (AI-DISABLED) ». Réactiver : `STUDY_AI_ENABLED=true`.
+* **Budget global** atteint → `503 ai_capacity` (« … (AI-CAPACITY) »), retour automatique quand la fenêtre glissante de 24 h se libère.
+
+### Budgets de sortie par action (jamais 64 000 jetons)
+Plafond absolu `HARD_MAX_OUTPUT_TOKENS = 15 000` (réglable à la baisse par `STUDY_AI_MAX_OUTPUT_TOKENS`). Valeurs mesurées (rédaction + marge de réflexion) : résumé express 4 500, standard 7 000, détaillé 11 000 ; points clés / à retenir / explication / fiches 5 500 ; glossaire / définitions 6 000 ; concepts / plan de cours 7 000 ; questions d'examen / à l'enseignant / ambiguïtés / passages importants 6 500 ; synthèse intermédiaire 1 800–4 000 ; structuration 6 000–15 000 ; traduction / nettoyage 2 000–13 000 (proportionnels à la partie traitée). Test de garde-fou : `tests/prod/study-ai-budgets.test.ts`.
+
+### Codes d'erreur (affichés à l'étudiant, cités par le support)
+`AUTH-SESSION-01` `AUTH-REVOKED-02` · `SYNC-OFFLINE-01` `SYNC-CONFLICT-02` `SYNC-AUTH-03` `SYNC-REMOTE-04` · `INT-PEER-401` `INT-HMAC-401` `INT-KID-401` `INT-CLOCK-401` `INT-GW-404` `INT-GW-JWT` `INT-URL` · `AI-DISABLED` `AI-CAPACITY` `AI-429` `AI-503` `AI-504` `AI-502` `AI-422` `AI-CONFIG` · `STORE-IDB-01` `STORE-WRITE-02` · `TRANS-MIC-01` `TRANS-ENGINE-02` · `PWA-UPDATE-01` · `UI-CRASH-01` (suivi de 4 caractères hexadécimaux : `UI-CRASH-01/a3f9`).
+Catalogue complet (titre, conseil) : `src/lib/errorCodes.ts` ; un test vérifie que ce paragraphe les liste tous.
+Diagnostic d'intégration : `INT-KID-401` = identifiant de clé différent ; `INT-HMAC-401` = clé différente ; `INT-CLOCK-401` = horloge décalée ; `INT-PEER-401` = expéditeur/destinataire inversé ; `INT-GW-JWT` = passerelle redéployée sans `verify_jwt = false`.
+
+## I.7 PLAN DE RETOUR ARRIÈRE
+
+Principe : **revenir en arrière dans l'ordre inverse du déploiement**, et préférer « désactiver » à « défaire ».
+
+| Problème | Action immédiate | Détail |
+|---|---|---|
+| IA coûteuse / abusive / en panne | `supabase secrets set STUDY_AI_ENABLED=false --project-ref $LEX_REF` | Sans redéploiement ; l'application reste utilisable (notes, synchronisation) |
+| Régression de l'application | **Vercel** → *Deployments* → déploiement de production précédent (noté en §I.2-5) → *Instant Rollback* / *Promote to Production* (ou `vercel rollback`) | Le service worker propose la version précédente comme une mise à jour ; aucune donnée locale n'est touchée |
+| Régression d'une Edge Function | `git checkout <sha_précédent> -- supabase/functions && supabase functions deploy <nom> --project-ref $LEX_REF` puis `git checkout -- .` | Les migrations 17/18 sont rétro-compatibles avec l'**ancien** code : le retour arrière du code ne nécessite **pas** de retour arrière de la base |
+| `integration-gateway` répond « Missing authorization header » | Redéployer avec `--no-verify-jwt` | `supabase/config.toml` + `preflight.mjs` (contrôle `config.toml`) |
+| Liaison REV-EM en échec (`INT-*`) | `integration-diagnostic.mjs` ; rotation : poser `INTEGRATION_KEY_PREVIOUS[_ID]` (Partie II §3) | Rollback de clé : remettre l'ancienne clé comme `INTEGRATION_KEY`, la nouvelle en `…_PREVIOUS` |
+| REV-EM (Pages) | Revert du commit de fusion sur `main` de REV-EM → le workflow republie | |
+| Migration appliquée mais défectueuse | **Ne pas écrire de « migration inverse » dans l'urgence.** 1) `STUDY_AI_ENABLED=false` si concerné ; 2) corriger en avant par une nouvelle migration `2026…` testée sur `TEST_REF` ; 3) en dernier recours, **restaurer la sauvegarde** (ci-dessous) | Les migrations 17 et 18 n'ajoutent que des colonnes/fonctions/tables : les laisser en place est sans danger pour l'ancien code |
+| Perte ou corruption de données | **Restauration** : PITR Supabase à l'heure notée en §I.2 (*Database → Backups → Point in time*), ou depuis le dump logique : `psql "$LEX_DB_URL" -f schema.sql -f data-public.sql` sur une base **vide** (projet de restauration), puis comparer ; ne jamais restaurer par-dessus la production sans avoir sauvegardé son état courant | Suppressions « douces » : `select count(*) from course_sessions where deleted_at is not null;` — restauration ciblée possible par SQL |
+
+⚠ **Limite connue du retour arrière de `study-ai`** (répétée : `rehearsal.mjs db-rollback`) : l'**ancien** code n'applique ni le budget global ni l'interrupteur `STUDY_AI_ENABLED`. Après un retour arrière de cette fonction, **couper l'IA en retirant la clé du fournisseur** : `supabase secrets unset ANTHROPIC_API_KEY --project-ref $LEX_REF` (l'ancienne fonction répond alors `not_configured`), et la rétablir après redéploiement de la version corrigée.
+
+Retour arrière applicatif sûr des **migrations 17 et 18** (uniquement si la sauvegarde ne peut pas servir et après accord) : elles ne suppriment aucune donnée ; les fonctions `study_ai_acquire` (9 paramètres) et `study_ai_release` (7 paramètres) acceptent les anciens appels à 7 et 3 arguments (valeurs par défaut) — aucun SQL de retour arrière n'est nécessaire pour que l'ancien code fonctionne.
+**Répétitions déjà faites sans Supabase** (preuves `rollback-db-compat` et `rollback-frontend-local`) : base additive + ancien code compatible (`node scripts/prod/rehearsal.mjs db-rollback`), et retour arrière frontend sur la même origine avec le même profil de navigateur : notes intactes dans les deux sens, l'ancienne version est reçue comme mise à jour proposée (`node scripts/prod/frontend-rollback-drill.mjs --old <dist> --new <dist>`).
+**Répétition complète obligatoire** (porte `rollback-rehearsed`, `docs/TEST_ENVIRONMENT.md` §10) : sur `TEST_REF`, appliquer 14→18, déployer, puis exécuter chaque ligne du tableau (kill switch, déploiement précédent, restauration du dump) et noter le résultat.
+
+## I.8 Navigateurs
+
+Chromium : suite complète (e2e + mobile + PWA). Firefox et WebKit : `ALL_BROWSERS=1 npm run test:e2e:browsers` (parcours critiques + mobile + accessibilité ; le PWA hors ligne et le micro simulé restent Chromium).
+Classer un échec : **limitation du navigateur / du pilote** (ex. WebKit n'expose pas `SpeechRecognition` ; Firefox ne propose pas de micro simulé par drapeau Chromium ; l'installation PWA n'existe pas sur Firefox bureau) → test marqué `skip` avec la raison ; **bogue LexNote** (rendu, stockage, synchronisation, navigation) → à corriger. Safari/iOS : IndexedDB peut être purgé après 7 jours sans visite hors PWA installée → demander l'installation (avertissement « stockage non durable » dans Réglages / Diagnostic).
+
+## I.9 PWA — ce qui est automatisé et ce qui ne l'est pas
+
+Automatisé (Chromium, `tests/e2e/pwa.spec.ts`) : manifeste (nom, `standalone`, icônes 192/512/maskable), service worker actif, coque servie **hors ligne** sur une route profonde, session conservée, écriture hors ligne puis retour en ligne, aucune mise à jour imposée.
+**À vérifier à la main** (porte `pwa-manual`) : (1) invite d'installation (Chrome/Edge) et installation réelle sur Android/iOS ; (2) application installée : ouverture hors ligne, connexion conservée ; (3) **mise à jour réelle** : déployer une v2, ouvrir la v1 : le message « Une nouvelle version de LexNote est disponible » apparaît, *Mettre à jour* est **refusé** pendant une transcription (« La mise à jour sera possible quand vous l'aurez terminée »), accepté ensuite ; (4) fermeture d'onglet pendant une transcription : avertissement du navigateur.
+
+## I.10 Accessibilité (audit rapide)
+`tests/e2e/mobile-a11y.spec.ts` contrôle sur 9 pages + l'éditeur : langue du document, titre, repère `main`, un `h1`, noms accessibles des boutons/liens, étiquettes des champs, `alt` des images, pas de `tabindex` positif, boîtes de dialogue nommées, `id` uniques, cibles ≥ 24 px, absence de défilement horizontal à 390 px. Corrigé par l'audit : l'éditeur n'avait ni `main` ni `h1`. **Non couvert** (à faire avec un lecteur d'écran et axe-core) : contrastes, ordre de tabulation complexe, annonces `aria-live`.
+
+## I.11 Profil de lancement BETA de l'IA (recommandé — non appliqué)
+
+Les valeurs par défaut du code (2 000 requêtes et 20 M de caractères par jour au total ; 200 requêtes et 3 M de caractères par étudiant et par jour) sont des **plafonds techniques**, trop hauts pour un lancement. Profil conseillé pour une beta d'environ 20 à 50 étudiants (à poser à l'étape D, **avec `STUDY_AI_ENABLED=false` jusqu'à la fin des smoke tests**) :
+```bash
+supabase secrets set --project-ref $LEX_REF STUDY_AI_GLOBAL_MAX_REQUESTS_DAY=150 STUDY_AI_GLOBAL_MAX_CHARS_DAY=3000000 \
+  STUDY_AI_MAX_PER_DAY=15 STUDY_AI_MAX_CHARS_PER_DAY=400000 STUDY_AI_MAX_PER_MINUTE=4 STUDY_AI_MAX_CONCURRENT=1
+```
+| Garde-fou | Beta | Défaut du code | Pourquoi |
+|---|---|---|---|
+| Interrupteur | `STUDY_AI_ENABLED` activable à tout moment | activé | arrêt immédiat sans redéploiement |
+| Global / jour | 150 requêtes, 3 M de caractères | 2 000 / 20 M | borne le coût quoi qu'il arrive (503 `ai_capacity`) |
+| Par étudiant / jour | 15 requêtes, 400 000 caractères | 200 / 3 M | ≈ 5 séances entières par jour ; un compte abusif ne consomme pas le budget des autres |
+| Par minute / simultanés | 4 / 1 | 12 / 2 | limite les rafales et les clics répétés |
+| Sortie max. | 15 000 jetons (inchangé) | 15 000 | **ne pas baisser** : la structuration d'un long texte atteint ce plafond, une valeur plus basse la ferait échouer (`truncated`) |
+**Estimation qualitative du risque de coût** (aucun tarif n'est supposé ici : vérifier la grille tarifaire du fournisseur) : pire cas **mécaniquement borné** par jour à ≈ 0,75 M de jetons d'entrée (3 M de caractères ÷ 4) et ≤ 150 × 15 000 = 2,25 M de jetons de sortie (en pratique ~1 M : la plupart des actions plafonnent entre 2 000 et 7 000). Risque **faible et plafonné** ; le risque résiduel est un changement de tarif du fournisseur ou un modèle plus cher que prévu (`STUDY_AI_MODEL`, défaut `claude-opus-5-5`, le plus capable donc le plus coûteux — un modèle moins cher est une option à valider d'abord sur le projet de test). Surveillance : `select public.study_ai_usage_summary(1);` chaque jour la première semaine. Augmenter (×2 maximum à la fois) seulement si l'usage réel reste sous 50 % des plafonds pendant une semaine.
+
+## I.12 Checklist PWA courte (porte `pwa-manual`)
+
+Appareil réel (ordinateur ou téléphone), sur le déploiement de **test** ou de prévisualisation. Répondre uniquement `PWA n PASS` ou `PWA n FAIL (ce que vous voyez)` :
+1. **PWA 1** Installer LexNote (icône d'installation du navigateur, ou *Ajouter à l'écran d'accueil*) ; l'application s'ouvre dans sa propre fenêtre.
+2. **PWA 2** Fermer complètement l'application (pas seulement la fenêtre).
+3. **PWA 3** Rouvrir : l'application démarre.
+4. **PWA 4** Vous êtes toujours connecté (aucun mot de passe demandé) — après avoir coché « Rester connecté » à la connexion.
+5. **PWA 5** Créer une séance et écrire une note ; « Enregistré » s'affiche.
+6. **PWA 6** Passer hors ligne (mode avion) : la note s'écrit encore, « Hors ligne » s'affiche, rien ne disparaît ; fermer/rouvrir hors ligne : la note est là.
+7. **PWA 7** Revenir en ligne : la synchronisation reprend toute seule, aucune erreur.
+8. **PWA 8** Après un nouveau déploiement : « Une nouvelle version de LexNote est disponible » apparaît ; l'application n'a **pas** rechargé d'elle-même.
+9. **PWA 9** Démarrer une transcription puis cliquer « Mettre à jour » : refusé avec le message « Une transcription est en cours… » ; arrêter la transcription, recliquer : la mise à jour s'applique et les notes sont intactes.
+
+## I.13 Règle après CHAQUE fusion (chaîne de PR empilées)
+
+Après chaque fusion dans `main` (ordre : LexNote #12 → #10 → #11 → #13 → #14 ; REV-EM #24 → #25) :
+1. **Attendre la CI de `main`** (job `verify`) : **rouge ⇒ on s'arrête**, on corrige, on ne fusionne pas la suivante.
+2. **Mettre la PR suivante à jour** : GitHub la rebase sur `main` si sa base a été supprimée ; sinon *Update branch* (fusion de `main` dans la branche — **pas de rebase ni de réécriture d'historique**). Si un fichier généré diffère (`lexnote-revem-v1.mjs`), le régénérer avec `node scripts/build-integration-bundle.mjs` depuis un `node_modules` réel, jamais à la main.
+3. **Vérifier la mergeabilité** (pas de conflit) **et** la CI verte du nouveau commit de tête **avant** de fusionner la suivante.
+4. Le SHA de tête de la PR change à chaque mise à jour : les preuves des portes liées au code (`sha: true`) deviennent `NOT_RUN` ⇒ relancer `node scripts/prod/evidence.mjs run-auto` sur le commit final avant le déploiement.
+5. Ne **déployer** (étapes B à G) qu'une fois **toutes** les PR fusionnées et la CI de `main` verte sur le commit final.
+
+---
+
+# Partie II — Liaison REV-EM ⇄ LexNote (détail)
+
+> **État production partiel.** La réconciliation LexNote a été appliquée sur le vrai projet Supabase, les migrations officielles ont été appliquées, `verify-schema` = 13/13 et `verify-db` = 24/24. Les fonctions `delete-account`, `integration-link` et `integration-gateway` ont été déployées sur LexNote ; `integration-link` et `integration-gateway` ont aussi été déployées sur REV-EM. Les secrets `INTEGRATION_*`, les Redirect URLs Auth et le test réel A/B restent à finaliser. L'environnement Claude d'origine n'avait pas accès à
 > `*.supabase.co` / `api.supabase.com` / `vercel.app`, ni jeton Supabase, ni références de projet. Ce document est la procédure exacte pour le faire (≈ 30 min)
 > et pour prouver que « un vrai compte REV-EM peut être connecté à un vrai compte LexNote en production ».
 
@@ -22,11 +291,14 @@ export LEX_REF=…  REV_REF=…
 LexNote est une **chaîne de PR empilées** (chacune a pour base la précédente) :
 `main ← #3 comptes/sync ← #4 supports d'étude ← #6 moteur de cours ← #7 StudyArtifacts ← PR intégration`.
 **L'intégration dépend de #3 (Supabase/Auth/RLS) et de #7 (types `StudyArtifact` utilisés par les références)** : elle ne peut être fusionnée **qu'après** #3 → #4 → #6 → #7,
-dans cet ordre (GitHub reciblera chaque PR sur `main` quand sa base sera fusionnée et sa branche supprimée). La PR #5 (`chatgpt/lexnote-multiuser`, autre auteur, base `main`)
-**recoupe #3** (auth, sync, CM/TD/TP) : à trancher avant toute fusion — ne pas fusionner #3 et #5 ensemble.
+dans cet ordre (GitHub reciblera chaque PR sur `main` quand sa base sera fusionnée et sa branche supprimée). La PR #5 (`chatgpt/lexnote-multiuser`) est **SUPERSEDED** (décision validée) : elle ne sera jamais fusionnée ; elle peut être fermée sans perte (voir `docs/SCHEMA_RECONCILIATION.md` §1).
 La PR REV-EM est **indépendante** (base `main`) ; la déployer avant ou après LexNote est indifférent, les deux côtés restent fonctionnels seuls.
 
 ## 2. Migrations (une fois par projet)
+
+> **Le projet LexNote existant porte l'ancien schéma expérimental (PR #5, SUPERSEDED).** Ne lancez PAS `20261007…lexnote_init.sql` dessus : suivez d'abord
+> [`docs/SCHEMA_RECONCILIATION.md`](SCHEMA_RECONCILIATION.md) §3 (quarantaine `001` → les 7 migrations officielles ci-dessous → `002` profils → `verify-official-schema.sql`).
+> Pour un projet vierge, appliquer directement les 7 migrations. Il n'existe qu'**une** architecture : la chaîne #3 → #8.
 
 ```bash
 # LexNote — dépôt lexnote
@@ -37,10 +309,22 @@ node scripts/prod/supabase-admin.mjs verify-db --project $LEX_REF            # 2
 node scripts/prod/supabase-admin.mjs apply-sql --project $REV_REF --file ../rev-em/supabase/migrations/006_integration_links.sql --apply
 node scripts/prod/supabase-admin.mjs verify-db --project $REV_REF
 ```
-Prérequis : les migrations précédentes de chaque projet sont déjà appliquées (LexNote `…20261010…`, REV-EM `000`–`005`). Alternative sans l'outil : coller le SQL dans *SQL Editor*,
+Prérequis : les migrations précédentes de chaque projet sont déjà appliquées (LexNote `…20261007` à `…20261010…` — ou la réconciliation —, REV-EM `000`–`005`). Appliquer ensuite `20261012000000_fk_indexes.sql` puis `20261013000000_security_hardening.sql` sur LexNote. Contrôle global du schéma LexNote : `node scripts/prod/supabase-admin.mjs verify-schema --project $LEX_REF` (13 PASS). Alternative sans l'outil : coller le SQL dans *SQL Editor*,
 puis coller `scripts/prod/verify-db.sql`. `verify-db.sql` contrôle : 3 tables, RLS **et FORCE RLS**, grants (anon/PUBLIC/authenticated), colonnes de références illisibles, policies (`(select auth.uid())`),
 fonctions `SECURITY DEFINER` + `search_path` figé + droits d'exécution, contraintes d'unicité, index (dont clés étrangères), `ON DELETE CASCADE`, absence de colonne e-mail/jeton.
 Il est lui-même testé : vert sur les deux migrations, rouge quand on dégrade la sécurité (`tests/db/verify-db.test.ts`).
+
+> **Projet LexNote de production (état au 2026-10-13)** : `…20261007` à `…20261013` (dont `fk_indexes` et `security_hardening`) y sont
+> **déjà appliquées** — ne jamais les rejouer, ni rejouer `supabase/reconciliation/*`. Chaîne complète, dans l'ordre strict :
+> `20261007 init` · `08 study_artifacts` · `09 course_engine` · `10 study_artifacts_from_course` · `11 integration_links` ·
+> `12 fk_indexes` · `13 security_hardening` · `14 revem_course_refs` (#10) · `15 transcript_derived_artifacts` (#11) ·
+> `16 study_ai_usage` (#11). Seules **14, 15, 16** restent à appliquer, dans cet ordre, après fusion de #12 → #10 → #11, puis
+> `verify-schema` (13 PASS). `study-ai` : voir `docs/TRANSCRIPT_ACTIONS.md` §7 (secrets, déploiement, smoke test réel).
+
+> **Authentification durable (PR `claude/persistent-revem-auth`)** : appliquer `20261017000000_auth_devices_auto_login.sql` (LexNote) et
+> `009_integration_launch_identify.sql` (REV-EM) ; redéployer `integration-link` et `integration-gateway` des deux projets — `supabase/config.toml`
+> fixe `verify_jwt = false` pour les passerelles (et `integration-link` côté LexNote). Contrôle : un POST vide sur `…/integration-gateway`
+> doit renvoyer un JSON `integration-error`, pas `Missing authorization header`. Détails : `docs/REVEM_LEXNOTE_INTEGRATION.md` §14.
 
 ## 3. Secrets (identiques à la clé près, un jeu par projet)
 

@@ -7,7 +7,7 @@
 import { newId } from '@/lib/ids';
 import { normalize } from '@/lib/text';
 import type { GeneratedCourse } from '@/domain/course';
-import type { ArtifactContent, ArtifactProvenance, ArtifactScope, ArtifactType, Difficulty, QuizKind, StudyArtifact, StudySettings } from '@/domain/study';
+import type { ArtifactContent, CourseProvenance as ArtifactProvenance, ArtifactScope, ArtifactType, Difficulty, QuizKind, StudyArtifact, StudySettings } from '@/domain/study';
 import {
   EmptySourceError, generateComparison, generateDiagram, generateFlashcards, generateMethod, generateMindMap, generateQuiz, generateSheet, generateTimeline,
   suggestDiagramType, type GenInput,
@@ -46,6 +46,7 @@ export function generateDraft(course: GeneratedCourse, req: StudyRequest): Gener
     case 'METHOD': return done(generateMethod(i), st);
     case 'FLASHCARDS': { const count = st.count ?? DEFAULTS.count; return done(generateFlashcards(i, { count }), { ...st, count }); }
     case 'QUIZ': { const count = st.count ?? DEFAULTS.quizCount, level = st.level ?? DEFAULTS.level, quizKinds = st.quizKinds ?? (['mcq', 'truefalse', 'short'] as QuizKind[]); return done(generateQuiz(i, { count, level: level as Difficulty | 'all', kinds: quizKinds }), { ...st, count, level, quizKinds }); }
+    default: throw new EmptySourceError('Ce support se crée à partir de la transcription (« Exploiter la transcription »), pas du cours reconstruit.');
   }
 }
 
@@ -65,6 +66,7 @@ export function toArtifact(draft: GeneratedDraft, p: { userId: string; subjectId
 
 /** Une version plus récente du cours existe : l'artefact a été dérivé d'une version antérieure. */
 export function isStale(a: StudyArtifact, latest: GeneratedCourse | undefined): boolean {
+  if (a.sourceType === 'transcript') return false; // document dérivé de la transcription : pas lié aux versions du cours
   return !!latest && latest.id !== a.courseId && latest.courseVersion > a.courseVersion;
 }
 export const latestCourse = (courses: GeneratedCourse[], sessionId: string): GeneratedCourse | undefined =>

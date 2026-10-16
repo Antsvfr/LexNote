@@ -40,7 +40,7 @@ export function getBackend(): Promise<Backend> {
         auth: {
           getSession: async () => ({ user: null, offlineFallback: false }),
           onAuthChange: () => () => undefined,
-          signUp: reject, signIn: reject, signOut: async () => undefined, requestPasswordReset: reject, updatePassword: reject, deleteAccount: reject,
+          signUp: reject, signIn: reject, signOut: async () => undefined, adoptSession: reject, requestPasswordReset: reject, updatePassword: reject, deleteAccount: reject,
         },
         profiles: { get: reject, update: reject },
         remoteFor: () => { throw new Error('Supabase non configuré'); },

@@ -3,9 +3,11 @@
 // ⚠ À lancer depuis VOTRE machine (jeton personnel SUPABASE_ACCESS_TOKEN). Aucune valeur secrète n'est jamais affichée ni écrite sur disque.
 // Par défaut : SIMULATION (dry-run). Ajouter --apply pour exécuter. Sous-commandes :
 //   apply-sql  --project <ref> --file <sql>                 applique une migration (une transaction côté API)
-//   verify-db  --project <ref>                              exécute scripts/prod/verify-db.sql (PASS/FAIL) — lecture seule
-//   set-secrets --app lexnote|revem --project <ref> --peer-ref <réf. de l'autre projet>   (INTEGRATION_KEY lue dans l'environnement)
-//   auth-urls  --app lexnote|revem --project <ref> [--dev]  fusionne les URLs de redirection Auth (n'en supprime aucune)
+//   verify-db  --project <ref>                              exécute scripts/prod/verify-db.sql (PASS/FAIL, tables d'intégration) — lecture seule
+//   verify-schema --project <ref>                           exécute supabase/reconciliation/verify-official-schema.sql (13 contrôles du schéma officiel) — lecture seule
+//   set-secrets --app lexnote|revem --project <ref> --peer-ref <réf. de l'autre projet>   (INTEGRATION_KEY lue dans l'environnement ;
+//                                          projet de TEST : INTEGRATION_ENV=development, INTEGRATION_SELF_APP_URL, INTEGRATION_PEER_APP_URL)
+//   auth-urls  --app lexnote|revem --project <ref> [--dev]  fusionne les URLs de redirection Auth (n'en supprime aucune) ; TEST : AUTH_REDIRECTS=url1,url2
 //   advisors   --project <ref>                              Security + Performance Advisor, filtrés sur les objets d'intégration
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -28,7 +30,7 @@ export async function main(argv, env, fetchImpl = fetch, out = console.log) {
   const token = env.SUPABASE_ACCESS_TOKEN;
   const project = flag('--project');
   const need = (v, name) => { if (!v) throw new Error(`argument manquant : ${name}`); return v; };
-  if (!cmd) throw new Error('sous-commande manquante (apply-sql | verify-db | set-secrets | auth-urls | advisors)');
+  if (!cmd) throw new Error('sous-commande manquante (apply-sql | verify-db | verify-schema | set-secrets | auth-urls | advisors)');
   need(project, '--project'); if (!REF.test(project)) throw new Error('--project doit être la référence du projet (20 caractères a-z0-9)');
   const call = async (method, path, body) => {
     if (!token) throw new Error('SUPABASE_ACCESS_TOKEN absent de l’environnement');
@@ -45,8 +47,8 @@ export async function main(argv, env, fetchImpl = fetch, out = console.log) {
     if (apply) { await query(sql); out('migration appliquée.'); }
     return 0;
   }
-  if (cmd === 'verify-db') {
-    const rows = await query(readFileSync(join(here, 'verify-db.sql'), 'utf8'));
+  if (cmd === 'verify-db' || cmd === 'verify-schema') {
+    const rows = await query(readFileSync(cmd === 'verify-db' ? join(here, 'verify-db.sql') : join(here, '..', '..', 'supabase', 'reconciliation', 'verify-official-schema.sql'), 'utf8'));
     let fails = 0;
     for (const r of rows) { out(`${String(r.statut).padEnd(6)} ${r.n} ${r.controle}${r.detail && r.statut === 'FAIL' ? ` — ${r.detail}` : ''}`); if (r.statut === 'FAIL') fails++; }
     return fails ? 1 : 0;
@@ -59,7 +61,7 @@ export async function main(argv, env, fetchImpl = fetch, out = console.log) {
     if (!key || key.length < 32) throw new Error('INTEGRATION_KEY absente ou trop courte (≥ 32 caractères) dans l’environnement — ex. export INTEGRATION_KEY="$(openssl rand -base64 48)"');
     const secrets = [
       ['INTEGRATION_ENV', env.INTEGRATION_ENV === 'development' ? 'development' : 'production'], ['INTEGRATION_KEY_ID', env.INTEGRATION_KEY_ID || 'k1'], ['INTEGRATION_KEY', key],
-      ['INTEGRATION_SELF_APP_URL', OFFICIAL[app].appUrl], ['INTEGRATION_PEER_APP_URL', OFFICIAL[peer].appUrl], ['INTEGRATION_PEER_GATEWAY_URL', gatewayUrl(peerRef)],
+      ['INTEGRATION_SELF_APP_URL', env.INTEGRATION_SELF_APP_URL || OFFICIAL[app].appUrl], ['INTEGRATION_PEER_APP_URL', env.INTEGRATION_PEER_APP_URL || OFFICIAL[peer].appUrl], ['INTEGRATION_PEER_GATEWAY_URL', gatewayUrl(peerRef)],
     ];
     if (env.INTEGRATION_KEY_PREVIOUS) { secrets.push(['INTEGRATION_KEY_PREVIOUS', env.INTEGRATION_KEY_PREVIOUS], ['INTEGRATION_KEY_PREVIOUS_ID', need(env.INTEGRATION_KEY_PREVIOUS_ID, 'INTEGRATION_KEY_PREVIOUS_ID')]); }
     if (env.INTEGRATION_ALLOWED_ORIGINS) secrets.push(['INTEGRATION_ALLOWED_ORIGINS', env.INTEGRATION_ALLOWED_ORIGINS]);
@@ -71,7 +73,8 @@ export async function main(argv, env, fetchImpl = fetch, out = console.log) {
   }
   if (cmd === 'auth-urls') {
     const app = need(flag('--app'), '--app'); if (!OFFICIAL[app]) throw new Error('--app doit valoir lexnote ou revem');
-    const wanted = [...OFFICIAL[app].redirects, ...(has('--dev') ? OFFICIAL[app].dev : [])];
+    // Projet de TEST : AUTH_REDIRECTS (liste séparée par des virgules) remplace les adresses officielles ; jamais de joker global.
+    const wanted = env.AUTH_REDIRECTS ? env.AUTH_REDIRECTS.split(',').map((x) => x.trim()).filter(Boolean) : [...OFFICIAL[app].redirects, ...(has('--dev') ? OFFICIAL[app].dev : [])];
     if (wanted.some((u) => u === '*' || u === '**' || /^https?:\/\/\*/.test(u))) throw new Error('joker global refusé');
     const cur = await call('GET', `/v1/projects/${project}/config/auth`);
     const existing = String(cur?.uri_allow_list ?? '').split(',').map((s) => s.trim()).filter(Boolean);

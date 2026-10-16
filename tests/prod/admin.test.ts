@@ -34,6 +34,18 @@ describe('supabase-admin (API de gestion simulée)', () => {
     expect(body.find((s) => s.name === 'INTEGRATION_ENV')!.value).toBe('production');
     expect(body.find((s) => s.name === 'INTEGRATION_PEER_APP_URL')!.value).toBe('https://lex-note-svfr.vercel.app/');
   });
+  it('projet de TEST : les adresses des applications de test remplacent les adresses officielles (et jamais de joker)', async () => {
+    const m = mock({});
+    const env = { SUPABASE_ACCESS_TOKEN: 'sbp_x', INTEGRATION_KEY: KEY, INTEGRATION_ENV: 'development', INTEGRATION_SELF_APP_URL: 'https://lex-note-test.vercel.app/', INTEGRATION_PEER_APP_URL: 'http://localhost:8080/REV-EM/' };
+    const r = await run(['set-secrets', '--app', 'lexnote', '--project', REF_L, '--peer-ref', REF_R], env, m);
+    expect(r.code).toBe(0);
+    const text = r.text;
+    expect(text).toContain('INTEGRATION_ENV = development');
+    expect(text).toContain('INTEGRATION_SELF_APP_URL = https://lex-note-test.vercel.app/');
+    expect(text).toContain('INTEGRATION_PEER_APP_URL = http://localhost:8080/REV-EM/');
+    expect(text).not.toContain('lex-note-svfr.vercel.app');
+    await expect(run(['set-secrets', '--app', 'lexnote', '--project', REF_L, '--peer-ref', REF_R], { ...env, INTEGRATION_SELF_APP_URL: 'https://*.vercel.app/' }, m)).rejects.toThrow(/joker/);
+  });
   it('set-secrets refuse une clé courte, absente, un joker, une référence invalide', async () => {
     const base = ['set-secrets', '--app', 'lexnote', '--project', REF_L, '--peer-ref', REF_R];
     await expect(run(base, { SUPABASE_ACCESS_TOKEN: 't' }, mock({}))).rejects.toThrow(/INTEGRATION_KEY/);
@@ -60,6 +72,11 @@ describe('supabase-admin (API de gestion simulée)', () => {
     const sim = await run(['apply-sql', '--project', REF_L, '--file', 'supabase/migrations/20261011000000_integration_links.sql'], { SUPABASE_ACCESS_TOKEN: 't' }, m);
     expect(sim.text).toContain('SIMULATION'); expect(m.calls).toHaveLength(0);
     expect((await run(['verify-db', '--project', REF_L], { SUPABASE_ACCESS_TOKEN: 't' }, m)).code).toBe(1);
+  });
+  it('verify-schema : exécute l’audit du schéma officiel, code 1 s’il y a un FAIL', async () => {
+    const m = mock({ [`POST /v1/projects/${REF_L}/database/query`]: [{ n: 1, controle: '17 tables', statut: 'PASS', detail: null }, { n: 999, controle: 'RÉSUMÉ', statut: '1 PASS / 0 FAIL', detail: null }] });
+    expect((await run(['verify-schema', '--project', REF_L], { SUPABASE_ACCESS_TOKEN: 't' }, m)).code).toBe(0);
+    expect(String((m.calls[0]!.body as { query: string }).query)).toContain('17 tables officielles');
   });
   it('advisors : signale uniquement ce qui concerne integration_*', async () => {
     const m = mock({ [`GET /v1/projects/${REF_L}/advisors/security`]: { lints: [{ level: 'WARN', name: 'auth_leaked_password_protection', title: 'x', metadata: {} }] }, [`GET /v1/projects/${REF_L}/advisors/performance`]: { lints: [{ level: 'WARN', name: 'unused_index', title: 'i', metadata: { name: 'integration_nonces_expiry' } }] } });

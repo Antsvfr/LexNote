@@ -9,7 +9,7 @@ export interface SearchHit {
   kind: SearchHitKind;
   id: string;
   title: string;
-  /** Contexte : "Droit › Droit des contrats". */
+  /** Contexte : « Matière › Module » (ex. « Microéconomie › Les marchés »). */
   context: string;
   snippet?: string;
   matchedIn: MatchField;

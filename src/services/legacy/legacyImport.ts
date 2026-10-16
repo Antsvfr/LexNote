@@ -12,6 +12,7 @@ import type { AudioChunk, AudioSession, Interruption, NoteAnchor, TimelineMarker
 import type { CourseSession, Module, NoteDocument, Subject } from '@/domain/types';
 import type { StorageAdapter } from '@/services/storage/types';
 import type { CaptureStorage } from '@/services/capture/storage/types';
+import { log } from '@/lib/log';
 
 const LEGACY_DB = 'lexnote';
 const LEGACY_CAPTURE = 'lexnote-capture';
@@ -48,7 +49,7 @@ export async function detectLegacy(): Promise<LegacySummary | null> {
     }
     return summary;
   } catch (e) {
-    console.warn('[LexNote] détection des anciennes données impossible', e);
+    log.storage.warn('détection des anciennes données impossible', e);
     return null;
   }
 }
