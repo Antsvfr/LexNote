@@ -4,6 +4,38 @@
 > Règle absolue : **aucune commande de ce document ne vise `LEX_REF` / `REV_REF` (production)**. Les scripts d'écriture
 > (`supabase-smoke.mjs`, `rehearsal.mjs`) **refusent** une cible de production ou distante ; `service_role` ne va **jamais** dans le frontend.
 
+## 0. Quel environnement de test ? (état du 2026-10-16)
+
+La création de **branches Supabase** (Branching) est refusée sur l'organisation `EmLyon-revision` (plan **Free** ; Branching = plan **Pro**) — aucun coût engagé. Trois voies, de la moins chère à la plus complète :
+
+| Voie | Coût | Débloque | Limite |
+|---|---|---|---|
+| **B. Supabase LOCAL** (`supabase start`, Docker, sur votre Mac) | gratuit | `migrations-on-test`, `supabase-smoke`, kill switch IA réel (`SMOKE_EXPECT_DISABLED`), une partie de `rollback-rehearsed` | une seule pile locale : pas la liaison entre **deux** projets |
+| **A. Nouveau(x) projet(s) Supabase de test** dans une **autre organisation** Free (ou en supprimant/pausant un projet inutilisé) | gratuit si la limite de projets gratuits actifs de votre compte le permet (à vérifier dans *Billing* ; la limite était de 2 au moment de la rédaction) | tout, y compris `integration-diagnostic` et `real-e2e` (2 projets) | quota de projets Free |
+| **C. Passage de l'organisation en Pro** | payant | Branching (« deux branches TEST ») ou plus de projets | coût mensuel + horaire des branches |
+
+**Recommandation** : commencer par **B** (gratuit, immédiat, vraie pile Supabase : Postgres + GoTrue + PostgREST), puis **A** uniquement pour `integration-diagnostic` / `real-e2e` / AL-*.
+
+### Voie B — Supabase local (les migrations du dépôt s'appliquent toutes seules au démarrage)
+```bash
+cd lexnote                      # branche claude/production-readiness-observability, Docker lancé
+supabase start                  # applique supabase/migrations/*.sql dans l'ordre sur une base locale neuve
+eval "$(supabase status -o env | sed 's/^/export /')"      # API_URL, ANON_KEY, SERVICE_ROLE_KEY, DB_URL (clés de DÉMONSTRATION locales)
+node scripts/prod/migration-status.mjs --db-url "$DB_URL"   # attendu : 12 × « DÉJÀ APPLIQUÉE »   → porte migrations-on-test
+SMOKE_CONFIRM=1 SMOKE_LOCAL=1 SMOKE_SUPABASE_URL=$API_URL SMOKE_ANON_KEY=$ANON_KEY SMOKE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY \
+  node scripts/prod/supabase-smoke.mjs                       # auth, RLS, sessions, suppression douce, nettoyage   → porte supabase-smoke
+```
+* `SMOKE_LOCAL=1` n'accepte **que** `http://127.0.0.1:<port>` / `http://localhost:<port>` (refus testé) ; les clés locales ne valent rien hors de votre machine.
+* Si `supabase start` se plaint de `config.toml` : `supabase init` dans un dossier temporaire et recopier les sections `[api]`/`[db]` générées (les sections `[functions.*]` du dépôt doivent rester).
+* Fonctions Edge en local (pour `health`, `study-ai` et le kill switch, **sans clé payante** si `STUDY_AI_ENABLED=false`) :
+  `printf 'STUDY_AI_ENABLED=false\nAPP_ORIGINS=http://localhost:5173\n' > /tmp/lexnote-fn.env && supabase functions serve --env-file /tmp/lexnote-fn.env --no-verify-jwt`
+  puis `SMOKE_CONFIRM=1 SMOKE_EXPECT_DISABLED=1 LEXNOTE_SUPABASE_URL=$API_URL LEXNOTE_ANON_KEY=$ANON_KEY LEXNOTE_A_EMAIL=… LEXNOTE_A_PASSWORD=… node scripts/prod/study-ai-smoke.mjs` (compte créé par `supabase-smoke` ou via Studio `http://127.0.0.1:54323`). Cela prouve l'interrupteur sur la vraie fonction, mais **ne remplace pas** `ai-real-smoke` (fournisseur réel).
+* Après usage : `supabase stop` (ajouter `--no-backup` pour effacer les données de test).
+* La pile locale ne prouve **pas** : le comportement de l'hébergement Supabase (limites, régions, `verify_jwt` de la plateforme), la liaison à deux projets, Vercel. Ces points restent `integration-diagnostic`, `real-e2e`, AL-*, `rollback-rehearsed`.
+
+### Voie A — projets de test hébergés
+Les sections 1 à 11 ci-dessous s'appliquent telles quelles (créer `lexnote-test` et `revem-test` dans une organisation qui peut les héberger).
+
 ## 1. Deux projets de test, séparés de la production
 
 Dans le tableau de bord Supabase (même organisation, **nouveaux projets**, mot de passe de base généré et rangé dans votre gestionnaire de secrets) :

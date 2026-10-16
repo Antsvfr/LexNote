@@ -3,10 +3,12 @@
 // N'EXÉCUTE JAMAIS de migration. Une seule requête SELECT (sondes structurelles) via l'API de gestion Supabase.
 //
 //   SUPABASE_ACCESS_TOKEN=… node scripts/prod/migration-status.mjs --project <ref>
+//   node scripts/prod/migration-status.mjs --db-url postgresql://postgres:postgres@127.0.0.1:54322/postgres   # base LOCALE (supabase start) via psql
 //   node scripts/prod/migration-status.mjs --from-json probes.json     # analyse hors ligne d'un résultat déjà obtenu
 // Sortie : une ligne par migration (DÉJÀ APPLIQUÉE / ABSENTE / DIFFÉRENTE) puis « STOP » si une étape est DIFFÉRENTE ou hors ordre.
 // Code de sortie : 0 = rien d'anormal, 1 = STOP, 2 = erreur d'usage / réseau.
 import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { buildProbeSql, checkChain, classify, listMigrations, STATUS } from './lib/migrations.mjs';
 
@@ -16,6 +18,14 @@ export async function run(argv, env, fetchImpl = fetch, out = console.log) {
   const flag = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : undefined; };
   let probes;
   if (flag('--from-json')) probes = JSON.parse(readFileSync(flag('--from-json'), 'utf8'));
+  else if (flag('--db-url')) {
+    // Base LOCALE (`supabase start`, PostgreSQL de test) via psql — une base distante est refusée : pour un projet hébergé, utiliser --project.
+    const u = new URL(flag('--db-url')); const host = u.hostname || u.searchParams.get('host') || '';
+    if (!(host === '' || host === 'localhost' || host === '127.0.0.1' || host === '::1' || host.startsWith('/'))) { out('--db-url : seule une base LOCALE est acceptée (utiliser --project pour un projet Supabase)'); return 2; }
+    const r = spawnSync('psql', [flag('--db-url'), '-X', '-At', '-v', 'ON_ERROR_STOP=1', '-c', buildProbeSql()], { encoding: 'utf8' });
+    if (r.status !== 0) { out(`psql a échoué : ${String(r.stderr).trim().split('\n').pop()?.slice(0, 200)}`); return 2; }
+    probes = JSON.parse(r.stdout.trim().split('\n').pop());
+  }
   else {
     const project = flag('--project');
     if (!project || !REF.test(project)) { out('usage : --project <référence du projet (20 caractères)> | --from-json <fichier>'); return 2; }

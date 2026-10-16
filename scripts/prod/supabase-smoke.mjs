@@ -7,6 +7,7 @@
 //   SMOKE_EXPECTED_REF                    la référence attendue (doit être identique à celle de l'URL : évite de viser un autre projet par erreur)
 //   SMOKE_PRODUCTION_REFS                 références de PRODUCTION (séparées par des virgules) : le script refuse si l'URL en fait partie
 //   SMOKE_ANON_KEY  SMOKE_SERVICE_ROLE_KEY   clés du projet de TEST (jamais affichées) ; leur claim `ref` doit correspondre à l'URL
+//   SMOKE_LOCAL=1                         Supabase LOCAL (`supabase start`) : URL http://127.0.0.1:<port> seulement ; les contrôles de référence ne s'appliquent pas
 //   SMOKE_MAX_USERS (défaut 10)           un projet qui contient plus de comptes « réels » est refusé (probablement la production)
 //   --with-integration                    enchaîne ensuite scripts/prod/real-e2e.mjs (deux projets de test, variables LEXNOTE_* / REVEM_*, voir son en-tête)
 // Couvert ici : authentification (création, connexion, rafraîchissement, persistance, déconnexion locale puis globale), RLS, version serveur, suppression douce, nettoyage.
@@ -22,6 +23,13 @@ export const SMOKE_DOMAIN = '@smoke.lexnote.invalid';
 export function assertSafeTarget(env) {
   const need = (k) => { if (!env[k]) throw new Error(`variable manquante : ${k}`); return env[k]; };
   if (env.SMOKE_CONFIRM !== '1') throw new Error('SMOKE_CONFIRM=1 requis : ce script crée et supprime des comptes sur un vrai projet');
+  // Mode LOCAL (`supabase start` sur votre machine) : l'URL doit être une boucle locale ; pas de référence de projet à contrôler.
+  if (env.SMOKE_LOCAL === '1') {
+    if (!/^http:\/\/(127\.0\.0\.1|localhost):\d{2,5}\/?$/.test(need('SMOKE_SUPABASE_URL'))) throw new Error('SMOKE_LOCAL=1 : SMOKE_SUPABASE_URL doit être http://127.0.0.1:<port> ou http://localhost:<port>');
+    if (jwtClaims(need('SMOKE_ANON_KEY')).role !== 'anon') throw new Error('SMOKE_ANON_KEY n\'est pas une clé anon');
+    if (jwtClaims(need('SMOKE_SERVICE_ROLE_KEY')).role !== 'service_role') throw new Error('SMOKE_SERVICE_ROLE_KEY n\'est pas une clé service_role');
+    return { ref: 'local' };
+  }
   const m = REF_URL.exec(need('SMOKE_SUPABASE_URL')); if (!m) throw new Error('SMOKE_SUPABASE_URL doit être https://<réf>.supabase.co');
   const ref = m[1];
   if (need('SMOKE_EXPECTED_REF') !== ref) throw new Error('SMOKE_EXPECTED_REF ≠ référence de l\'URL : mauvais projet visé');
@@ -54,7 +62,7 @@ export async function run(env, { log = console.log, fetchImpl = fetch } = {}) {
   const foreign = users.filter((u) => !String(u.email ?? '').endsWith(SMOKE_DOMAIN));
   if (existing.status !== 200) throw new Error(`impossible de lister les comptes (HTTP ${existing.status}) : clé de service invalide ?`);
   if (foreign.length > Number(env.SMOKE_MAX_USERS ?? 10)) throw new Error(`REFUSÉ : ${foreign.length} comptes non-jetables présents (> SMOKE_MAX_USERS) — projet de production ?`);
-  log(`Cible : projet de TEST ${ref} (${foreign.length} compte(s) existant(s), conservés intacts)`);
+  log(`Cible : ${ref === 'local' ? 'Supabase LOCAL' : `projet de TEST ${ref}`} (${foreign.length} compte(s) existant(s), conservés intacts)`);
 
   const created = [];
   const mk = async (tag) => {

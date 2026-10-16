@@ -77,6 +77,11 @@ describe('CLI migration-status', () => {
     expect(lines.join('\n')).not.toContain('sbp_SECRET');
     expect(lines.join('\n')).toContain('À APPLIQUER');
   });
+  it('--db-url : une base DISTANTE (Supabase hébergé, production) est refusée sans aucun appel', async () => {
+    const lines: string[] = [];
+    expect(await run(['--db-url', 'postgresql://postgres:x@db.abcdefghijklmnopqrst.supabase.co:5432/postgres'], {}, fetch, (l: string) => lines.push(l))).toBe(2);
+    expect(lines.join(' ')).toContain('LOCALE');
+  });
   it('erreurs d’usage : référence invalide, jeton absent', async () => {
     expect(await run(['--project', 'x'], {}, fetch, () => {})).toBe(2);
     expect(await run(['--project', 'abcdefghijklmnopqrst'], {}, fetch, () => {})).toBe(2);

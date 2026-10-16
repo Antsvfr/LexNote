@@ -25,6 +25,18 @@ describe('supabase-smoke — garde-fous (jamais contre la production)', () => {
   });
 });
 
+describe('supabase-smoke — mode local', () => {
+  const L = { SMOKE_CONFIRM: '1', SMOKE_LOCAL: '1', SMOKE_SUPABASE_URL: 'http://127.0.0.1:54321', SMOKE_ANON_KEY: `eyJhbGciOiJIUzI1NiJ9.${b64({ role: 'anon', iss: 'supabase-demo' })}.sig`, SMOKE_SERVICE_ROLE_KEY: `eyJhbGciOiJIUzI1NiJ9.${b64({ role: 'service_role', iss: 'supabase-demo' })}.sig` };
+  it('accepte une boucle locale avec les clés de démonstration', () => expect(assertSafeTarget(L)).toEqual({ ref: 'local' }));
+  it.each([
+    ['URL distante', { SMOKE_SUPABASE_URL: `https://${REF}.supabase.co` }, /boucle|127\.0\.0\.1/],
+    ['URL http distante', { SMOKE_SUPABASE_URL: 'http://10.0.0.5:54321' }, /127\.0\.0\.1/],
+    ['nom d’hôte trompeur', { SMOKE_SUPABASE_URL: 'http://localhost.evil.example:54321' }, /127\.0\.0\.1/],
+    ['SMOKE_CONFIRM absent', { SMOKE_CONFIRM: '' }, /SMOKE_CONFIRM=1/],
+    ['clés inversées', { SMOKE_ANON_KEY: `eyJhbGciOiJIUzI1NiJ9.${b64({ role: 'service_role' })}.sig` }, /pas une clé anon/],
+  ])('refuse : %s', (_n, over, re) => expect(() => assertSafeTarget({ ...L, ...over })).toThrow(re));
+});
+
 /** Faux projet Supabase en mémoire : comptes, jetons, RLS simplifiée sur `subjects`, déconnexion globale. */
 function fakeProject(opts: { foreignUsers?: number; leakRls?: boolean } = {}) {
   type U = { id: string; email: string; password: string };
