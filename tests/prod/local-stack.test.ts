@@ -19,7 +19,7 @@ const revConfig = 'project_id = "rev-em"\n\n[functions.integration-gateway]\nver
 
 describe('configuration des deux piles — isolation', () => {
   it('ports tous différents entre les deux piles, et à l’intérieur de chaque pile ; project_id distincts', () => {
-    const all = Object.values(STACKS).flatMap((s: Record<string, unknown>) => ['api', 'db', 'shadow', 'pooler', 'studio', 'smtp', 'analytics', 'inspector'].map((k) => s[k] as number));
+    const all = Object.values(STACKS).flatMap((s) => ['api', 'db', 'shadow', 'pooler', 'studio', 'smtp', 'analytics', 'inspector'].map((k) => (s as unknown as Record<string, number>)[k] as number));
     expect(new Set(all).size).toBe(all.length);
     expect(STACKS.lexnote.projectId).not.toBe(STACKS.revem.projectId);
     for (const p of all) expect(p).not.toBe(54321);           // ne heurte pas la pile par défaut d'un autre projet
@@ -130,7 +130,7 @@ describe('verify — étapes, critères, preuves, confidentialité', () => {
     const recorded: string[][] = [];
     const exec = (cmd: string[]) => {
       if (cmd[1] === 'scripts/prod/evidence.mjs') { recorded.push(cmd); return { code: 0, out: '' }; }
-      const id = cmd[1];
+      const id = cmd[1] ?? "";
       if (id.endsWith('migration-status.mjs')) return { code: 0, out: 'Aucune migration à appliquer.' };
       if (id.endsWith('supabase-smoke.mjs')) return { code: 0, out: 'PASS — x\n25/25' };
       if (id.endsWith('integration-diagnostic.mjs')) return { code: 0, out: '[PASS] INT-GW — ok\n[PASS] INT-HMAC — ok' };
