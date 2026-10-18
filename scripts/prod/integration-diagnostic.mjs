@@ -4,11 +4,13 @@
 //
 //   INTEGRATION_KEY  INTEGRATION_KEY_ID (défaut k1)
 //   LEXNOTE_SUPABASE_URL  REVEM_SUPABASE_URL          (au moins un des deux)
-//   LEXNOTE_ORIGIN / REVEM_ORIGIN                      (défauts : origines officielles)
+//   LEXNOTE_ORIGIN / REVEM_ORIGIN                      (défauts : origines officielles ; OBLIGATOIRES en mode local)
+//   INTEGRATION_LOCAL=1                                deux piles Supabase LOCALES (http://127.0.0.1:<port>, ports différents) ; jamais d'hôte distant (lib/targets.mjs)
 //   node scripts/prod/integration-diagnostic.mjs      → code 0 si aucun FAIL
 // Chaque anomalie porte un code d'erreur (INT-…) documenté dans docs/PRODUCTION_RUNBOOK.md §Codes d'erreur.
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
+import { assertIntegrationTargets, isLocalMode as isLocal } from './lib/targets.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const loadBundle = () => import(pathToFileURL(join(here, '..', '..', 'supabase', 'functions', '_shared', 'integration', 'lexnote-revem-v1.mjs')).href);
@@ -34,6 +36,11 @@ export async function diagnose(env, { fetchImpl = fetch, now = () => new Date() 
     env.REVEM_SUPABASE_URL && { self: 'revem', sender: 'lexnote', url: env.REVEM_SUPABASE_URL.replace(/\/$/, ''), origin: env.REVEM_ORIGIN || 'https://antsvfr.github.io' },
   ].filter(Boolean);
   if (!targets.length) { add('FAIL', 'INT-CONFIG', 'aucune URL de projet (LEXNOTE_SUPABASE_URL / REVEM_SUPABASE_URL)'); return out; }
+  try {
+    const local = isLocal(env);
+    if (local && (!env.LEXNOTE_ORIGIN || !env.REVEM_ORIGIN)) throw new Error('INTEGRATION_LOCAL=1 : LEXNOTE_ORIGIN et REVEM_ORIGIN sont obligatoires (pas de repli sur les origines officielles)');
+    assertIntegrationTargets(env, Object.fromEntries(targets.map((t) => [`${t.self === 'lexnote' ? 'LEXNOTE' : 'REVEM'}_SUPABASE_URL`, t.url])));
+  } catch (e) { add('FAIL', 'INT-TARGET', e.message); return out; }
 
   for (const t of targets) {
     const gw = `${t.url}/functions/v1/integration-gateway`; const tag = t.self;

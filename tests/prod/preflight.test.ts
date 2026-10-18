@@ -20,7 +20,7 @@ describe('préflight — dépôt réel', () => {
     const lines: string[] = [];
     expect(main([], (l: string) => lines.push(l))).toBe(0);
     const text = lines.join('\n');
-    expect(text).toMatch(/\[WARN\] supabase-smoke/);
+    expect(text).toMatch(/\[WARN\] ai-real-smoke/);   // jamais PASS sans exécution réelle (IA payante)
     expect(text).toMatch(/\[WARN\] production-build/);
   });
   it('--target production : variables manquantes → FAIL, code ≠ 0', () => {

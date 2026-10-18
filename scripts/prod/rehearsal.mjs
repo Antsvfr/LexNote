@@ -178,9 +178,80 @@ export async function dbRollback(adminUrl, log = console.log) {
   return results.every(Boolean) ? 0 : 1;
 }
 
+/**
+ * Migrations REV-EM (000 → 009) sur un vrai PostgreSQL local, puis scénarios de la chaîne de lancement 008 / 009 :
+ * intention créée (nonce HACHÉ), expiration, usage unique, IDENTIFY sans consommation, mauvais nonce, double clic, révocation, isolation, droits.
+ */
+export async function revemMigrations(adminUrl, revemRepo, log = console.log) {
+  const results = []; const check = (name, ok, detail = '') => { results.push(ok); log(`${ok ? 'PASS' : 'FAIL'} — ${name}${ok || !detail ? '' : `  [${detail}]`}`); };
+  assertLocal(adminUrl);
+  const dir = mkdtempSync(join(tmpdir(), 'revem-mig-')); const db = `rehearsal_rev_${Date.now()}`;
+  const sha = (s) => createHash('sha256').update(s).digest('hex');
+  const A = '11111111-1111-4111-8111-111111111111', B = '22222222-2222-4222-8222-222222222222';
+  const LA = `lnk_${'a'.repeat(30)}`, LB = `lnk_${'b'.repeat(30)}`;
+  try {
+    must(psql(adminUrl, `create database ${db}`), 'création base'); const url = withDb(adminUrl, db);
+    must(psqlFile(url, shimFile(dir)), 'shim'); must(psqlFile(url, 'tests/db/supabase-shim-storage.sql'), 'shim storage');
+    const files = readdirSync(join(revemRepo, 'supabase/migrations')).filter((f) => f.endsWith('.sql')).sort();
+    for (const f of files) { writeFileSync(join(dir, 'm.sql'), readFileSync(join(revemRepo, 'supabase/migrations', f), 'utf8')); must(psqlFile(url, join(dir, 'm.sql')), `migration REV-EM ${f}`); }
+    check(`${files.length} migrations REV-EM (${files[0].slice(0, 3)} → ${files.at(-1).slice(0, 3)}) appliquées sur PostgreSQL ${must(psql(url, 'show server_version')).split(' ')[0]}`, files.length >= 10 && files.some((f) => f.startsWith('009')));
+    const q = (sql) => must(psql(url, sql), sql.slice(0, 60));
+    const j = (sql) => JSON.parse(q(sql));
+    q(`insert into auth.users (id, email) values ('${A}', 'a@revem.t'), ('${B}', 'b@revem.t');
+       insert into public.integration_links (user_id, provider, link_id, local_reference, external_reference, status, linked_at) values
+         ('${A}', 'lexnote', '${LA}', '${'r'.repeat(20)}A', '${'x'.repeat(20)}A', 'CONNECTED', now()),
+         ('${B}', 'lexnote', '${LB}', '${'r'.repeat(20)}B', '${'x'.repeat(20)}B', 'CONNECTED', now())`);
+    const start = (user, link, nonce, ev = 'evt-1') => j(`select public.integration_launch_start('${user}', '${link}', '${ev}', '{"title":"Droit civil"}'::jsonb, '${sha(nonce)}', 300)::text`);
+    const redeem = (id, nonce, link) => j(`select public.integration_launch_redeem('${id}', '${sha(nonce)}', '${link}')::text`);
+    const identify = (id, nonce) => j(`select public.integration_launch_identify('${id}', '${sha(nonce)}')::text`);
+
+    const s1 = start(A, LA, 'nonce-A1');
+    check('intention créée pour une liaison CONNECTED', s1.reason === 'OK' && !!s1.intent_id);
+    const row = q(`select nonce_hash || '|' || status || '|' || extract(epoch from (expires_at - created_at))::int from public.integration_launch_intents where id = '${s1.intent_id}'`).split('|');
+    check('le nonce est HACHÉ (sha-256, jamais en clair) ; statut PENDING ; durée ≤ 15 min', row[0] === sha('nonce-A1') && !row[0].includes('nonce-A1') && row[1] === 'PENDING' && Number(row[2]) <= 900, row.join('|'));
+    check('liaison inexistante / d\'un autre utilisateur → LINK_NOT_CONNECTED (isolation)', start(A, LB, 'n').reason === 'LINK_NOT_CONNECTED' && start(B, LA, 'n').reason === 'LINK_NOT_CONNECTED');
+
+    check('IDENTIFY avec un mauvais nonce → NONCE_MISMATCH', identify(s1.intent_id, 'faux').reason === 'NONCE_MISMATCH');
+    const idOk = identify(s1.intent_id, 'nonce-A1');
+    check('IDENTIFY avec le bon nonce → OK (liaison + référence pseudonyme), SANS consommer l\'intention', idOk.reason === 'OK' && idOk.link_id === LA && q(`select status from public.integration_launch_intents where id = '${s1.intent_id}'`) === 'PENDING');
+    check('REDEEM avec un mauvais nonce → NONCE_MISMATCH et l\'intention n\'est PAS consommée', redeem(s1.intent_id, 'faux', LA).reason === 'NONCE_MISMATCH' && q(`select status from public.integration_launch_intents where id = '${s1.intent_id}'`) === 'PENDING');
+    check('REDEEM avec la mauvaise liaison → NOT_FOUND', redeem(s1.intent_id, 'nonce-A1', LB).reason === 'NOT_FOUND');
+    const r1 = redeem(s1.intent_id, 'nonce-A1', LA);
+    check('REDEEM correct → OK (évènement figé renvoyé), intention consommée', r1.reason === 'OK' && r1.event?.title === 'Droit civil' && q(`select status from public.integration_launch_intents where id = '${s1.intent_id}'`) === 'REDEEMED');
+    check('double clic / rejeu : 2ᵉ REDEEM → USED ; IDENTIFY après usage → USED', redeem(s1.intent_id, 'nonce-A1', LA).reason === 'USED' && identify(s1.intent_id, 'nonce-A1').reason === 'USED');
+
+    const s2 = start(A, LA, 'nonce-A2', 'evt-2');
+    q(`update public.integration_launch_intents set created_at = now() - interval '200 seconds', expires_at = now() + interval '100 seconds' where id = '${s2.intent_id}'`);
+    check('intention de plus de 120 s : IDENTIFY → EXPIRED (pas de connexion automatique) mais REDEEM reste possible (≤ 5 min)', identify(s2.intent_id, 'nonce-A2').reason === 'EXPIRED' && redeem(s2.intent_id, 'nonce-A2', LA).reason === 'OK');
+    const s3 = start(A, LA, 'nonce-A3', 'evt-3');
+    q(`update public.integration_launch_intents set created_at = now() - interval '400 seconds', expires_at = now() - interval '100 seconds' where id = '${s3.intent_id}'`);
+    check('intention expirée → REDEEM et IDENTIFY : EXPIRED, statut mis à jour', redeem(s3.intent_id, 'nonce-A3', LA).reason === 'EXPIRED' && identify(s3.intent_id, 'nonce-A3').reason === 'EXPIRED' && q(`select status from public.integration_launch_intents where id = '${s3.intent_id}'`) === 'EXPIRED');
+
+    const s4 = start(B, LB, 'nonce-B1', 'evt-4');
+    q(`update public.integration_links set status = 'REVOKED', revoked_at = now(), revoked_by = 'self' where link_id = '${LB}'`);
+    check('liaison révoquée après création : IDENTIFY et REDEEM → LINK_NOT_CONNECTED, rien consommé', identify(s4.intent_id, 'nonce-B1').reason === 'LINK_NOT_CONNECTED' && redeem(s4.intent_id, 'nonce-B1', LB).reason === 'LINK_NOT_CONNECTED' && q(`select status from public.integration_launch_intents where id = '${s4.intent_id}'`) === 'PENDING');
+    check('liaison révoquée : nouvelle intention refusée', start(B, LB, 'n', 'evt-5').reason === 'LINK_NOT_CONNECTED');
+
+    let last = ''; for (let i = 0; i < 22; i++) last = start(A, LA, `burst-${i}`, `evt-b${i}`).reason;
+    check('plus de 20 intentions en attente → RATE_LIMITED', last === 'RATE_LIMITED');
+
+    const denied = (sql) => psql(url, sql).code !== 0;
+    check('un navigateur (authenticated / anon) ne peut ni lire ni écrire les intentions', denied(`set role authenticated; select count(*) from public.integration_launch_intents`) && denied(`set role anon; select count(*) from public.integration_launch_intents`) && denied(`set role authenticated; insert into public.integration_launch_intents (user_id, link_id, event_ref, event, nonce_hash, expires_at) values ('${A}', '${LA}', 'x', '{}', '${sha('x')}', now() + interval '1 minute')`));
+    const priv = (role, fn) => q(`select has_function_privilege('${role}', '${fn}', 'execute')`) === 't';
+    const fns = ['public.integration_launch_start(uuid,text,text,jsonb,text,int)', 'public.integration_launch_redeem(uuid,text,text)', 'public.integration_launch_identify(uuid,text,int)'];
+    check('fonctions 008 / 009 : exécutables par service_role SEULEMENT (ni anon, ni authenticated, ni PUBLIC)', fns.every((f) => priv('service_role', f) && !priv('anon', f) && !priv('authenticated', f)));
+    check('RLS FORCÉE sur les tables d\'intégration', q(`select count(*) from pg_class where relname in ('integration_links','integration_link_intents','integration_nonces','integration_launch_intents') and relrowsecurity and relforcerowsecurity`) === '4');
+  } catch (e) { check('répétition interrompue', false, String(e.message).slice(0, 300)); }
+  finally { psql(adminUrl, `drop database if exists ${db} with (force)`); }
+  log(`\n${results.filter(Boolean).length}/${results.length} contrôles réussis`);
+  return results.every(Boolean) ? 0 : 1;
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [cmd, ...rest] = process.argv.slice(2); const url = rest[rest.indexOf('--url') + 1];
-  if (!url || !['backup-restore', 'db-rollback'].includes(cmd)) { console.error('usage : rehearsal.mjs <backup-restore|db-rollback> --url <postgresql://… local>'); process.exit(2); }
+  if (!url || !['backup-restore', 'db-rollback', 'revem-migrations'].includes(cmd)) { console.error('usage : rehearsal.mjs <backup-restore|db-rollback|revem-migrations> --url <postgresql://… local> [--revem-repo <dépôt REV-EM>]'); process.exit(2); }
   try { assertLocal(url); } catch (e) { console.error(e.message); process.exit(2); }
-  (cmd === 'backup-restore' ? backupRestore(url) : dbRollback(url)).then((c) => process.exit(c));
+  const rr = rest.indexOf('--revem-repo') >= 0 ? rest[rest.indexOf('--revem-repo') + 1] : process.env.REVEM_REPO;
+  if (cmd === 'revem-migrations' && !rr) { console.error('--revem-repo <dépôt REV-EM> requis'); process.exit(2); }
+  (cmd === 'backup-restore' ? backupRestore(url) : cmd === 'db-rollback' ? dbRollback(url) : revemMigrations(url, rr)).then((c) => process.exit(c));
 }

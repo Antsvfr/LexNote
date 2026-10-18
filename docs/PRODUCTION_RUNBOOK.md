@@ -171,7 +171,47 @@ node scripts/prod/preflight.mjs --target production                             
 node scripts/prod/migration-status.mjs --project $LEX_REF                        # 12 « DÉJÀ APPLIQUÉE »
 curl -s https://$LEX_REF.supabase.co/functions/v1/health
 INTEGRATION_KEY=… LEXNOTE_SUPABASE_URL=https://$LEX_REF.supabase.co REVEM_SUPABASE_URL=https://$REV_REF.supabase.co node scripts/prod/integration-diagnostic.mjs
-node scripts/prod/real-e2e.mjs                                                   # Partie II §6, comptes de test dédiés
+node scripts/prod/real-e2e.mjs                                                   ## I.14 Répétitions locales à 0 € (Étape 1) — ce qu'elles prouvent et ce qu'elles ne prouvent pas
+
+**Tout ce qui suit est LOCAL.** Une preuve locale n'est jamais une « validation cloud » : les portes concernées le disent dans leur note.
+
+### A. Deux stacks Supabase locales (LexNote + REV-EM) — portes `integration-diagnostic`, `integration-real-e2e`, `ai-killswitch-local`
+Deux piles indépendantes (bases, Auth, API, fonctions, ports distincts : LexNote 54421/54422, REV-EM 54521/54522), clés d'intégration **de test** générées au hasard, `INTEGRATION_ENV=development`, origines `localhost` uniquement. Aucun lien avec la production. Mode `INTEGRATION_LOCAL=1` : les scripts refusent toute URL qui n'est pas `http://127.0.0.1:<port>`/`localhost` (garde testée dans `tests/prod/targets.test.ts`) et refusent aussi `INTEGRATION_LOCAL=1` combiné à une URL `*.supabase.co`.
+```bash
+# Mac, Supabase CLI ≥ 2.121 (runtime natif ou Docker). Dossier REV-EM = branche claude/lexnote-sso-launch.
+cd lexnote && git checkout claude/production-readiness-observability && npm ci
+node scripts/prod/local-stack.mjs up     --revem-repo ../rev-em
+node scripts/prod/local-stack.mjs verify --record      # migrations, smoke, diagnostic, real-e2e, interrupteur IA
+node scripts/prod/local-stack.mjs down                  # jamais `supabase stop --all`
+```
+`verify` n'enregistre une preuve **que pour l'étape réussie**, sans secret. L'interrupteur (`STUDY_AI_ENABLED=false`) doit donner `503 ai_disabled` avec et sans JWT, `Retry-After` présent, **aucun appel Anthropic** : preuve distincte `ai-killswitch-local`, qui **ne remplace pas** `ai-real-smoke` (IA réelle payante).
+
+### B. REV-EM #24/#25 sans CI — porte `revem-local-validation`
+`for f in tests/*.test.js tests/*.test.mjs; do node $f; done` dans le dépôt REV-EM (Playwright Chromium requis pour quelques fichiers `.mjs`), puis les migrations 000→009 sur un PostgreSQL local jetable : `node scripts/prod/rehearsal.mjs revem-migrations --url <PG local> --revem-repo <REV-EM>` (intention créée, nonce haché, expiration, consommation unique, IDENTIFY_LAUNCH, mauvais nonce, double clic, révocation, isolation entre utilisateurs). Mettre le SHA REV-EM dans la note de la preuve.
+
+### C. Navigateurs (porte `browsers-firefox-webkit`) — une seule commande sur le Mac
+```bash
+cd lexnote && npm ci && ALL_BROWSERS=1 npx playwright install firefox webkit && npm run test:e2e:browsers 2>&1 | tail -30
+```
+Collez la fin de la sortie (versions des navigateurs et nombre de tests réussis/échoués). Pas de PASS tant que ce n'est pas exécuté.
+
+### D. Sauvegarde de PRODUCTION en lecture seule (porte `backup`) — à faire par vous, en local
+La porte ne passe à PASS que si une **vraie** sauvegarde de production existe et a été vérifiée. Le mot de passe de la base se saisit **dans votre terminal** (invite masquée de `pg_dump`/`read -s`), jamais dans le chat, jamais dans un fichier versionné, jamais dans une URL.
+```bash
+umask 077; D=~/lexnote-backups/$(date +%Y%m%d-%H%M%S); mkdir -p "$D"
+read -s -p "Mot de passe base PROD (non affiché) : " PGPASSWORD; export PGPASSWORD; echo
+# Chaîne de connexion « Session pooler » du tableau de bord Supabase > Connect (sans mot de passe dedans).
+pg_dump "postgresql://postgres.<LEX_REF>@<hôte pooler>:5432/postgres?sslmode=require" --no-owner --no-privileges -Fc -f "$D/lexnote-prod.dump"; unset PGPASSWORD
+shasum -a 256 "$D/lexnote-prod.dump" | tee "$D/SHA256SUMS"; ls -l "$D/lexnote-prod.dump"
+pg_restore --list "$D/lexnote-prod.dump" > "$D/contents.txt" && wc -l "$D/contents.txt"      # lisible ?
+```
+`pg_dump` ne fait que **lire**. Le test de restauration se fait **uniquement** dans une base locale jetable (`rehearsal.mjs backup-restore --url <PG local>` documente les pièges : triggers, schéma public, privilèges). Ne jamais restaurer vers une URL distante. Chemin du fichier + SHA-256 + taille → `evidence.mjs record backup PASS --note "<date>, <taille>, sha256 <8 premiers car.>, lisible"`.
+
+### E. Retour arrière — ce qui manque à `rollback-rehearsed`
+La porte exige une répétition **sur le projet de TEST hébergé + prévisualisation Vercel, Edge Functions comprises**. Le local couvre : base additive et ancien code compatible (`rollback-db-compat`), ancien/nouveau build frontend A→B→A sur la même origine avec données intactes (`rollback-frontend-local`), et, avec la pile locale, ancien/nouveau code de fonctions (`supabase functions serve` avec l'ancienne puis la nouvelle version). Il ne couvre **pas** : le déploiement d'une version précédente d'Edge Function sur Supabase Cloud, la réaffectation d'alias Vercel (*Instant Rollback*), les secrets réels. **PASS LOCAL ≠ VALIDÉ SUR CLOUD** : `rollback-rehearsed` reste NOT_RUN.
+*Proposition (non appliquée) :* si vous n'avez pas de projet de TEST hébergé, scinder en `rollback-rehearsed-local` (bloquant) et `rollback-rehearsed-cloud` (à faire une fois, sur la production elle-même avec un retour arrière à blanc d'une Edge Function sans effet de données). Décision à prendre par vous ; `gates.json` n'est pas modifié sur ce point.
+
+# Partie II §6, comptes de test dédiés
 supabase secrets set STUDY_AI_ENABLED=true --project-ref $LEX_REF                # PUIS, et seulement si tout est vert :
 SMOKE_CONFIRM=1 node scripts/prod/study-ai-smoke.mjs                             # compte de test ; vérifier ensuite le journal agrégé (§I.6)
 ```
@@ -246,16 +286,21 @@ supabase secrets set --project-ref $LEX_REF STUDY_AI_GLOBAL_MAX_REQUESTS_DAY=150
 
 ## I.12 Checklist PWA courte (porte `pwa-manual`)
 
-Appareil réel (ordinateur ou téléphone), sur le déploiement de **test** ou de prévisualisation. Répondre uniquement `PWA n PASS` ou `PWA n FAIL (ce que vous voyez)` :
-1. **PWA 1** Installer LexNote (icône d'installation du navigateur, ou *Ajouter à l'écran d'accueil*) ; l'application s'ouvre dans sa propre fenêtre.
-2. **PWA 2** Fermer complètement l'application (pas seulement la fenêtre).
-3. **PWA 3** Rouvrir : l'application démarre.
-4. **PWA 4** Vous êtes toujours connecté (aucun mot de passe demandé) — après avoir coché « Rester connecté » à la connexion.
-5. **PWA 5** Créer une séance et écrire une note ; « Enregistré » s'affiche.
-6. **PWA 6** Passer hors ligne (mode avion) : la note s'écrit encore, « Hors ligne » s'affiche, rien ne disparaît ; fermer/rouvrir hors ligne : la note est là.
-7. **PWA 7** Revenir en ligne : la synchronisation reprend toute seule, aucune erreur.
-8. **PWA 8** Après un nouveau déploiement : « Une nouvelle version de LexNote est disponible » apparaît ; l'application n'a **pas** rechargé d'elle-même.
-9. **PWA 9** Démarrer une transcription puis cliquer « Mettre à jour » : refusé avec le message « Une transcription est en cours… » ; arrêter la transcription, recliquer : la mise à jour s'applique et les notes sont intactes.
+Appareil réel (ordinateur ou téléphone), sur le déploiement de **test** ou de prévisualisation (ou `npm run build && npm run preview` en local pour 1–7). Répondre uniquement `PWA n PASS` ou `PWA n FAIL (ce que vous voyez)`. Chaque ligne dit **quoi faire** et **ce qui doit être observé** ; si l'observation diffère, c'est FAIL.
+
+| # | Action | Observation attendue (PASS) |
+|---|---|---|
+| **PWA 1** | Installer LexNote (icône d'installation du navigateur, ou *Ajouter à l'écran d'accueil*). | L'application s'ouvre dans sa propre fenêtre, **sans barre d'adresse** (mode autonome / *standalone*). |
+| **PWA 2** | Se connecter avec « Rester connecté » coché, créer une séance et écrire une note ; attendre « Enregistré ». Fermer complètement l'application (quitter le processus, pas seulement la fenêtre). | — |
+| **PWA 3** | Rouvrir l'application installée. | Elle démarre sans écran blanc. |
+| **PWA 4** | Observer l'écran d'accueil. | Aucun mot de passe demandé : session conservée. |
+| **PWA 5** | Rouvrir la séance de PWA 2. | La note est là, mot pour mot. |
+| **PWA 6** | Mode avion : écrire une nouvelle note ; fermer/rouvrir toujours hors ligne. | « Hors ligne » affiché, la note s'écrit, **rien ne disparaît** après réouverture. |
+| **PWA 7** | Désactiver le mode avion. | La synchronisation reprend seule, aucune erreur, les deux notes sont toujours là (aucune dupliquée, aucune perdue). |
+| **PWA 8** | Après un nouveau déploiement (ou le build N+1 en local), rouvrir l'application. | « Une nouvelle version de LexNote est disponible » apparaît ; la page **ne se recharge pas d'elle-même**. |
+| **PWA 9** | Démarrer une transcription (ou saisir dans une note) puis cliquer « Mettre à jour ». Puis arrêter la transcription et recliquer. | Pendant : refus « Une transcription est en cours… », rien n'est rechargé ; après : la mise à jour s'applique et les notes sont intactes. **Redémarrage** : fermer/rouvrir une dernière fois, la nouvelle version est active et la session est conservée. |
+
+Reporter chaque résultat avec `node scripts/prod/evidence.mjs record pwa-manual PASS --note "PWA 1-9 PASS, <appareil>, <navigateur+version>"` **uniquement si les neuf lignes sont PASS**.
 
 ## I.13 Règle après CHAQUE fusion (chaîne de PR empilées)
 

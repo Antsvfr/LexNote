@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { diagnose, REASON_CODES } from '../../scripts/prod/integration-diagnostic.mjs';
 
 const KEY = 'k'.repeat(48);
-const ENV = { INTEGRATION_KEY: KEY, LEXNOTE_SUPABASE_URL: 'https://lexnoteprojectref0000.supabase.co' };
+const ENV = { INTEGRATION_KEY: KEY, LEXNOTE_SUPABASE_URL: 'https://lexnoteprojectref000.supabase.co' };
 /** Passerelle simulée : `mode` choisit la réponse à un message STATUS signé. */
 const gateway = (mode: string, extra: { date?: string; getStatus?: number } = {}) => (async (url: string, init: RequestInit = {}) => {
   const m = init.method ?? 'GET';

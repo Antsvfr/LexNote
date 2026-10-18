@@ -85,8 +85,29 @@
     {
       "id": "integration-diagnostic",
       "kind": "manual",
-      "title": "integration-diagnostic.mjs réussi entre les deux projets de TEST",
+      "title": "integration-diagnostic.mjs réussi entre DEUX projets de TEST (Supabase hébergés, ou deux stacks Supabase locales réelles via INTEGRATION_LOCAL=1 — la preuve doit dire lequel)",
       "sha": true
+    },
+    {
+      "id": "integration-real-e2e",
+      "kind": "manual",
+      "title": "real-e2e.mjs réussi (lien, lancement, rejeu, révocation) entre deux projets de TEST ou deux stacks locales réelles (la preuve dit lequel)",
+      "how": "node scripts/prod/local-stack.mjs verify --record",
+      "sha": true
+    },
+    {
+      "id": "ai-killswitch-local",
+      "kind": "manual",
+      "title": "Interrupteur STUDY_AI_ENABLED=false vérifié sur study-ai local : 503 ai_disabled avec et sans JWT, Retry-After, aucun appel fournisseur (ne remplace PAS ai-real-smoke)",
+      "how": "node scripts/prod/local-stack.mjs verify --record",
+      "sha": true
+    },
+    {
+      "id": "revem-local-validation",
+      "kind": "manual",
+      "title": "REV-EM #24/#25 validé en local sans CI : tests JS/mjs, migrations 006–009 sur PostgreSQL réel (la note donne le SHA REV-EM)",
+      "how": "scripts/prod/rehearsal.mjs revem-migrations --url <PG local> --revem-repo <REV-EM>",
+      "sha": false
     },
     {
       "id": "ai-real-smoke",

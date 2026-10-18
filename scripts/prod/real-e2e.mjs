@@ -7,11 +7,14 @@
 //   REVEM_A_EMAIL REVEM_A_PASSWORD  REVEM_B_EMAIL REVEM_B_PASSWORD  LEXNOTE_A_EMAIL LEXNOTE_A_PASSWORD  LEXNOTE_B_EMAIL LEXNOTE_B_PASSWORD
 //   INTEGRATION_KEY       clé partagée (pour forger des messages SIGNÉS et vérifier que les attaques échouent quand même) ; INTEGRATION_KEY_ID (défaut k1)
 //   LEXNOTE_ORIGIN / REVEM_ORIGIN   (défauts : origines officielles)
+//   INTEGRATION_LOCAL=1   deux piles Supabase LOCALES (http://127.0.0.1:<port>, ports différents ; LEXNOTE_ORIGIN, REVEM_ORIGIN et REVEM_APP_URL obligatoires) ; jamais d'hôte distant
+//   REVEM_APP_URL         adresse de retour attendue vers REV-EM (défaut : https://antsvfr.github.io/REV-EM/)
 //   WAIT_EXPIRY=1         attend 5 min 5 s pour tester une intention réellement expirée (sinon : SKIPPED)
 //   CHECK_DELETE_ACCOUNT=1  vérifie le CORS de delete-account (requêtes OPTIONS uniquement : rien n'est supprimé)
 // Les comptes de test A/B doivent exister, être confirmés, et NE PAS être déjà liés l'un à l'autre.
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { assertIntegrationTargets, isLocalMode } from './lib/targets.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 export async function loadBundle() { return import(join(here, '..', '..', 'supabase', 'functions', '_shared', 'integration', 'lexnote-revem-v1.mjs')); }
@@ -24,6 +27,10 @@ export async function run(env, { log = console.log, fetchImpl = fetch, sleep = (
   const skip = (name, why) => { results.push({ name, ok: true, skipped: true }); log(`SKIP — ${name} (${why})`); };
   const need = (k) => { if (!env[k]) throw new Error(`variable manquante : ${k}`); return env[k]; };
 
+  const local = isLocalMode(env);
+  if (local && (!env.LEXNOTE_ORIGIN || !env.REVEM_ORIGIN || !env.REVEM_APP_URL)) throw new Error('INTEGRATION_LOCAL=1 : LEXNOTE_ORIGIN, REVEM_ORIGIN et REVEM_APP_URL sont obligatoires (pas de repli sur les adresses officielles)');
+  assertIntegrationTargets(env, { LEXNOTE_SUPABASE_URL: need('LEXNOTE_SUPABASE_URL'), REVEM_SUPABASE_URL: need('REVEM_SUPABASE_URL') });
+  const revemApp = env.REVEM_APP_URL || 'https://antsvfr.github.io/REV-EM/';
   const P = {
     lex: { url: need('LEXNOTE_SUPABASE_URL').replace(/\/$/, ''), anon: need('LEXNOTE_ANON_KEY'), origin: env.LEXNOTE_ORIGIN || 'https://lex-note-svfr.vercel.app', self: 'lexnote' },
     rev: { url: need('REVEM_SUPABASE_URL').replace(/\/$/, ''), anon: need('REVEM_ANON_KEY'), origin: env.REVEM_ORIGIN || 'https://antsvfr.github.io', self: 'revem' },
@@ -71,7 +78,7 @@ export async function run(env, { log = console.log, fetchImpl = fetch, sleep = (
 
   const cA = await link(P.lex, tok.lA, { action: 'confirm', linkIntentId: a.intent, nonce: a.nonce });
   check('A : LexNote A autorise → CONNECTED vérifié', cA.status === 200 && cA.json?.state?.state === 'CONNECTED' && cA.json.state.verified === true, `${cA.status} ${JSON.stringify(cA.json?.error ?? '')}`);
-  check('A : returnUrl pointe vers REV-EM officiel', (cA.json?.returnUrl ?? '').startsWith('https://antsvfr.github.io/REV-EM/') && (cA.json?.returnUrl ?? '').includes('lexnote_link=connected'), cA.json?.returnUrl);
+  check('A : returnUrl pointe vers REV-EM (adresse attendue)', (cA.json?.returnUrl ?? '').startsWith(revemApp) && (cA.json?.returnUrl ?? '').includes('lexnote_link=connected'), cA.json?.returnUrl);
   const rA = await link(P.rev, tok.rA, { action: 'status', probe: true });
   check('A : REV-EM « Vérifier » → CONNECTED vérifié des deux côtés', rA.json?.state?.state === 'CONNECTED' && rA.json.state.verified && rA.json.state.peerStatus === 'CONNECTED', JSON.stringify(rA.json?.state ?? rA.json));
   const lA = await link(P.lex, tok.lA, { action: 'status', probe: true });
