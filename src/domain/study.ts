@@ -9,12 +9,25 @@
  */
 import { z } from 'zod';
 import { CONFIDENCE_LEVELS, sourceReferenceSchema, sourceSnapshotSchema, type SourceSnapshot } from './course';
+import { docSchema, type ArtifactRevision, type DocContent, type GeneratorInfo, type TranscriptProvenance } from './derived';
 
-export const ARTIFACT_TYPES = ['COURSE_SHEET', 'MIND_MAP', 'DIAGRAM', 'COMPARISON_TABLE', 'TIMELINE', 'METHOD', 'FLASHCARDS', 'QUIZ'] as const;
+/**
+ * Types d'artefacts. Les 8 premiers sont dérivés du COURS RECONSTRUIT (structures spécialisées) ; les suivants sont des DOCUMENTS
+ * dérivés de la TRANSCRIPTION (résumé, traduction…), avec le même modèle, la même table et la même synchronisation.
+ * `COURSE_SHEET` est la « fiche de révision » (STUDY_SHEET) : le nom technique est conservé pour compatibilité des données.
+ */
+export const COURSE_ARTIFACT_TYPES = ['COURSE_SHEET', 'MIND_MAP', 'DIAGRAM', 'COMPARISON_TABLE', 'TIMELINE', 'METHOD', 'FLASHCARDS', 'QUIZ'] as const;
+export const DOC_ARTIFACT_TYPES = ['SUMMARY', 'TRANSLATION', 'CLEAN_TRANSCRIPT', 'STRUCTURED_NOTES', 'KEY_POINTS', 'GLOSSARY', 'EXAM_QUESTIONS', 'STUDY_NOTE'] as const;
+export const ARTIFACT_TYPES = [...COURSE_ARTIFACT_TYPES, ...DOC_ARTIFACT_TYPES] as const;
 export type ArtifactType = (typeof ARTIFACT_TYPES)[number];
+export type CourseArtifactType = (typeof COURSE_ARTIFACT_TYPES)[number];
+export type DocArtifactType = (typeof DOC_ARTIFACT_TYPES)[number];
+export const isDocType = (t: ArtifactType): t is DocArtifactType => (DOC_ARTIFACT_TYPES as readonly string[]).includes(t);
 export const ARTIFACT_LABELS: Record<ArtifactType, string> = {
   COURSE_SHEET: 'Fiche de révision', MIND_MAP: 'Carte mentale', DIAGRAM: 'Schéma', COMPARISON_TABLE: 'Tableau comparatif',
   TIMELINE: 'Chronologie', METHOD: 'Méthode', FLASHCARDS: 'Flashcards', QUIZ: 'Quiz',
+  SUMMARY: 'Résumé', TRANSLATION: 'Traduction', CLEAN_TRANSCRIPT: 'Transcription nettoyée', STRUCTURED_NOTES: 'Cours structuré',
+  KEY_POINTS: 'Points clés', GLOSSARY: 'Glossaire', EXAM_QUESTIONS: 'Questions d’examen', STUDY_NOTE: 'Note d’étude',
 };
 
 const sources = z.array(sourceReferenceSchema).default([]);
@@ -133,16 +146,18 @@ export const quizSchema = z.object({
 });
 export type QuizContent = z.infer<typeof quizSchema>;
 
-export type ArtifactContent = SheetContent | MindMapContent | DiagramContent | TableContent | TimelineContent | MethodContent | FlashcardsContent | QuizContent;
+export type ArtifactContent = SheetContent | MindMapContent | DiagramContent | TableContent | TimelineContent | MethodContent | FlashcardsContent | QuizContent | DocContent;
 
 const SCHEMAS = {
   COURSE_SHEET: sheetSchema, MIND_MAP: mindMapSchema, DIAGRAM: diagramSchema, COMPARISON_TABLE: tableSchema,
   TIMELINE: timelineSchema, METHOD: methodSchema, FLASHCARDS: flashcardsSchema, QUIZ: quizSchema,
+  SUMMARY: docSchema, TRANSLATION: docSchema, CLEAN_TRANSCRIPT: docSchema, STRUCTURED_NOTES: docSchema, KEY_POINTS: docSchema,
+  GLOSSARY: docSchema, EXAM_QUESTIONS: docSchema, STUDY_NOTE: docSchema,
 } as const;
 export type ContentFor<T extends ArtifactType> =
   T extends 'COURSE_SHEET' ? SheetContent : T extends 'MIND_MAP' ? MindMapContent : T extends 'DIAGRAM' ? DiagramContent
   : T extends 'COMPARISON_TABLE' ? TableContent : T extends 'TIMELINE' ? TimelineContent : T extends 'METHOD' ? MethodContent
-  : T extends 'FLASHCARDS' ? FlashcardsContent : QuizContent;
+  : T extends 'FLASHCARDS' ? FlashcardsContent : T extends 'QUIZ' ? QuizContent : DocContent;
 
 export class ArtifactValidationError extends Error {
   constructor(readonly type: ArtifactType, readonly issues: string[]) { super(`Contenu invalide pour ${ARTIFACT_LABELS[type]} : ${issues.slice(0, 3).join(' ; ')}`); this.name = 'ArtifactValidationError'; }
@@ -180,7 +195,11 @@ export const artifactProvenanceSchema = z.object({
   courseId: z.string(), courseVersion: z.number(), generatedAt: z.string(),
   sources: z.array(z.object({ id: z.string(), kind: z.string(), label: z.string() })),
 });
-export type ArtifactProvenance = z.infer<typeof artifactProvenanceSchema>;
+export type CourseProvenance = z.infer<typeof artifactProvenanceSchema>;
+/** Provenance : cours reconstruit (supports structurés) ou transcription (documents dérivés). */
+export type ArtifactProvenance = CourseProvenance | TranscriptProvenance;
+export const isTranscriptProvenance = (p: ArtifactProvenance | null | undefined): p is TranscriptProvenance => !!p && p.from === 'transcript';
+export type ArtifactSourceType = 'reconstructed-course' | 'transcript';
 
 export interface StudyArtifact {
   id: string;
@@ -196,7 +215,7 @@ export interface StudyArtifact {
   content: ArtifactContent;
   /** Version générée, jamais modifiée : « revenir à la version générée ». */
   generatedContent: ArtifactContent | null;
-  /** Cours reconstruit dont l'artefact est dérivé. */
+  /** Cours reconstruit dont l'artefact est dérivé ('' pour un document dérivé de la transcription). */
   courseId: string;
   courseVersion: number;
   /** Instantané des sources du cours au moment de la génération. */
@@ -206,6 +225,19 @@ export interface StudyArtifact {
   /** Numéro de génération (1, 2…) : incrémenté à chaque régénération acceptée. */
   generation: number;
   userEdited: boolean;
+  /** Origine : absent = 'reconstructed-course' (données antérieures). */
+  sourceType?: ArtifactSourceType;
+  /** Action qui a produit le contenu ('summary', 'translate', 'key-points'…). */
+  generationType?: string;
+  /** Langue du contenu (documents dérivés). */
+  language?: string;
+  /** Empreinte de la transcription source (documents dérivés). */
+  sourceTranscriptVersion?: string;
+  /** Support dont celui-ci est dérivé (ex. traduction d'un résumé). */
+  parentArtifactId?: string | null;
+  generator?: GeneratorInfo;
+  /** Versions antérieures conservées (régénérations). */
+  revisions?: ArtifactRevision[];
   createdAt: string;
   updatedAt: string;
   version?: number;

@@ -2,7 +2,7 @@ import { typeLabel } from '@/domain/sessionType';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { EditorContent, useEditor } from '@tiptap/react';
-import { Command, Focus, Layers, Minimize2, CheckCheck } from 'lucide-react';
+import { Command, Focus, Layers, Minimize2, CheckCheck, Mic } from 'lucide-react';
 import { useLibrary } from '@/store/library';
 import { useUI } from '@/store/ui';
 import { useEditorBridge } from '@/store/editorBridge';
@@ -25,8 +25,10 @@ import { useNoteAnchors } from '@/features/capture/useNoteAnchors';
 import { useCapture } from '@/store/capture';
 import { captureManager } from '@/services/capture/manager';
 import { confirm } from '@/components/confirm';
+import { ConflictBanner } from './ConflictBanner';
 import { modKeyLabel } from './commands';
 import type { CourseSession } from '@/domain/types';
+import { log } from '@/lib/log';
 
 export function EditorPage() {
   const { sessionId } = useParams();
@@ -47,8 +49,8 @@ export function EditorPage() {
   }, [sessionId, loadNotes]);
 
   if (ready && !session) return <Navigate to="/" replace />;
-  if (loadError) return <div className="page" role="alert"><h1>Impossible de charger ce CM</h1><p className="page__sub">Le stockage local est inaccessible.</p></div>;
-  if (!session || !initial || initial.id !== sessionId) return <div className="editor-loading" aria-busy="true">Chargement du CM…</div>;
+  if (loadError) return <div className="page" role="alert"><h1>Impossible de charger cette séance</h1><p className="page__sub">Le stockage local est inaccessible.</p></div>;
+  if (!session || !initial || initial.id !== sessionId) return <div className="editor-loading" aria-busy="true">Chargement de la séance…</div>;
   // `key` : un autre CM = un éditeur neuf (pas d'état résiduel).
   return <Workspace key={session.id} sessionId={session.id} initialContent={initial.content} />;
 }
@@ -69,13 +71,14 @@ function Workspace({ sessionId, initialContent }: { sessionId: string; initialCo
   // La capture est un système indépendant : son chargement ne bloque ni n'influence l'éditeur.
   useEffect(() => {
     const focusMs = tParam !== null && Number.isFinite(Number(tParam)) ? Number(tParam) : null;
-    void captureManager.open(sessionId, focusMs).catch((e) => console.warn('[LexNote] capture non chargée', e));
+    void captureManager.open(sessionId, focusMs).catch((e) => log.transcription.warn('capture non chargée', e));
     if (focusMs !== null || params.get('panel') === 'transcript') { useUI.getState().setSideTab('transcript'); if (!useUI.getState().assistantOpen) useUI.getState().toggleAssistant(); }
   }, [sessionId, tParam]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // À l'activation de la transcription, le panneau s'ouvre sur l'onglet Transcription.
   useEffect(() => {
-    if (captureStatus === 'RECORDING' && !wasRecording.current) useUI.getState().openTranscript();
+    // Sur petit écran le panneau est une feuille qui couvrirait les notes : on ne l'ouvre pas d'office (bouton « Transcription »).
+    if (captureStatus === 'RECORDING' && !wasRecording.current && !window.matchMedia('(max-width: 860px)').matches) useUI.getState().openTranscript();
     wasRecording.current = captureStatus === 'RECORDING';
   }, [captureStatus]);
 
@@ -87,7 +90,7 @@ function Workspace({ sessionId, initialContent }: { sessionId: string; initialCo
     immediatelyRender: true,
     shouldRerenderOnTransaction: false,
     editorProps: {
-      attributes: { class: 'note-prose', role: 'textbox', 'aria-multiline': 'true', 'aria-label': 'Notes du CM', spellcheck: 'true', lang: 'fr' },
+      attributes: { class: 'note-prose', role: 'textbox', 'aria-multiline': 'true', 'aria-label': 'Notes de la séance', spellcheck: 'true', lang: 'fr' },
     },
   });
 
@@ -124,9 +127,9 @@ function Workspace({ sessionId, initialContent }: { sessionId: string; initialCo
         const ok = await confirm({
           title: 'Terminer la transcription ?',
           message: cap === 'PAUSED' || cap === 'ERROR'
-            ? 'La transcription de ce CM n’est pas terminée. Elle sera clôturée avec le CM ; tout ce qui a été capturé est conservé.'
-            : 'Un enregistrement est en cours. Il va être arrêté proprement (finalisation de la transcription) avant de terminer le CM.',
-          confirmLabel: 'Arrêter et terminer le CM',
+            ? 'La transcription de cette séance n’est pas terminée. Elle sera clôturée avec la séance ; tout ce qui a été capturé est conservé.'
+            : 'Un enregistrement est en cours. Il va être arrêté proprement (finalisation de la transcription) avant de terminer la séance.',
+          confirmLabel: 'Arrêter et terminer la séance',
         });
         if (!ok) return;
         await captureManager.stop(sessionId); // ne lève jamais : une panne ici ne doit pas empêcher de terminer
@@ -171,6 +174,7 @@ function Workspace({ sessionId, initialContent }: { sessionId: string; initialCo
       </header>
 
       <div className="toolrows">
+        <ConflictBanner session={session} flush={flushNow} />
         <ActionBar editor={editor} assistantOpen={assistantOpen} onToggleAssistant={toggleAssistant} />
         {!focus && <FormatBar editor={editor} />}
         {!focus && <div className="timelinebar"><LiveTimeline size="slim" /></div>}
@@ -181,11 +185,18 @@ function Workspace({ sessionId, initialContent }: { sessionId: string; initialCo
       {consentDialog}
 
       <div className="workspace__body">
-        <div className="note-scroll" onClick={(e) => { if (e.target === e.currentTarget) editor.commands.focus('end'); }}>
+        <main className="note-scroll" onClick={(e) => { if (e.target === e.currentTarget) editor.commands.focus('end'); }}>
+          <h1 className="sr-only">{session.title || typeLabel(session.type)}</h1>
           <EditorContent editor={editor} className="note-editor" data-testid="editor" />
-        </div>
+        </main>
+        {assistantOpen && !focus && <button type="button" className="sheet-backdrop" aria-label="Fermer le panneau" tabIndex={-1} onClick={toggleAssistant} />}
         {assistantOpen && !focus && <SidePanel editor={editor} sessionId={sessionId} />}
       </div>
+      {!assistantOpen && !focus && (
+        <button type="button" className="sheet-fab" onClick={() => useUI.getState().openTranscript()} data-testid="open-transcript-sheet" aria-label="Ouvrir la transcription">
+          {captureStatus === 'RECORDING' && <span className="sheet-fab__dot" aria-hidden="true" />}<Mic size={16} aria-hidden /> Transcription
+        </button>
+      )}
     </div>
   );
 }

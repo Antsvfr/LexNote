@@ -64,7 +64,7 @@ describe('scripts/prod/real-e2e.mjs contre deux projets simulés fidèles', () =
     const { results, fails } = await run({
       REVEM_SUPABASE_URL: urls.R, REVEM_ANON_KEY: 'anon-r', LEXNOTE_SUPABASE_URL: urls.L, LEXNOTE_ANON_KEY: 'anon-l',
       REVEM_A_EMAIL: 'a@revem.t', REVEM_A_PASSWORD: 'pw', REVEM_B_EMAIL: 'b@revem.t', REVEM_B_PASSWORD: 'pw', LEXNOTE_A_EMAIL: 'a@lex.t', LEXNOTE_A_PASSWORD: 'pw', LEXNOTE_B_EMAIL: 'b@lex.t', LEXNOTE_B_PASSWORD: 'pw',
-      INTEGRATION_KEY: KEY, INTEGRATION_KEY_ID: 'k1', LEXNOTE_ORIGIN: 'https://lexnote.example.app', REVEM_ORIGIN: 'https://antsvfr.github.io',
+      INTEGRATION_LOCAL: '1', REVEM_APP_URL: 'https://antsvfr.github.io/REV-EM/', INTEGRATION_KEY: KEY, INTEGRATION_KEY_ID: 'k1', LEXNOTE_ORIGIN: 'https://lexnote.example.app', REVEM_ORIGIN: 'https://antsvfr.github.io',
     }, { log: (s: string) => lines.push(s) });
     const failed = lines.filter((l) => l.startsWith('FAIL'));
     expect(failed).toEqual([]);
@@ -84,7 +84,7 @@ describe('scripts/prod/real-e2e.mjs contre deux projets simulés fidèles', () =
     const out = await run({
       REVEM_SUPABASE_URL: urls.R, REVEM_ANON_KEY: 'a', LEXNOTE_SUPABASE_URL: urls.L, LEXNOTE_ANON_KEY: 'a',
       REVEM_A_EMAIL: 'a@revem.t', REVEM_A_PASSWORD: 'pw', REVEM_B_EMAIL: 'b@revem.t', REVEM_B_PASSWORD: 'pw', LEXNOTE_A_EMAIL: 'a@lex.t', LEXNOTE_A_PASSWORD: 'pw', LEXNOTE_B_EMAIL: 'b@lex.t', LEXNOTE_B_PASSWORD: 'pw',
-      INTEGRATION_KEY: key0, LEXNOTE_ORIGIN: 'https://lexnote.example.app', REVEM_ORIGIN: 'https://antsvfr.github.io',
+      INTEGRATION_LOCAL: '1', REVEM_APP_URL: 'https://antsvfr.github.io/REV-EM/', INTEGRATION_KEY: key0, LEXNOTE_ORIGIN: 'https://lexnote.example.app', REVEM_ORIGIN: 'https://antsvfr.github.io',
     }, { log: (s: string) => lines.push(s) });
     w.R.gw.cfg.keys = orig;
     expect(out.fails).toBeGreaterThan(0);

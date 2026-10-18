@@ -67,7 +67,7 @@ export function NewSessionDialog() {
 
   return (
     <Modal
-      open={open} onClose={close} title="Nouvelle séance" description="CM, TD, TP… choisissez le type puis l'endroit où la ranger." onSubmit={submit}
+      open={open} onClose={close} title="Nouvelle séance" description="Cours, CM, TD, TP, séminaire… choisissez le type puis l'endroit où la ranger." onSubmit={submit}
       footer={<><button type="button" className="btn" onClick={close}>Annuler</button><button type="submit" className="btn btn--primary" disabled={!valid || busy} data-testid="create-session">Commencer</button></>}
     >
       <div className="field">
@@ -87,7 +87,7 @@ export function NewSessionDialog() {
           {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           <option value={NEW}>+ Nouvelle matière…</option>
         </select>
-        {creatingSubject && <input className="input" aria-label="Nom de la nouvelle matière" placeholder="ex. Droit des contrats" value={subjectName} onChange={(e) => setSubjectName(e.target.value)} autoFocus />}
+        {creatingSubject && <input className="input" aria-label="Nom de la nouvelle matière" placeholder="ex. Microéconomie" value={subjectName} onChange={(e) => setSubjectName(e.target.value)} autoFocus />}
       </div>
 
       {subjectId !== '' && (

@@ -92,7 +92,7 @@
 .tiptap [data-indent='4'] { margin-left: 6em; } .tiptap [data-indent='5'] { margin-left: 7.5em; }
 .tiptap p.is-editor-empty:first-child::before { content: attr(data-placeholder); float: left; height: 0; pointer-events: none; color: var(--ink-3); font-style: italic; }
 
-/* ====== blocs juridiques : sobres, un fin liseré + une étiquette ====== */
+/* ====== blocs de notes : sobres, un fin liseré + une étiquette ====== */
 :where([data-legal-block]) { --c: var(--ink-3); --bgc: var(--surface-2); }
 .tiptap [data-legal-block], .note-editor--readonly [data-legal-block] {
   position: relative; margin: 1em 0; padding: 1.7em 1em 0.55em 1.1em;
@@ -148,7 +148,6 @@
 @media (max-width: 860px) {
   .note-editor { padding: 24px 18px 48px; border-radius: 12px; }
   .workspace.has-panel .workspace__body { grid-template-columns: 1fr; }
-  .assistant { display: none; }
   .topbar { gap: 8px; padding: 0 10px; }
   .topbar__name { display: none; }
   .topbar__btn .lbl { display: none; }
@@ -163,3 +162,9 @@
   .note-prose { font-size: 17.5px; }
 }
 .topbar__sep { width: 1px; height: 18px; background: var(--border-hover); margin: 0 2px; }
+
+/* Conflit de synchronisation : deux versions d'une note */
+.conflict-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 8px 16px 0; }
+.conflict-banner > svg { flex: none; width: 18px; height: 18px; }
+.conflict-banner__text { flex: 1 1 260px; min-width: 0; font-size: 13.5px; }
+.conflict-banner__actions { display: flex; flex-wrap: wrap; gap: 6px; }

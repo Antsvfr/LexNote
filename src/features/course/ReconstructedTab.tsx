@@ -132,7 +132,7 @@ function CourseView({ course, session }: { course: GeneratedCourse; session: Cou
             {verify.map((b) => <Block key={b.id} b={b} sessionId={session.id} />)}
           </section>
         )}
-        <footer className="rc__foot muted">Cours reconstruit à partir de vos sources, sans les modifier. Vérifiez toujours les références juridiques auprès d’une source officielle.</footer>
+        <footer className="rc__foot muted">Cours reconstruit à partir de vos sources, sans les modifier. Vérifiez toujours les références (textes, données, citations) auprès d’une source officielle.</footer>
       </article>
     </div>
   );

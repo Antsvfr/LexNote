@@ -9,7 +9,7 @@ import { confirm } from '@/components/confirm';
 import { Menu } from '@/components/Menu';
 import { debounce } from '@/lib/debounce';
 import { formatRelative } from '@/lib/dates';
-import { ARTIFACT_LABELS, DIAGRAM_LABELS, type ArtifactContent, type DiagramContent, type FlashcardsContent, type MethodContent, type MindMapContent, type QuizContent, type SheetContent, type StudyArtifact, type TableContent, type TimelineContent } from '@/domain/study';
+import { ARTIFACT_LABELS, DIAGRAM_LABELS, isDocType, isTranscriptProvenance, type ArtifactContent, type DiagramContent, type FlashcardsContent, type MethodContent, type MindMapContent, type QuizContent, type SheetContent, type StudyArtifact, type TableContent, type TimelineContent } from '@/domain/study';
 import { generateDraft, isStale, latestCourse } from '@/services/study/engine';
 import { diagramToSvg, downloadBlob, fileSafe, mindMapToSvg, svgToPngBlob, toMarkdown } from '@/services/study/export';
 import { SheetView } from './views/SheetView';
@@ -18,6 +18,7 @@ import { DiagramView } from './views/DiagramView';
 import { TableView } from './views/TableView';
 import { FlashcardsView, MethodView, QuizView, TimelineView } from './views/ListViews';
 import { SessionContext } from './views/Sources';
+import { DerivedDocPage } from './DerivedDocPage';
 
 export function ArtifactPage() {
   const { artifactId } = useParams();
@@ -38,7 +39,9 @@ export function ArtifactPage() {
   const latest = useMemo(() => (art ? latestCourse(courses, art.sourceSessionIds[0]!) : undefined), [art, courses]);
   const stale = useMemo(() => (art ? isStale(art, latest) : false), [art, latest]);
   if (ready && !art) return <Navigate to="/supports" replace />;
+  if (art && isDocType(art.type)) return <DerivedDocPage key={art.id} art={art} />;
   if (!art || !draft) return null;
+  const fromTranscript = isTranscriptProvenance(art.provenance);
 
   const change = (c: ArtifactContent) => { setDraft(c); saver.current?.(art.id, c); };
   const fresh = (a: StudyArtifact) => {
@@ -55,7 +58,7 @@ export function ArtifactPage() {
     } catch (e) { toast.error((e as Error).message); }
   }
   async function replaceAnyway() {
-    const ok = await confirm({ title: 'Remplacer vos modifications ?', message: 'Le support sera régénéré depuis le cours actuel. Vos modifications manuelles seront perdues (vous pouvez d’abord dupliquer).', confirmLabel: 'Remplacer', danger: true });
+    const ok = await confirm({ title: 'Remplacer vos modifications ?', message: 'Le support sera régénéré depuis le cours actuel. Votre version modifiée est conservée dans l’historique des versions.', confirmLabel: 'Remplacer', danger: true });
     if (!ok) return;
     try { saver.current?.cancel(); await replaceGenerated(art!.id, fresh(art!)); toast.success('Support régénéré.'); } catch (e) { toast.error((e as Error).message); }
   }
@@ -74,7 +77,7 @@ export function ArtifactPage() {
           <p className="page__sub">
             <span className="tag">{ARTIFACT_LABELS[art.type]}{art.type === 'DIAGRAM' ? ` · ${DIAGRAM_LABELS[(draft as DiagramContent).type]}` : ''}</span>{' '}
             {art.userEdited ? <span className="tag tag--live" data-testid="artifact-edited">Modifié par vous</span> : <span className="tag" data-testid="artifact-generated">Version générée</span>}{' '}
-            {session ? <>depuis <Link to={`/session/${session.id}`} className="link">{session.title || 'la séance'}</Link>{art.scope?.sectionTitle ? ` › ${art.scope.sectionTitle}` : ''}</> : 'séance source supprimée'} · généré à partir du cours v{art.courseVersion} · modifié {formatRelative(art.updatedAt)}
+            {session ? <>depuis <Link to={`/session/${session.id}`} className="link">{session.title || 'la séance'}</Link>{art.scope?.sectionTitle ? ` › ${art.scope.sectionTitle}` : ''}</> : 'séance source supprimée'}{fromTranscript ? '' : ` · généré à partir du cours v${art.courseVersion}`} · modifié {formatRelative(art.updatedAt)}
           </p>
         </div>
         <div className="row-actions">
@@ -89,13 +92,13 @@ export function ArtifactPage() {
               </>
             )}
           </Menu>
-          <button className="btn" onClick={() => void regenerate()} disabled={!latest} aria-label="Régénérer" title="Régénérer depuis le cours" data-testid="artifact-regenerate"><RefreshCw /></button>
+          <button className="btn" onClick={() => void regenerate()} disabled={!latest || fromTranscript} aria-label="Régénérer" title="Régénérer depuis le cours" data-testid="artifact-regenerate"><RefreshCw /></button>
           <button className="btn" onClick={async () => { const c = await duplicate(art.id); if (c) { toast.success('Support dupliqué.'); navigate(`/supports/${c.id}`); } }} aria-label="Dupliquer"><Copy /></button>
           <button className="btn btn--danger" aria-label="Supprimer" data-testid="artifact-delete" onClick={async () => { if (await confirm({ title: 'Supprimer ce support ?', message: 'Votre cours n’est pas modifié.', confirmLabel: 'Supprimer', danger: true })) { await remove(art.id); navigate('/supports'); } }}><Trash2 /></button>
         </div>
       </header>
 
-      {stale && (
+      {stale && !fromTranscript && (
         <div className="banner banner--warn no-print" role="status" data-testid="stale-banner">
           <TriangleAlert size={18} aria-hidden /><span><strong>Le cours a été mis à jour (v{latest?.courseVersion}).</strong> {art.userEdited ? 'Vous avez modifié ce support : il ne sera pas écrasé.' : ''}</span><span className="spacer" />
           <button className="btn btn--sm btn--primary" onClick={() => void regenerate()} data-testid="stale-update"><RefreshCw /> {art.userEdited ? 'Créer une copie mise à jour' : 'Mettre à jour ce support'}</button>
@@ -109,7 +112,9 @@ export function ArtifactPage() {
       )}
 
       <p className="artifact__prov muted no-print" data-testid="artifact-provenance">
-        Généré à partir du cours — version {art.courseVersion}{stale ? ' (une version plus récente existe)' : ''} · {art.provenance.sources.map((x) => x.label).join(' · ') || 'sources du cours'}
+        {isTranscriptProvenance(art.provenance)
+          ? <>Créé à partir de la transcription{art.provenance.range ? ` (${Math.round(art.provenance.range.startMs / 1000)} s – ${Math.round(art.provenance.range.endMs / 1000)} s)` : ''} · {art.generator?.local ? 'saisi par vous' : 'IA'}</>
+          : <>Généré à partir du cours — version {art.courseVersion}{stale ? ' (une version plus récente existe)' : ''} · {art.provenance.sources.map((x) => x.label).join(' · ') || 'sources du cours'}</>}
       </p>
 
       <div className="print-area">
@@ -123,7 +128,7 @@ export function ArtifactPage() {
         {art.type === 'FLASHCARDS' && <FlashcardsView content={draft as FlashcardsContent} onChange={change} showSources={showSources} />}
         {art.type === 'QUIZ' && <QuizView content={draft as QuizContent} onChange={change} showSources={showSources} />}
         {svg && <div className="print-only print-svg" dangerouslySetInnerHTML={{ __html: svg }} />}
-        <p className="print-only print-foot">Support généré par LexNote à partir du cours reconstruit — à vérifier avant tout usage juridique.</p>
+        <p className="print-only print-foot">Support généré par LexNote à partir de vos sources — à vérifier avant tout usage.</p>
       </div>
     </div>
     </SessionContext.Provider>

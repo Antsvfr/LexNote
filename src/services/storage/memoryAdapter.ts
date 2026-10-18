@@ -35,6 +35,9 @@ export class MemoryAdapter implements StorageAdapter {
 
   async commit(c: ChangeSet, opts: CommitOptions = {}) {
     const mark = <T extends { dirty?: boolean }>(v: T): T => (opts.remote ? v : { ...v, dirty: true });
+    // Écriture locale : la version serveur stockée est conservée (voir CommitOptions.resetVersion).
+    const keep = <T extends { id: string; version?: number }>(map: Map<string, { version?: number }>, v: T): T =>
+      (opts.remote || opts.resetVersion ? v : { ...v, version: map.get(v.id)?.version });
     const tomb = (table: SyncTable, map: Map<string, { version?: number }>, id: string) => {
       const prev = map.get(id);
       if (!opts.remote && prev?.version !== undefined) {
@@ -45,12 +48,12 @@ export class MemoryAdapter implements StorageAdapter {
     // Garde atomique : une écriture venant du cloud ne remplace JAMAIS une ligne modifiée localement et pas encore envoyée.
     const guarded = (map: Map<string, { dirty?: boolean }>, id: string) => !!opts.remote && !!map.get(id)?.dirty;
     const skippedSessions = new Set<string>();
-    c.putSubjects?.forEach((s) => { if (guarded(this.subjects, s.id)) return; this.subjects.set(s.id, clone(mark(s))); this.tombstones.delete(`subjects:${s.id}`); });
-    c.putModules?.forEach((m) => { if (guarded(this.modules, m.id)) return; this.modules.set(m.id, clone(mark(m))); this.tombstones.delete(`modules:${m.id}`); });
-    c.putSessions?.forEach((s) => { if (guarded(this.sessions, s.id)) { skippedSessions.add(s.id); return; } this.sessions.set(s.id, clone(mark(s))); this.tombstones.delete(`course_sessions:${s.id}`); });
-    c.putArtifacts?.forEach((a) => { if (guarded(this.artifacts, a.id)) return; this.artifacts.set(a.id, clone(mark(a))); this.tombstones.delete(`study_artifacts:${a.id}`); });
-    c.putDocuments?.forEach((d) => { if (guarded(this.documents, d.id)) return; this.documents.set(d.id, clone(mark(d))); this.tombstones.delete(`source_documents:${d.id}`); });
-    c.putCourses?.forEach((d) => { if (guarded(this.courses, d.id)) return; this.courses.set(d.id, clone(mark(d))); this.tombstones.delete(`generated_courses:${d.id}`); });
+    c.putSubjects?.forEach((s) => { if (guarded(this.subjects, s.id)) return; this.subjects.set(s.id, clone(mark(keep(this.subjects, s)))); this.tombstones.delete(`subjects:${s.id}`); });
+    c.putModules?.forEach((m) => { if (guarded(this.modules, m.id)) return; this.modules.set(m.id, clone(mark(keep(this.modules, m)))); this.tombstones.delete(`modules:${m.id}`); });
+    c.putSessions?.forEach((s) => { if (guarded(this.sessions, s.id)) { skippedSessions.add(s.id); return; } this.sessions.set(s.id, clone(mark(keep(this.sessions, s)))); this.tombstones.delete(`course_sessions:${s.id}`); });
+    c.putArtifacts?.forEach((a) => { if (guarded(this.artifacts, a.id)) return; this.artifacts.set(a.id, clone(mark(keep(this.artifacts, a)))); this.tombstones.delete(`study_artifacts:${a.id}`); });
+    c.putDocuments?.forEach((d) => { if (guarded(this.documents, d.id)) return; this.documents.set(d.id, clone(mark(keep(this.documents, d)))); this.tombstones.delete(`source_documents:${d.id}`); });
+    c.putCourses?.forEach((d) => { if (guarded(this.courses, d.id)) return; this.courses.set(d.id, clone(mark(keep(this.courses, d)))); this.tombstones.delete(`generated_courses:${d.id}`); });
     c.putNotes?.forEach((n) => { if (!skippedSessions.has(n.sessionId)) this.notes.set(n.sessionId, clone(n)); });
     c.deleteArtifacts?.forEach((id) => { if (guarded(this.artifacts, id)) return; tomb('study_artifacts', this.artifacts, id); this.artifacts.delete(id); });
     c.deleteDocuments?.forEach((id) => { if (guarded(this.documents, id)) return; tomb('source_documents', this.documents, id); this.documents.delete(id); this.files.delete(id); });

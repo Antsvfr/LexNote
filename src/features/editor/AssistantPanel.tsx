@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Editor } from '@tiptap/core';
-import { Mic, ShieldCheck, Sparkles, FileUp } from 'lucide-react';
+import { Mic, ShieldCheck, Sparkles, FileUp, X } from 'lucide-react';
 import { AI_COMMANDS } from '@/services/ai';
 import { PROVENANCE_LABELS, VERIFICATION_LABELS } from '@/domain/legal';
 import { useUI } from '@/store/ui';
@@ -37,7 +37,7 @@ function AssistantContent({ editor }: { editor: Editor }) {
   return (
     <div className="assistant">
       <section>
-        <h2 className="assistant__h">Plan du CM</h2>
+        <h2 className="assistant__h">Plan de la séance</h2>
         {outline.length === 0 ? (
           <p className="muted assistant__p">Les titres que vous ajoutez apparaissent ici.</p>
         ) : (
@@ -53,7 +53,7 @@ function AssistantContent({ editor }: { editor: Editor }) {
 
       <section>
         <h2 className="assistant__h"><Sparkles size={14} aria-hidden /> Assistant <span className="tag tag--soon">Bientôt</span></h2>
-        <p className="muted assistant__p">Aucun moteur IA n’est branché dans cette version : rien n’est généré, rien ne quitte votre appareil.</p>
+        <p className="muted assistant__p">Les commandes IA de l’éditeur ne sont pas encore branchées : rien n’est généré ici. Pour résumer, traduire ou structurer une séance, terminez-la puis utilisez « Exploiter la transcription ».</p>
         <ul className="assistant__cmds" aria-label="Commandes à venir">
           {AI_COMMANDS.map((c) => (
             <li key={c.id}><button className="chip chip--off" aria-disabled="true" title={`${c.description} — bientôt disponible`}>{c.label}</button></li>
@@ -70,9 +70,9 @@ function AssistantContent({ editor }: { editor: Editor }) {
       </section>
 
       <section>
-        <h2 className="assistant__h"><ShieldCheck size={14} aria-hidden /> Fiabilité juridique</h2>
+        <h2 className="assistant__h"><ShieldCheck size={14} aria-hidden /> Fiabilité des sources</h2>
         <p className="muted assistant__p">
-          LexNote distinguera toujours ce que dit le professeur de ce qu’ajoute l’IA, et n’inventera jamais un article ou un arrêt.
+          LexNote distingue toujours ce que dit l’enseignant de ce qu’ajoute l’IA, et n’invente jamais une référence, un chiffre ou une citation.
         </p>
         <p className="assistant__legend">
           {Object.values(VERIFICATION_LABELS).map((l) => <span key={l} className="tag">{l}</span>)}
@@ -94,6 +94,7 @@ export function SidePanel({ editor, sessionId }: { editor: Editor; sessionId: st
       <div className="sidepanel__tabs" role="tablist">
         <button role="tab" aria-selected={tab === 'transcript'} className={tab === 'transcript' ? 'is-on' : ''} onClick={() => setTab('transcript')} data-testid="tab-transcript"><Mic size={14} aria-hidden /> Transcription</button>
         <button role="tab" aria-selected={tab === 'assistant'} className={tab === 'assistant' ? 'is-on' : ''} onClick={() => setTab('assistant')}><Sparkles size={14} aria-hidden /> Assistant</button>
+        <button type="button" className="btn btn--ghost btn--icon btn--sm sidepanel__close" onClick={() => useUI.getState().toggleAssistant()} aria-label="Fermer le panneau" data-testid="close-sidepanel"><X size={16} aria-hidden /></button>
       </div>
       <div className="sidepanel__body">
         {tab === 'transcript' ? <TranscriptPanel sessionId={sessionId} /> : <AssistantContent editor={editor} />}

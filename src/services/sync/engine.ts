@@ -2,12 +2,14 @@ import type { AudioSession } from '@/domain/capture';
 import type { CourseSession } from '@/domain/types';
 import { newId } from '@/lib/ids';
 import type { CaptureStorage, CaptureTable } from '@/services/capture/storage/types';
-import type { ChangeSet, StorageAdapter, SyncTable } from '@/services/storage/types';
+import type { ChangeSet, CommitOptions, StorageAdapter, SyncTable } from '@/services/storage/types';
 import {
   anchorFromRow, anchorToRow, audioSessionFromRow, audioSessionToRow, interruptionFromRow, interruptionToRow, markerFromRow, markerToRow,
   artifactFromRow, artifactToRow, courseFromRow, courseToRow, documentFromRow, documentToRow, moduleFromRow, moduleToRow, segmentFromRow, segmentToRow, sessionFromRow, sessionToRow, subjectFromRow, subjectToRow,
 } from './mappers';
 import { CAPTURE_TABLES, NetworkError, type RemoteRow, type RemoteStore, type RemoteTable, VERSIONED_TABLES } from './types';
+import { log } from '@/lib/log';
+import { CONFLICT_SUFFIX } from '@/domain/conflict';
 
 /** Ce qui a changé localement à cause du cloud : l'UI se rafraîchit en conséquence. */
 export interface AppliedChanges {
@@ -42,11 +44,13 @@ const SIMPLE = {
 } as const;
 type Simple = keyof typeof SIMPLE;
 const isSimple = (t: SyncTable): t is Simple => t in SIMPLE;
-const putSimple = (l: StorageAdapter, t: Simple, row: object, remote = false) => l.commit({ [SIMPLE[t].put]: [row] } as ChangeSet, remote ? { remote: true } : undefined);
+const putSimple = (l: StorageAdapter, t: Simple, row: object, opts?: CommitOptions) => l.commit({ [SIMPLE[t].put]: [row] } as ChangeSet, opts);
 const delSimple = (l: StorageAdapter, t: Simple, id: string) => l.commit({ [SIMPLE[t].del]: [id] } as ChangeSet, { remote: true });
 
 /** Passé à `markSynced` pour ne mettre à jour que la version (la ligne reste « à envoyer »). */
 const KEEP_DIRTY = '__keep_dirty__';
+/** Ré-insertion volontaire : la version serveur connue est oubliée. */
+const RESET: CommitOptions = { resetVersion: true };
 const PAGE = 1000;
 const PUSH_BATCH = 200;
 
@@ -142,7 +146,7 @@ export class SyncEngine {
         state: offline ? 'offline' : 'error', pending: await this.safePending(),
         error: offline ? null : (err as Error).message,
       });
-      if (!offline) console.error('[LexNote] synchronisation', err);
+      if (!offline) log.sync.error('synchronisation', err);
     } finally {
       this.running = false;
     }
@@ -191,10 +195,10 @@ export class SyncEngine {
     if (!server) {
       // Le serveur ne connaît pas cette ligne (base réinitialisée…) : on oublie la version et on la ré-insère comme nouvelle.
       const lib = await local.loadLibrary();
-      if (table === 'subjects') { const r = lib.subjects.find((x) => x.id === id); if (r) await local.commit({ putSubjects: [{ ...r, version: undefined }] }); }
-      else if (table === 'modules') { const r = lib.modules.find((x) => x.id === id); if (r) await local.commit({ putModules: [{ ...r, version: undefined }] }); }
-      else if (isSimple(table)) { const r = (await SIMPLE[table].load(local)).find((x) => x.id === id); if (r) await putSimple(local, table, { ...r, version: undefined }); }
-      else { const r = lib.sessions.find((x) => x.id === id); if (r) await local.commit({ putSessions: [{ ...r, version: undefined }] }); }
+      if (table === 'subjects') { const r = lib.subjects.find((x) => x.id === id); if (r) await local.commit({ putSubjects: [{ ...r, version: undefined }] }, RESET); }
+      else if (table === 'modules') { const r = lib.modules.find((x) => x.id === id); if (r) await local.commit({ putModules: [{ ...r, version: undefined }] }, RESET); }
+      else if (isSimple(table)) { const r = (await SIMPLE[table].load(local)).find((x) => x.id === id); if (r) await putSimple(local, table, { ...r, version: undefined }, RESET); }
+      else { const r = lib.sessions.find((x) => x.id === id); if (r) await local.commit({ putSessions: [{ ...r, version: undefined }] }, RESET); }
       return;
     }
     const serverDeleted = !!server.deleted_at;
@@ -239,7 +243,7 @@ export class SyncEngine {
     const stamp = new Date().toISOString();
     const copy: CourseSession = {
       ...structuredClone(mine), id: newId(), version: undefined, dirty: undefined, createdAt: stamp, updatedAt: stamp,
-      title: `${mine.title || 'Séance'} (version locale en conflit)`,
+      title: `${mine.title || 'Séance'} ${CONFLICT_SUFFIX}`, conflictOf: mine.id,
     };
     await this.d.local.commit({ putSessions: [copy], putNotes: myNotes === undefined ? [] : [{ sessionId: copy.id, content: myNotes, updatedAt: stamp }] });
     // La version serveur remplace l'originale ; rien n'est perdu : la copie porte le contenu local.
@@ -267,7 +271,7 @@ export class SyncEngine {
     await this.markClean(table, server.id);
     if (table === 'subjects') await this.d.local.commit({ putSubjects: [subjectFromRow(server)] }, { remote: true });
     else if (table === 'modules') await this.d.local.commit({ putModules: [moduleFromRow(server)] }, { remote: true });
-    else if (isSimple(table)) await putSimple(this.d.local, table, SIMPLE[table].from(server), true);
+    else if (isSimple(table)) await putSimple(this.d.local, table, SIMPLE[table].from(server), { remote: true });
     else await this.forceApplyServerSession(server);
     this.d.onApplied({ library: true, removedSessionIds: [], captureSessionIds: [] });
   }
@@ -331,7 +335,7 @@ export class SyncEngine {
         if (mine && (mine.version ?? 0) >= (row.version ?? 0)) continue; // déjà à jour (curseur inclusif : idempotent)
         if (table === 'subjects') await local.commit({ putSubjects: [subjectFromRow(row)] }, { remote: true });
         else if (table === 'modules') await local.commit({ putModules: [moduleFromRow(row)] }, { remote: true });
-        else if (isSimple(table)) await putSimple(local, table, SIMPLE[table].from(row), true);
+        else if (isSimple(table)) await putSimple(local, table, SIMPLE[table].from(row), { remote: true });
         else {
           const { session, notes } = sessionFromRow(row);
           await local.commit({ putSessions: [session], putNotes: notes === undefined ? [] : [{ sessionId: session.id, content: notes, updatedAt: session.updatedAt }] }, { remote: true });

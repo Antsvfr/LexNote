@@ -5,7 +5,8 @@
 import type { CourseSession } from '@/domain/types';
 import type { StudyArtifact } from '@/domain/study';
 import type { GeneratedCourse } from '@/domain/course';
-import type { LexNoteSessionReference, StudyArtifactReference } from './contracts';
+import { ARTIFACT_KINDS, SESSION_TYPE_HINTS, type ArtifactKind, type LexNoteSessionReference, type StudyArtifactReference } from './contracts';
+type SessionTypeHint = (typeof SESSION_TYPE_HINTS)[number];
 import { buildLexNoteLink } from './links';
 import { INTEGRATION_VERSION } from './version';
 
@@ -21,11 +22,12 @@ export interface SessionRefContext {
   artifactCount: number;
 }
 
+/** Les types de séance ajoutés après la v1 du contrat (ex. PROJECT) sont transmis comme OTHER. */
 export function toSessionReference(s: CourseSession, c: SessionRefContext): LexNoteSessionReference {
   return {
     integrationVersion: INTEGRATION_VERSION, kind: 'lexnote-session-reference',
     sessionRef: s.id, linkedExternalId: c.linkedExternalId ?? null,
-    title: s.title || 'Séance', sessionType: s.type, number: s.number, date: s.date,
+    title: s.title || 'Séance', sessionType: (SESSION_TYPE_HINTS as readonly string[]).includes(s.type) ? (s.type as SessionTypeHint) : 'OTHER', number: s.number, date: s.date,
     ...(s.startTime ? { startTime: s.startTime } : {}), ...(s.endTime ? { endTime: s.endTime } : {}),
     status: s.status,
     subject: { app: 'lexnote', ref: c.subject.id, name: c.subject.name, ...(c.subject.color ? { color: c.subject.color } : {}) },
@@ -49,10 +51,19 @@ export function itemCountOf(a: Pick<StudyArtifact, 'type' | 'content'>): number 
     case 'METHOD': return (c.steps ?? []).length;
     case 'FLASHCARDS': return (c.cards ?? []).length;
     case 'QUIZ': return (c.questions ?? []).length;
+    default: return (c.blocks ?? []).length;
   }
 }
 
+/**
+ * Le contrat lexnote-revem/v1 ne connaît que les 8 types de supports du cours reconstruit (`ARTIFACT_KINDS`). Les documents dérivés
+ * de la transcription (résumé, traduction…) ne sont PAS exposés à REV-EM tant qu'une version du contrat ne les prévoit pas :
+ * filtrer avec ceci avant `toArtifactReference` (une évolution compatible du contrat sera nécessaire pour les partager).
+ */
+export const isContractArtifact = <A extends Pick<StudyArtifact, 'type'>>(a: A): a is A & { type: ArtifactKind } => (ARTIFACT_KINDS as readonly string[]).includes(a.type);
+
 export function toArtifactReference(a: StudyArtifact, c: { origin: string; stale: boolean }): StudyArtifactReference {
+  if (!isContractArtifact(a)) throw new Error(`Type de support non prévu par ${INTEGRATION_VERSION} : ${a.type}`);
   return {
     integrationVersion: INTEGRATION_VERSION, kind: 'study-artifact-reference',
     artifactRef: a.id, artifactType: a.type, title: a.title, sessionRef: a.sourceSessionIds[0] ?? '',

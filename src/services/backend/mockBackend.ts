@@ -12,6 +12,8 @@ import type { Backend } from './index';
 import { createMockIntegration } from '../integration/mockIntegration';
 import { saveEngineSettings } from '../../lib/engineSettings';
 import { EngineUnavailableError, registerEngineProvider, setActiveEngineProvider } from '../engine/provider';
+import { aiService, type AIRequest } from '../ai';
+import { createTestAIProvider, type TestAIMode } from '../ai/testDouble';
 
 const AUTH_KEY = 'lexnote-mock-auth';
 const CLOUD_KEY = 'lexnote-mock-cloud';
@@ -19,7 +21,8 @@ const CLOUD_KEY = 'lexnote-mock-cloud';
 const DOWN_KEY = 'lexnote-mock-down';
 
 interface MockUser { id: string; email: string; password: string; confirmed: boolean }
-interface MockAuthState { users: MockUser[]; sessionUserId: string | null; profiles: Record<string, Profile> }
+interface MockDevice { deviceId: string; label: string; standalone: boolean; remember: boolean; createdAt: string; lastSeenAt: string }
+interface MockAuthState { users: MockUser[]; sessionUserId: string | null; profiles: Record<string, Profile>; devices?: Record<string, MockDevice[]> }
 
 const load = (): MockAuthState => {
   try { return { users: [], sessionUserId: null, profiles: {}, ...(JSON.parse(localStorage.getItem(AUTH_KEY) ?? 'null') ?? {}) }; }
@@ -62,6 +65,30 @@ export function createMockBackend(): Backend {
       return asUser(u)!;
     },
     async signOut() { const st = load(); st.sessionUserId = null; save(st); emit('SIGNED_OUT', null); },
+    /** Connexion automatique simulée : le « serveur » simulé remet `mock-sso:<userId>` (jamais de mot de passe). */
+    async adoptSession(tokens) {
+      const m = /^mock-sso:([0-9a-f-]{36})$/.exec(tokens.access_token);
+      const st = load(); const u = m ? st.users.find((x) => x.id === m[1]) : undefined;
+      if (!u) throw new AuthError('Session refusée.', 'unknown');
+      st.sessionUserId = u.id; save(st);
+      emit('SIGNED_IN', asUser(u));
+      return asUser(u)!;
+    },
+    devices: {
+      async touch(d) {
+        const st = load(); const uid = st.sessionUserId; if (!uid) return;
+        const list = (st.devices ??= {})[uid] ??= [];
+        const now = new Date().toISOString(); const cur = list.find((x) => x.deviceId === d.deviceId);
+        if (cur) Object.assign(cur, d, { lastSeenAt: now }); else list.push({ ...d, createdAt: now, lastSeenAt: now });
+        save(st);
+      },
+      async list() {
+        const st = load(); const uid = st.sessionUserId;
+        return [...(st.devices?.[uid ?? ''] ?? [])].sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt)).map((x) => ({ ...x, hasSession: true }));
+      },
+      async revoke(deviceId) { const st = load(); const uid = st.sessionUserId ?? ''; if (st.devices?.[uid]) st.devices[uid] = st.devices[uid]!.filter((x) => x.deviceId !== deviceId); save(st); },
+      async forgetAll() { const st = load(); const uid = st.sessionUserId ?? ''; if (st.devices) delete st.devices[uid]; save(st); },
+    },
     async requestPasswordReset() { /* le vrai service envoie un e-mail ; ici rien à faire */ },
     async updatePassword(pw) {
       const st = load(); const u = st.users.find((x) => x.id === st.sessionUserId);
@@ -87,6 +114,7 @@ export function createMockBackend(): Backend {
     },
   };
 
+  let aiMode: TestAIMode = 'ok'; const aiCalls: AIRequest[] = [];
   // Outils de test (jamais présents en production) : couper le « serveur », altérer une ligne, lire l'état.
   (window as unknown as { __lx: unknown }).__lx = {
     cloud,
@@ -101,6 +129,11 @@ export function createMockBackend(): Backend {
     /** Simule un moteur de cours distant injoignable (tests hors-ligne du moteur). */
     breakEngine: (fallback = false) => { registerEngineProvider({ id: 'remote', label: 'Moteur distant (simulé)', local: false, isAvailable: () => true, compose: async () => { throw new EngineUnavailableError('Moteur distant injoignable (réseau ?).'); } }); setActiveEngineProvider('remote'); saveEngineSettings({ providerId: 'remote', fallbackToLocal: !!fallback }); },
     users: () => load().users.map((u) => ({ id: u.id, email: u.email })),
+    /** Branche le DOUBLE DE TEST du moteur IA (jamais en production) ; `mode` change son comportement. `calls` : requêtes reçues. */
+    installAI: (mode: TestAIMode = 'ok') => { aiMode = mode; aiService.setProvider(createTestAIProvider(() => aiMode, aiCalls)); },
+    setAIMode: (mode: TestAIMode) => { aiMode = mode; },
+    aiCalls: () => aiCalls.map((c) => ({ command: c.command, options: c.options, inputLength: c.input.length })),
+    removeAI: () => aiService.reset(),
   };
 
   return {

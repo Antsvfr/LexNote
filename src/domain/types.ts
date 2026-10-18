@@ -34,7 +34,7 @@ export interface Subject extends Entity {
   description?: string;
 }
 
-/** Module / chapitre / unité au sein d'une matière (ex. "Droit des contrats"). */
+/** Module / chapitre / unité au sein d'une matière (ex. « Les marchés », « Cardiologie », « Droit des contrats »). */
 export interface Module extends Entity {
   subjectId: ID;
   name: string;
@@ -132,6 +132,8 @@ export interface CourseSession extends Entity {
   completedAt: ISODateTime | null;
   /** Vignette choisie ; sinon déterministe selon la matière (voir `lib/thumbs.ts`). */
   thumbnail?: ThumbKey;
+  /** Renseigné sur la COPIE créée par la synchronisation quand deux versions des notes ont divergé : identifiant de la séance d'origine. */
+  conflictOf?: ID;
 
   /* Dérivés des notes — dupliqués ici pour lister/rechercher sans charger le contenu. */
   wordCount: number;

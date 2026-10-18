@@ -6,6 +6,7 @@ import { captureManager } from '@/services/capture/manager';
 import { useAuth } from '@/store/auth';
 import { useLibrary } from '@/store/library';
 import { toast } from '@/store/toasts';
+import { log } from '@/lib/log';
 
 /** Anciennes notes (créées avant les comptes) : import EXPLICITE dans le compte courant, ou on ignore. */
 export function LegacyImportBanner() {
@@ -32,7 +33,7 @@ export function LegacyImportBanner() {
       toast.success('Anciennes notes importées dans votre compte.');
       setFound(null);
     } catch (e) {
-      console.error(e);
+      log.storage.error('erreur inattendue', e);
       toast.error('Import impossible. Vos anciennes notes n’ont pas été modifiées.');
       setBusy(false);
     }

@@ -1,5 +1,5 @@
 import type { SupabaseClient, User } from '@supabase/supabase-js';
-import { AuthError, emptyProfile, type AuthEvent, type AuthRepository, type AuthUser, type Profile, type ProfileRepository, type SignUpResult } from './types';
+import { AuthError, emptyProfile, type AuthEvent, type AuthRepository, type AuthUser, type DeviceRepository, type Profile, type ProfileRepository, type SignUpResult } from './types';
 
 const toUser = (u: User | null | undefined): AuthUser | null => (u ? { id: u.id, email: u.email ?? '' } : null);
 
@@ -44,13 +44,38 @@ export class SupabaseAuth implements AuthRepository {
     return { needsConfirmation: !data.session, user: data.session ? toUser(data.user) : null };
   }
 
+  async adoptSession(tokens: { access_token: string; refresh_token: string }) {
+    const { data, error } = await this.client.auth.setSession(tokens);
+    if (error || !data.user) throw mapError(error ?? { message: 'session' });
+    return toUser(data.user)!;
+  }
+
+  readonly devices: DeviceRepository = {
+    touch: async (d) => {
+      const { error } = await this.client.rpc('user_device_touch', { p_device: d.deviceId, p_label: d.label, p_standalone: d.standalone, p_remember: d.remember });
+      if (error) throw mapError(error);
+    },
+    list: async () => {
+      const { data, error } = await this.client.from('user_devices').select('device_id, label, standalone, remember, created_at, last_seen_at, session_id').order('last_seen_at', { ascending: false });
+      if (error) throw mapError(error);
+      return (data ?? []).map((r) => ({ deviceId: r.device_id, label: r.label, standalone: r.standalone, remember: r.remember, createdAt: r.created_at, lastSeenAt: r.last_seen_at, hasSession: !!r.session_id }));
+    },
+    revoke: async (deviceId) => {
+      const { data, error } = await this.client.rpc('user_device_revoke', { p_device: deviceId });
+      if (error || (data as { reason?: string } | null)?.reason !== 'OK') throw mapError(error ?? { message: 'device' });
+    },
+    forgetAll: async () => { await this.client.rpc('user_device_forget_all', {}); },
+  };
+
   async signIn(email: string, password: string) {
     const { data, error } = await this.client.auth.signInWithPassword({ email: email.trim(), password });
     if (error) throw mapError(error);
     return toUser(data.user)!;
   }
-  async signOut() {
-    const { error } = await this.client.auth.signOut();
+  async signOut(opts: { scope?: 'local' | 'global' } = {}) {
+    // Avant : `signOut()` sans portée = GLOBALE par défaut dans supabase-js → se déconnecter sur un appareil révoquait les sessions de
+    // TOUS les autres, qui découvraient au rafraîchissement suivant une « session expirée ». Désormais : cet appareil, sauf demande explicite.
+    const { error } = await this.client.auth.signOut({ scope: opts.scope ?? 'local' });
     if (error && !/session/i.test(error.message)) throw mapError(error);
   }
   async requestPasswordReset(email: string) {
@@ -76,11 +101,15 @@ export class SupabaseAuth implements AuthRepository {
 interface ProfileRow {
   id: string; email: string | null; first_name: string | null; last_name: string | null; avatar_url: string | null; institution: string | null;
   academic_year: string | null; usage_type: string | null; onboarding_completed: boolean;
+  /** Ajoutées par la migration 20261015 : absentes tant qu'elle n'est pas appliquée. */
+  field_of_study?: string | null; primary_use?: string | null;
 }
 const fromRow = (r: ProfileRow, u: AuthUser): Profile => ({
   id: u.id, email: u.email, firstName: r.first_name ?? '', lastName: r.last_name ?? '', avatarUrl: r.avatar_url ?? '', institution: r.institution ?? '',
-  academicYear: r.academic_year ?? '', usageType: r.usage_type ?? '', onboardingCompleted: r.onboarding_completed,
+  academicYear: r.academic_year ?? '', usageType: r.usage_type ?? '', fieldOfStudy: r.field_of_study ?? '', primaryUse: r.primary_use ?? '',
+  onboardingCompleted: r.onboarding_completed,
 });
+const NEW_PROFILE_COLUMNS = ['field_of_study', 'primary_use'] as const;
 
 export class SupabaseProfiles implements ProfileRepository {
   constructor(private client: SupabaseClient) {}
@@ -101,7 +130,14 @@ export class SupabaseProfiles implements ProfileRepository {
     if (patch.academicYear !== undefined) row.academic_year = patch.academicYear.trim() || null;
     if (patch.usageType !== undefined) row.usage_type = patch.usageType || null;
     if (patch.onboardingCompleted !== undefined) row.onboarding_completed = patch.onboardingCompleted;
-    const { data, error } = await this.client.from('profiles').upsert(row).select().single();
+    if (patch.fieldOfStudy !== undefined) row.field_of_study = patch.fieldOfStudy.trim() || null;
+    if (patch.primaryUse !== undefined) row.primary_use = patch.primaryUse || null;
+    let { data, error } = await this.client.from('profiles').upsert(row).select().single();
+    // Déploiement progressif : si la migration des colonnes facultatives n'est pas encore appliquée, on enregistre le reste.
+    if (error && NEW_PROFILE_COLUMNS.some((c) => error!.message.includes(c))) {
+      for (const c of NEW_PROFILE_COLUMNS) delete row[c];
+      ({ data, error } = await this.client.from('profiles').upsert(row).select().single());
+    }
     if (error) throw new Error(error.message);
     return fromRow(data as ProfileRow, user);
   }

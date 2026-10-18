@@ -1,6 +1,7 @@
 import { IndexedDbAdapter, userDbName } from './indexedDbAdapter';
 import { MemoryAdapter } from './memoryAdapter';
 import type { ChangeSet, CommitOptions, StorageAdapter } from './types';
+import { log } from '@/lib/log';
 
 export type { StorageAdapter, ChangeSet } from './types';
 
@@ -10,7 +11,7 @@ export async function createStorage(userId: string): Promise<StorageAdapter> {
     if (typeof indexedDB === 'undefined') throw new Error('IndexedDB indisponible');
     return await IndexedDbAdapter.open(userDbName(userId));
   } catch (err) {
-    console.warn('[LexNote] IndexedDB indisponible, repli en mémoire (non persistant).', err);
+    log.storage.warn('IndexedDB indisponible, repli en mémoire (non persistant).', err);
     return new MemoryAdapter(false);
   }
 }

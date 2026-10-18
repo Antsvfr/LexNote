@@ -20,7 +20,7 @@ describe('architecture : cours reconstruit → artefacts (pas de second moteur)'
     expect(a).toMatchObject({ type: 'COURSE_SHEET', courseId: 'course-1', courseVersion: 1, sourceSessionIds: ['s1'], engineVersion: course.engineVersion, generation: 1, userEdited: false });
     expect(a.sourceSnapshot).toEqual(course.sourceSnapshot);
     expect(a.provenance).toMatchObject({ from: 'reconstructed-course', courseId: 'course-1', courseVersion: 1 });
-    expect(a.provenance.sources.map((s) => s.kind)).toEqual(['NOTES', 'TRANSCRIPT', 'DOCUMENT']);
+    expect((a.provenance as import('@/domain/study').CourseProvenance).sources.map((s) => s.kind)).toEqual(['NOTES', 'TRANSCRIPT', 'DOCUMENT']);
     expect(a.generatedContent).toEqual(a.content);
   });
   it('chaque élément de chaque type d’artefact porte des références existantes (notes, PDF p. 14, transcription…)', () => {

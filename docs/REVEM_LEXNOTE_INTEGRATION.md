@@ -377,3 +377,142 @@ production = `https://antsvfr.github.io` (REV-EM, app `https://antsvfr.github.io
 
 `node scripts/build-integration-bundle.mjs [--revem <dépôt REV-EM>] [--check]` génère `supabase/functions/_shared/integration/lexnote-revem-v1.mjs`
 (autonome, zod inclus, empreinte en en-tête) dans les **deux** dépôts ; `--check` échoue si une copie diverge. Les Edge Functions ne font que câbler (`runtime.ts`).
+
+## 12. Lancement d'un cours : « Prendre mes notes dans LexNote » (extension de `lexnote-revem/v1`, rétro-compatible)
+
+**But.** Depuis la fiche d'un cours du planning REV-EM, un clic ouvre la bonne séance LexNote (matière + séance créées ou retrouvées automatiquement) sur `/session/{id}?panel=transcript`. Le micro n'est **jamais** démarré : `ConsentDialog` / `captureManager.start()` restent le seul chemin.
+
+### Flux
+
+```
+REV-EM (navigateur)  ──JWT──▶ integration-link  action « launch-start » { eventId, tz }          (aucun cours, aucune note)
+   integration-link (serveur REV-EM) : relit le cours dans planning_events + subjects DU JETON, vérifie la liaison (CONNECTED, sondée),
+                                       crée une intention (integration_launch_intents : nonce haché, ≤ 5 min, usage unique)
+   ◀── { launchIntentId, expiresAt, launchUrl }   launchUrl = <LexNote>/integrations/revem/launch?intent=<uuid>#n=<nonce>
+LexNote (navigateur) : si non connecté → intention conservée (sessionStorage, 10 min) → /login → reprise automatique ; jamais l'accueil
+   ──JWT──▶ integration-link (LexNote) action « launch-open » { launchIntentId, nonce }
+   serveur LexNote ──HMAC LNRV1──▶ integration-gateway REV-EM : course-launch-request{ operation:'REDEEM_LAUNCH', launchIntentId, nonce, linkId }
+   ◀── course-launch-response{ ok, event: external-course-event }      (l'intention est consommée ATOMIQUEMENT, une seule fois)
+   serveur LexNote : integration_course_open(...) → matière + séance (SQL, verrou consultatif, UNIQUE) → { sessionId, subjectId }
+LexNote (navigateur) : attend que la séance soit présente localement (reload + syncNow, ≤ 15 s) → /session/{id}?panel=transcript
+```
+
+Aucun secret inter-applications dans le navigateur ; aucun identifiant d'utilisateur, e-mail, JWT ou contenu de cours dans une URL. Le nonce est dans le **fragment** (jamais envoyé à un serveur, retiré de l'URL dès la lecture) ; seul son hachage est stocké.
+
+### Structure exacte transmise (REV-EM → LexNote, dans la réponse signée de la passerelle)
+
+```json
+{
+  "integrationVersion": "lexnote-revem/v1", "kind": "external-course-event", "origin": "revem",
+  "externalId": "evt_k3x9a2",                         // id STABLE de l'évènement REV-EM (planning_events.local_id)
+  "title": "CM Droit des contrats",
+  "startsAt": "2026-10-12T08:00:00+02:00", "endsAt": "2026-10-12T10:00:00+02:00", "allDay": false,
+  "location": "Amphi B", "teacher": "Mme Durand",     // omis si absents
+  "sessionTypeHint": "CM",                            // CM | TD | TP | SEMINAR | WORKSHOP | REVISION | OTHER (inconnu → OTHER)
+  "subject": { "app": "revem", "ref": "subj_dc1", "name": "Droit des contrats" },
+  "calendarSource": "ics", "cancelled": false, "updatedAt": "2026-10-09T09:00:00.000Z"
+}
+```
+
+Jamais transmis : notes, résumé, questions, description du cours, mot de passe, JWT, `service_role`, `INTEGRATION_KEY`.
+
+### Liaison évènement → séance, matière → matière, idempotence
+
+* Table `integration_course_refs` (LexNote, migration `20261014000000_revem_course_refs.sql`) : `UNIQUE (user_id, provider, external_event_ref)` → **une** séance par évènement REV-EM et par utilisateur. Table `integration_subject_refs` : `UNIQUE (user_id, provider, external_subject_ref)` → **une** matière par matière REV-EM.
+* Clé de matière : l'identifiant REV-EM de la matière si elle existe en base ; sinon `name:<nom normalisé>` (titre sans préfixe CM/TD/TP ni « groupe N »), de sorte que « CM/TD/TP Droit des contrats » partagent **une** matière. Une matière LexNote créée à la main sous le même nom est adoptée si elle n'est pas déjà liée à une autre matière REV-EM.
+* La fonction SQL `integration_course_open` (SECURITY DEFINER, `service_role` seul) prend `pg_advisory_xact_lock` (matière puis évènement : ordre fixe, pas d'interblocage) : double clic, deux onglets, deux appareils, rejeu réseau → **une** matière, **une** séance, garanti par la base et non par le front. Une séance supprimée par l'étudiant est recréée à la réouverture ; une séance existante n'est jamais modifiée.
+* Numérotation de la séance : `max(number)+1` par (matière, type).
+
+### Qui possède quoi — mise à jour du planning
+
+Création initiale à partir de REV-EM ; **ensuite LexNote possède la séance** (titre, date, horaires, notes, transcription). Une réouverture, ou une modification du planning REV-EM, **n'écrase jamais** une séance existante : seuls des métadonnées sûres pourraient un jour être rafraîchies (non implémenté, volontairement). Les notes restent dans LexNote ; REV-EM n'en reçoit jamais le contenu.
+
+### Multi-appareils et synchronisation
+
+La séance est créée **côté serveur LexNote** (pas dans l'IndexedDB du navigateur) puis tirée par le `SyncEngine` habituel (`pull` par `server_updated_at`) : elle est identique à une séance créée à la main (RLS, `version`, file « dirty » respectés). Sur un autre appareil, la même référence mène à la même séance.
+
+### États du bouton (REV-EM)
+
+| État de la liaison | Bouton |
+|---|---|
+| connectée et vérifiée des deux côtés | « Prendre mes notes dans LexNote » (actif) |
+| non connectée / en attente / révoquée / non vérifiée / invité | « Connecter LexNote » → Réglages › Applications connectées (rien n'est créé) |
+| LexNote injoignable ou non configurée | « LexNote temporairement indisponible » (désactivé) + « Vérifier à nouveau » |
+| ouverture en cours | « Ouverture de LexNote… » + spinner, désactivé (aucun double clic) |
+
+### Comportements d'erreur (LexNote)
+
+Non connecté à LexNote → intention gardée (10 min) puis reprise après connexion · connecté mais comptes non liés → rien n'est créé, parcours « Connecter REV-EM » · intention expirée / déjà utilisée / falsifiée / d'un autre utilisateur → message dédié, rien n'est créé · réseau coupé → message + bouton réessayer. L'égalité d'e-mail n'est **jamais** une identité.
+
+### Déploiement ultérieur (rien n'est déployé par cette étape)
+
+1. REV-EM : appliquer `supabase/migrations/008_integration_launch.sql` ; LexNote : appliquer `20261014000000_revem_course_refs.sql` (après toutes les migrations antérieures).
+2. Redéployer `integration-link` et `integration-gateway` (`--no-verify-jwt`) des **deux** projets (le paquet `lexnote-revem-v1.mjs` est régénéré : `node scripts/build-integration-bundle.mjs --revem <chemin REV-EM>`) ; secrets inchangés.
+3. Publier les deux fronts, puis vérifier avec un compte réel de bout en bout (les tests automatisés sont en simulation : PGlite, double de Supabase, Chromium).
+
+## 13. Documents dérivés de la transcription et types de séance (compatibilité v1)
+
+- Les documents produits par « Exploiter la transcription » (résumé, traduction, cours structuré… — voir
+  [TRANSCRIPT_ACTIONS.md](TRANSCRIPT_ACTIONS.md)) sont des `StudyArtifact` de LexNote, mais leurs types (`SUMMARY`,
+  `TRANSLATION`, …) **ne font pas partie de `lexnote-revem/v1`** (`ARTIFACT_KINDS` = les 8 types du cours reconstruit).
+  Ils ne sont donc jamais exposés à REV-EM (`isContractArtifact`, `toArtifactReference` refuse explicitement) ; les partager
+  demandera une évolution compatible du contrat (nouvelle version mineure, champ facultatif côté REV-EM).
+- Le type de séance `PROJECT` (Projet), ajouté côté LexNote, est transmis comme `OTHER` dans `lexnote-session-reference`.
+- Une séance ouverte depuis REV-EM est une séance LexNote ordinaire : toutes les actions sur la transcription s'y appliquent.
+
+## 14. Authentification durable LexNote ⇄ REV-EM (session persistante, appareils, connexion automatique)
+
+Aucun mot de passe n'est stocké nulle part (ni en clair, ni chiffré, ni dans Supabase), ni `service_role`, ni `INTEGRATION_KEY`, ni JWT dans
+une URL. Tout repose sur Supabase Auth (jeton d'accès + jeton de rafraîchissement) et sur `lexnote-revem/v1`.
+
+### 14.1 Diagnostic du « Votre session a expiré » pendant l'autorisation
+Ce libellé correspondait au code `UNAUTHENTICATED`, produit par **quatre** causes dont trois sans rapport avec la session de l'étudiant :
+1. **Passerelle du partenaire déployée avec vérification JWT** (`integration-gateway` sans `--no-verify-jwt`, réglage non versionné) : la
+   plateforme Supabase répond 401 avant notre code ; `peer.ts` traduisait tout 401 non signé en `UNAUTHENTICATED`. **Cause la plus probable**
+   quand la session LexNote est valide.
+2. **Signature serveur ↔ serveur refusée** (clé ou `kid` différents, horloges décalées de plus de 300 s, rejeu) : même traduction.
+3. **Session non rafraîchissable masquée** : `functions.invoke` (supabase-js 2.117) retombe silencieusement sur la clé publique quand
+   `getSession()` ne peut pas rafraîchir (réseau instable, jeton de rafraîchissement refusé) ; l'interface se croyait connectée (et le mode
+   « hors ligne » rouvrait l'espace du dernier utilisateur sans jeton valide).
+4. **Déconnexion GLOBALE involontaire** : `signOut()` sans portée = `global` dans supabase-js : se déconnecter sur un appareil révoquait les
+   sessions de tous les autres, qui découvraient au rafraîchissement suivant une session expirée.
+
+Corrections : `PEER_AUTH_FAILED` (+ `details.reason` : `gateway-verify-jwt`, `bad-signature`, `expired`, `replay`…) distinct, affiché avec un
+code de diagnostic ; `supabase/config.toml` versionne `verify_jwt = false` pour `integration-gateway` (et `integration-link`, qui authentifie
+elle-même) ; le navigateur vérifie / rafraîchit la session AVANT l'appel, transmet le jeton explicitement, retente une fois après
+rafraîchissement, et renvoie à la connexion (`SESSION_REQUIRED`, demande en cours conservée) au lieu d'un appel anonyme ; `signOut` local par
+défaut, « Déconnecter tous les appareils » explicite. Vérification en production (depuis votre machine) :
+`curl -s -X POST -d '{}' https://<ref>.supabase.co/functions/v1/integration-gateway` doit renvoyer un JSON `{"kind":"integration-error",…}`
+(notre code) et **non** `{"code":401,"message":"Missing authorization header"}` (plateforme).
+
+### 14.2 Rafraîchissement et « Rester connecté sur cet appareil »
+- La session Supabase (clé `lexnote-auth` du localStorage) est partagée par tous les onglets ET par l'application installée du même profil
+  de navigateur (Chrome / Edge sur ordinateur, Chrome Android) ; supabase-js rafraîchit le jeton d'accès (≈ 1 h) avant expiration, un seul
+  rafraîchissement à la fois (verrou inter-onglets), avec rotation du jeton de rafraîchissement.
+- Case **décochée** (défaut d'un nouvel appareil) : un cookie de session sans secret (`lexnote_bs=1`) marque la session du navigateur ; à la
+  réouverture du navigateur (cookie absent), la session stockée est **révoquée** (portée locale) puis effacée avant tout usage. Les nouveaux
+  onglets de la même session restent connectés (indispensable à l'ouverture depuis REV-EM). Limite : un navigateur qui restaure les cookies
+  de session (« Reprendre là où vous vous étiez arrêté ») prolonge la session.
+- Case **cochée** : la session survit à la fermeture et au redémarrage ; elle n'expire que si le jeton de rafraîchissement est révoqué ou
+  inutilisé au-delà de la durée configurée dans Supabase Auth.
+- Appareil déjà connecté avant cette version : traité comme « coché » (pas de déconnexion surprise à la mise à jour).
+- iOS / iPadOS : l'application ajoutée à l'écran d'accueil a un stockage SÉPARÉ de Safari → deux sessions, deux appareils dans la liste.
+
+### 14.3 Appareils (`user_devices`, migration `20261017000000`)
+UUID tiré au hasard localement, libellé grossier (« Chrome — macOS », « · application » si installée), case « rester connecté », date de
+dernière utilisation, et l'identifiant de **session Supabase** lu par le serveur dans le JWT (`session_id`). « Déconnecter » un appareil
+supprime SA ligne `auth.sessions` (jeton de rafraîchissement inutilisable immédiatement ; le jeton d'accès déjà émis expire au plus tard dans
+l'heure). « Déconnecter tous les appareils » = déconnexion globale Supabase. Aucune empreinte de navigateur.
+
+### 14.4 Connexion automatique depuis REV-EM
+Consentement EXPLICITE (case jamais cochée d'office) à l'autorisation ou dans Réglages, stocké sur la liaison (`integration_links.auto_login`),
+retiré automatiquement par la base dès que la liaison n'est plus `CONNECTED`. Comportement au clic « Prendre mes notes dans LexNote » :
+- **A** session valide → ouverture immédiate ; **B** jeton expiré mais rafraîchissable → rafraîchi par supabase-js, aucune demande ;
+- **C** aucune session + consentement → `launch-signin` (seule action sans session) : `IDENTIFY_LAUNCH` signé (lecture seule, ≤ 120 s) →
+  consentement + liaison vérifiés en base LexNote → `REDEEM_LAUNCH` (usage unique) → **session Supabase ordinaire** créée par le serveur
+  (`auth.admin.generateLink` + `verifyOtp` dans l'Edge Function : le jeton à usage unique est consommé côté serveur, aucun e-mail envoyé) et
+  remise dans le CORPS de la réponse (`no-store`), installée par `setSession` ;
+- **D** consentement absent / retiré, partenaire ancien, panne → connexion LexNote normale, puis reprise du même lancement (non consommé).
+Protections : nonce 32 octets dans le fragment (jamais envoyé aux serveurs ni dans `Referer`, effacé de l'historique), intention à usage
+unique (verrou de ligne), fenêtre 120 s, mauvais nonce sans consommation, rejeu des messages signés refusé (registre des nonces), vérification
+du consentement juste avant la création de session, mauvais compte → `WRONG_ACCOUNT`, double clic / onglets → une seule session.
