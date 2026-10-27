@@ -1,9 +1,9 @@
 import type { ReactNode } from 'react';
-import { Scale, ShieldCheck, WifiOff } from 'lucide-react';
+import { GraduationCap, ShieldCheck, WifiOff } from 'lucide-react';
 import { LogoMark } from '@/components/Logo';
-import heroArt from '@/assets/art/hero-courthouse.svg';
+import heroArt from '@/assets/art/hero-portico.svg';
 
-/** Écrans de connexion : même univers que l'application (fond sombre, halo rouge, éléments juridiques discrets). */
+/** Écrans de connexion : même univers que l'application (fond sombre, halo rouge, architecture universitaire discrète). */
 export function AuthLayout({ title, subtitle, children, footer }: { title: string; subtitle?: string; children: ReactNode; footer?: ReactNode }) {
   return (
     <div className="authpage">
@@ -11,7 +11,7 @@ export function AuthLayout({ title, subtitle, children, footer }: { title: strin
       <div className="authpage__col">
         <header className="authpage__brand">
           <LogoMark className="brand__mark" />
-          <div className="brand__text"><strong>LexNote</strong><small>Notes · CM · Droit</small></div>
+          <div className="brand__text"><strong>LexNote</strong><small>Notes · Cours · Révisions</small></div>
         </header>
         <main className="authcard" aria-labelledby="auth-title">
           <h1 id="auth-title">{title}</h1>
@@ -20,7 +20,7 @@ export function AuthLayout({ title, subtitle, children, footer }: { title: strin
         </main>
         {footer && <p className="authpage__foot">{footer}</p>}
         <ul className="authpage__points" aria-label="Pourquoi LexNote">
-          <li><Scale size={15} aria-hidden /> Conçu pour les cours de droit</li>
+          <li><GraduationCap size={15} aria-hidden /> Pour toutes les filières : droit, commerce, sciences, santé, langues…</li>
           <li><WifiOff size={15} aria-hidden /> Fonctionne hors ligne</li>
           <li><ShieldCheck size={15} aria-hidden /> Vos notes ne sont visibles que de vous</li>
         </ul>

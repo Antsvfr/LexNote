@@ -61,7 +61,7 @@
   --note-heading: #ff7088;
   --note-link: #6ea6ff;
 
-  /* blocs juridiques */
+  /* blocs de notes (généraux + spécialisés) */
   --b-article: #7ea5ff;     --b-article-bg: rgb(76 141 255 / 0.12);
   --b-caselaw: #c39bff;     --b-caselaw-bg: rgb(164 107 255 / 0.12);
   --b-definition: #46d6b4;  --b-definition-bg: rgb(34 197 139 / 0.11);

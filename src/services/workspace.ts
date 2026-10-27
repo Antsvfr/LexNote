@@ -15,6 +15,7 @@ import { useLibrary, onSubjectsRemoved } from '@/store/library';
 import { useArtifacts } from '@/store/artifacts';
 import { useEngine } from '@/store/engine';
 import { createRemoteProvider, registerEngineProvider, setActiveEngineProvider, unregisterEngineProvider } from './engine/provider';
+import { aiService, createRemoteAIProvider } from './ai';
 import { useEditorBridge } from '@/store/editorBridge';
 import { initialSync, setSync, useSync } from '@/store/sync';
 import { useToasts } from '@/store/toasts';
@@ -57,6 +58,9 @@ export async function openWorkspace(user: AuthUser, backend: Backend): Promise<v
   // Moteur distant (facultatif) : un point d'accès serveur ; aucune clé de modèle dans l'application.
   const engineUrl = import.meta.env.VITE_ENGINE_URL as string | undefined;
   if (engineUrl) registerEngineProvider(createRemoteProvider({ endpoint: engineUrl, getToken: async () => (await backend.auth.getAccessToken?.()) ?? null, label: 'Moteur distant' }));
+  // Fonctions IA sur la transcription (facultatives) : Edge Function `study-ai`, authentifiée par la session ; aucune clé ici.
+  const aiUrl = import.meta.env.VITE_AI_URL as string | undefined;
+  if (aiUrl && backend.kind !== 'unconfigured') aiService.setProvider(createRemoteAIProvider({ endpoint: aiUrl, getToken: async () => (await backend.auth.getAccessToken?.()) ?? null }));
   await captureManager.init(user.id);
 
   if (backend.kind !== 'unconfigured') {
@@ -83,6 +87,18 @@ export async function openWorkspace(user: AuthUser, backend: Backend): Promise<v
   if (!engine) setSync({ state: 'disabled' });
 }
 
+/**
+ * Dernière tentative d'envoi avant de quitter la session (déconnexion). Borne le temps d'attente ; ne lève jamais.
+ * Renvoie le nombre d'éléments encore non envoyés (ils restent sur l'appareil, rien n'est supprimé).
+ */
+export async function flushSyncBeforeExit(timeoutMs = 5000): Promise<number> {
+  const eng = current?.engine;
+  if (!eng) return 0;
+  await Promise.race([eng.syncNow().catch(() => undefined), new Promise<void>((r) => setTimeout(r, timeoutMs))]);
+  await eng.refreshPending();
+  return useSync.getState().pending;
+}
+
 export async function closeWorkspace(): Promise<void> {
   const ws = current;
   current = null;
@@ -97,6 +113,7 @@ export async function closeWorkspace(): Promise<void> {
   useArtifacts.getState().reset();
   useEngine.getState().reset();
   unregisterEngineProvider('remote'); setActiveEngineProvider('local');
+  aiService.reset();
   useEditorBridge.getState().setEditor(null);
   useSaveStatus.getState().set('idle');
   useToasts.setState({ toasts: [] });

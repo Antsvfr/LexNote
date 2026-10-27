@@ -26,7 +26,7 @@ test.describe('transcription — permission et avertissement', () => {
     await createCm(page, { subject: 'Cap', module: 'M', title: 'Start' });
     await startRecording(page);
     expect(await page.evaluate(() => (window as any).__gum)).toBe(1);
-    await expect(page.getByTestId('capture-status')).toHaveText('Enregistrement');
+    await expect(page.getByTestId('capture-status')).toHaveText('En cours');
     await page.getByTestId('stop-btn').click();
     await expect(page.getByTestId('transcription-btn')).toBeVisible();
     await page.getByTestId('transcription-btn').click();
@@ -36,6 +36,10 @@ test.describe('transcription — permission et avertissement', () => {
 
   test('permission refusée : message explicite, notes intactes, pas d’enregistrement', async ({ page }) => {
     const errors = trackErrors(page);
+    await page.addInitScript(() => {
+      const q = navigator.permissions.query.bind(navigator.permissions);
+      navigator.permissions.query = (d: PermissionDescriptor) => d.name === ('microphone' as PermissionName) ? Promise.resolve({ state: 'denied', onchange: null } as unknown as PermissionStatus) : q(d);
+    });
     await page.goto('/');
     await createCm(page, { subject: 'Cap', module: 'M', title: 'Refus' });
     await page.evaluate(() => { (window as any).__denyMic = true; });
@@ -43,7 +47,7 @@ test.describe('transcription — permission et avertissement', () => {
     await page.keyboard.type('mes notes restent');
     await page.getByTestId('transcription-btn').click();
     await page.getByTestId('consent-accept').click();
-    await expect(page.getByTestId('capture-error')).toContainText('refusé');
+    await expect(page.getByTestId('capture-error')).toContainText('L’accès au microphone est bloqué');
     await expect(page.getByTestId('rec-pill')).toHaveCount(0);
     await page.locator('.note-prose').click();
     await page.keyboard.type(' et continuent');
@@ -51,6 +55,70 @@ test.describe('transcription — permission et avertissement', () => {
     await page.reload();
     await expect(page.locator('.note-prose')).toContainText('mes notes restent et continuent');
     expect(errors.filter((e) => !/NotAllowed|refus/i.test(e))).toEqual([]);
+  });
+});
+
+test.describe('transcription — accès au micro (APIs simulées : ne valide pas un micro physique)', () => {
+  test('RÉGRESSION : micro présent mais permission pas encore accordée → jamais « Aucun microphone détecté » ; Réessayer → transcription, pause, reprise', async ({ page }) => {
+    await page.addInitScript(() => {
+      // Permission du site pas encore accordée ; le navigateur échoue d'abord (NotFoundError), comme sur Mac avant l'autorisation système.
+      const q = navigator.permissions.query.bind(navigator.permissions);
+      navigator.permissions.query = (d: PermissionDescriptor) => d.name === ('microphone' as PermissionName) ? Promise.resolve({ state: 'prompt', onchange: null } as unknown as PermissionStatus) : q(d);
+      (window as any).__micError = 'NotFoundError';
+    });
+    await page.goto('/');
+    await createCm(page, { subject: 'Mic', module: 'M', title: 'Régression micro' });
+    await page.waitForTimeout(300);
+    expect(await page.evaluate(() => (window as any).__gum)).toBe(0); // rien au chargement
+    await expect(page.getByTestId('transcript-panel')).toContainText('La transcription n’est pas encore activée.');
+    await expect(page.getByTestId('mic-hint')).toBeVisible();
+    await page.locator('.note-prose').click();
+    await page.keyboard.type('notes protégées');
+    await page.getByTestId('transcription-btn').click();
+    await page.getByTestId('consent-accept').click();
+    const banner = page.getByTestId('capture-error');
+    await expect(banner).toBeVisible();
+    await expect(banner).not.toContainText('Aucun microphone');
+    await expect(page.getByTestId('capture-status')).toHaveText('Non démarrée');
+    // Un seul appel à l'action : pas de bouton « Activer » contradictoire sous le bandeau.
+    await expect(page.getByTestId('transcript-panel').getByRole('button', { name: /Activer la transcription|Autoriser le microphone/ })).toHaveCount(0);
+    await page.evaluate(() => { (window as any).__micError = null; });
+    await banner.getByRole('button', { name: 'Réessayer' }).click();
+    await expect(page.getByTestId('rec-pill')).toContainText('REC');
+    await expect(page.getByTestId('capture-status')).toHaveText('En cours');
+    await expect(page.getByTestId('capture-error')).toHaveCount(0);
+    await page.evaluate(() => (window as any).__say('Le contrat se forme', false));
+    await expect(page.locator('.tseg--interim')).toContainText('Le contrat se forme');
+    await page.evaluate(() => (window as any).__say('Le contrat se forme par l’échange des consentements'));
+    await expect(page.getByTestId('tseg')).toHaveCount(1);
+    await page.getByTestId('pause-btn').click();
+    await expect(page.getByTestId('capture-status')).toHaveText('En pause');
+    await page.getByTestId('resume-btn').click();
+    await expect(page.getByTestId('rec-pill')).toContainText('REC');
+    await page.evaluate(() => (window as any).__say('après la reprise'));
+    await expect(page.getByTestId('tseg')).toHaveCount(2);
+    await expect(page.locator('.note-prose')).toContainText('notes protégées');
+  });
+
+  test('micro occupé (NotReadableError) : message spécifique, puis reprise ; texte et notes conservés', async ({ page }) => {
+    await page.goto('/');
+    await createCm(page, { subject: 'Mic', module: 'M', title: 'Occupé' });
+    await page.locator('.note-prose').click();
+    await page.keyboard.type('mes notes');
+    await startRecording(page);
+    await page.evaluate(() => (window as any).__say('premier passage'));
+    await expect(page.getByTestId('tseg')).toHaveCount(1);
+    await page.getByTestId('pause-btn').click();
+    await page.evaluate(() => { (window as any).__micError = 'NotReadableError'; });
+    await page.getByTestId('resume-btn').click();
+    await expect(page.getByTestId('capture-error')).toContainText('momentanément indisponible');
+    await expect(page.getByTestId('capture-status')).toHaveText('Interrompue');
+    await expect(page.getByTestId('tseg')).toHaveCount(1);
+    await page.evaluate(() => { (window as any).__micError = null; });
+    await page.getByTestId('capture-error').getByRole('button', { name: 'Réessayer' }).click();
+    await expect(page.getByTestId('rec-pill')).toContainText('REC');
+    await expect(page.getByTestId('tseg')).toHaveCount(1);
+    await expect(page.locator('.note-prose')).toContainText('mes notes');
   });
 });
 
@@ -67,7 +135,10 @@ test.describe('transcription — capture en direct', () => {
     await page.evaluate(() => (window as any).__say('Pour qu’un contrat soit valablement formé', false));
     await expect(page.locator('.tseg--interim')).toContainText('valablement formé');
     await page.evaluate(() => (window as any).__say('Pour qu’un contrat soit valablement formé, il faut un consentement'));
+    // le dialogue de consentement a pris le focus : l'étudiant revient dans ses notes avant d'écrire
+    await page.locator('.note-prose').click();
     await page.keyboard.type('Formation du contrat : consentement');
+    await expect(page.locator('.note-prose')).toContainText('Formation du contrat : consentement');
     await page.evaluate(() => (window as any).__say('L’article 1128 du Code civil prévoit trois conditions'));
     await expect(page.getByTestId('tseg')).toHaveCount(2);
     await expect(page.getByTestId('tseg').first()).toContainText('consentement');
@@ -231,7 +302,7 @@ test.describe('transcription — capture en direct', () => {
 });
 
 test.describe('transcription — après le CM', () => {
-  test('Terminer le CM pendant l’enregistrement, récapitulatif, recherche dans la transcription, réécoute, suppression', async ({ page }) => {
+  test('Terminer la séance pendant l’enregistrement, récapitulatif, recherche dans la transcription, réécoute, suppression', async ({ page }) => {
     await page.goto('/');
     await createCm(page, { subject: 'Fin', module: 'M', title: 'Vices du consentement' });
     await page.locator('.note-prose').click();
@@ -244,15 +315,17 @@ test.describe('transcription — après le CM', () => {
     // Terminer pendant l'enregistrement → confirmation
     await page.getByTestId('finish-cm').click();
     await expect(page.getByRole('dialog')).toContainText('Un enregistrement est en cours');
-    await page.getByRole('button', { name: 'Arrêter et terminer le CM' }).click();
+    await page.getByRole('button', { name: 'Arrêter et terminer la séance' }).click();
     await expect(page.getByTestId('recap-title')).toContainText('Vices du consentement');
     await expect(page.getByTestId('recap-words')).toContainText('5');
     await expect(page.getByTestId('recap-twords')).toContainText('6');
     await expect(page.getByTestId('recap-markers')).toHaveText('1');
     await expect(page.getByTestId('recap-interruptions')).toHaveText('0');
     await expect(page.getByTestId('recap-audio')).not.toHaveText('—');
-    await expect(page.getByText('Cours restructuré')).toBeVisible(); // toujours désactivé ; résumé, fiche, flashcards, questions sont désormais de vrais supports
-    await expect(page.locator('.future li[aria-disabled="true"]')).toHaveCount(3);
+    // « Exploiter la transcription » remplace les anciens emplacements « bientôt » ; sans moteur IA, l'état est affiché honnêtement
+    await expect(page.getByTestId('transcript-actions')).toContainText('6 mots');
+    await expect(page.getByTestId('ai-status')).toHaveText('Fonction IA non configurée');
+    await expect(page.locator('.future li[aria-disabled="true"]')).toHaveCount(0);
 
     // Onglets
     await page.getByTestId('recap-tab-transcript').click();

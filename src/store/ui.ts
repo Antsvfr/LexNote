@@ -70,7 +70,8 @@ interface UIState {
 export const useUI = create<UIState>((set, get) => ({
   theme: read<ThemePref>('lexnote.theme', 'dark'),
   focus: false,
-  assistantOpen: read('lexnote.assistantOpen', true),
+  // Petit écran : le panneau est une feuille qui couvre les notes → fermée au départ (bouton « Transcription » pour l'ouvrir).
+  assistantOpen: typeof window !== 'undefined' && window.matchMedia?.('(max-width: 860px)').matches ? false : read('lexnote.assistantOpen', true),
   paletteOpen: false,
   navOpen: false,
   newSession: null,

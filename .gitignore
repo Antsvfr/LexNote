@@ -161,3 +161,6 @@ playwright-report/
 *.temp
 .env*
 !.env.example
+
+# Preuves locales des portes de déploiement (scripts/prod/evidence.mjs)
+release/evidence.json

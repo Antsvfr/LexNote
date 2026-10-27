@@ -1,0 +1,158 @@
+{
+  "$comment": "Portes de déploiement LexNote. `auto` = vérifiable depuis le dépôt (commande `command`, enregistrée par `node scripts/prod/evidence.mjs run-auto`). `manual` = preuve humaine/réelle (Supabase de TEST, fournisseur IA, navigateurs, sauvegarde) enregistrée par `node scripts/prod/evidence.mjs record <id> PASS|FAIL --note …`. Une porte non exécutée vaut NOT_RUN et BLOQUE : jamais comptée comme PASS.",
+  "maxAgeDays": 7,
+  "gates": [
+    {
+      "id": "typecheck",
+      "kind": "auto",
+      "title": "Typage TypeScript",
+      "command": "npm run typecheck",
+      "sha": true
+    },
+    {
+      "id": "unit-tests",
+      "kind": "auto",
+      "title": "Tests unitaires + base (Vitest)",
+      "command": "npx vitest run",
+      "sha": true
+    },
+    {
+      "id": "build",
+      "kind": "auto",
+      "title": "Build de production",
+      "command": "npm run build",
+      "sha": true
+    },
+    {
+      "id": "bundle-check",
+      "kind": "auto",
+      "title": "Bundle lexnote-revem/v1 identique des deux côtés",
+      "command": "node scripts/build-integration-bundle.mjs --check",
+      "sha": true
+    },
+    {
+      "id": "preflight",
+      "kind": "auto",
+      "title": "Préflight (statique)",
+      "command": "node scripts/prod/preflight.mjs",
+      "sha": true
+    },
+    {
+      "id": "e2e-critical",
+      "kind": "auto",
+      "title": "Parcours critiques (Playwright, Chromium)",
+      "command": "npx playwright test tests/e2e/release-critical.spec.ts --project=chromium",
+      "sha": true
+    },
+    {
+      "id": "deno-tests",
+      "kind": "manual",
+      "title": "Tests Deno des Edge Functions (study-ai, health, intégration)",
+      "how": "deno test supabase/functions/study-ai/handler.test.ts …",
+      "sha": true
+    },
+    {
+      "id": "merge-chain",
+      "kind": "manual",
+      "title": "Chaîne de PR vérifiée sur GitHub : LexNote #12→#10→#11→#13→#14 et REV-EM #24→#25 (ouvertes, brouillons, sans conflit, CI verte, chaque tête contient la précédente)",
+      "how": "voir docs/PRODUCTION_RUNBOOK.md §I.1",
+      "sha": false
+    },
+    {
+      "id": "backup",
+      "kind": "manual",
+      "title": "Sauvegarde de PRODUCTION réalisée et vérifiée (docs/PRODUCTION_RUNBOOK.md §I.2) — par l'exploitant, jamais par un script",
+      "sha": false
+    },
+    {
+      "id": "migration-status",
+      "kind": "manual",
+      "title": "migration-status.mjs lancé sur la production : aucune étape DIFFÉRENTE, ordre respecté",
+      "sha": false
+    },
+    {
+      "id": "migrations-on-test",
+      "kind": "manual",
+      "title": "Migrations 20261007…20261018 appliquées sur le projet Supabase de TEST",
+      "sha": false
+    },
+    {
+      "id": "supabase-smoke",
+      "kind": "manual",
+      "title": "supabase-smoke.mjs (SMOKE_CONFIRM=1) réussi sur le projet de TEST",
+      "sha": true
+    },
+    {
+      "id": "integration-diagnostic",
+      "kind": "manual",
+      "title": "integration-diagnostic.mjs réussi entre DEUX projets de TEST (Supabase hébergés, ou deux stacks Supabase locales réelles via INTEGRATION_LOCAL=1 — la preuve doit dire lequel)",
+      "sha": true
+    },
+    {
+      "id": "integration-real-e2e",
+      "kind": "manual",
+      "title": "real-e2e.mjs réussi (lien, lancement, rejeu, révocation) entre deux projets de TEST ou deux stacks locales réelles (la preuve dit lequel)",
+      "how": "node scripts/prod/local-stack.mjs verify --record",
+      "sha": true
+    },
+    {
+      "id": "ai-killswitch-local",
+      "kind": "manual",
+      "title": "Interrupteur STUDY_AI_ENABLED=false vérifié sur study-ai local : 503 ai_disabled avec et sans JWT, Retry-After, aucun appel fournisseur (ne remplace PAS ai-real-smoke)",
+      "how": "node scripts/prod/local-stack.mjs verify --record",
+      "sha": true
+    },
+    {
+      "id": "revem-local-validation",
+      "kind": "manual",
+      "title": "REV-EM #24/#25 validé en local sans CI : tests JS/mjs, migrations 006–009 sur PostgreSQL réel (la note donne le SHA REV-EM)",
+      "how": "scripts/prod/rehearsal.mjs revem-migrations --url <PG local> --revem-repo <REV-EM>",
+      "sha": false
+    },
+    {
+      "id": "ai-real-smoke",
+      "kind": "manual",
+      "title": "study-ai réel (study-ai-smoke.mjs) réussi, kill switch STUDY_AI_ENABLED=false vérifié",
+      "sha": true
+    },
+    {
+      "id": "browsers-firefox-webkit",
+      "kind": "manual",
+      "title": "Parcours critiques exécutés sur Firefox et WebKit",
+      "sha": true
+    },
+    {
+      "id": "pwa-manual",
+      "kind": "manual",
+      "title": "PWA vérifiée à la main (installation, hors ligne, mise à jour, session conservée)",
+      "sha": true
+    },
+    {
+      "id": "backup-restore-rehearsal",
+      "kind": "manual",
+      "title": "Répétition sauvegarde → incident → restauration sur un vrai PostgreSQL de TEST (scripts/prod/rehearsal.mjs backup-restore)",
+      "how": "node scripts/prod/rehearsal.mjs backup-restore --url <PostgreSQL local>",
+      "sha": true
+    },
+    {
+      "id": "rollback-db-compat",
+      "kind": "manual",
+      "title": "Base additive : ancien code compatible après la migration 18, aucune donnée modifiée (rehearsal.mjs db-rollback)",
+      "how": "node scripts/prod/rehearsal.mjs db-rollback --url <PostgreSQL local>",
+      "sha": true
+    },
+    {
+      "id": "rollback-frontend-local",
+      "kind": "manual",
+      "title": "Retour arrière frontend : ancien build servi sur la même origine, données intactes, mise à jour proposée (frontend-rollback-drill.mjs)",
+      "how": "node scripts/prod/frontend-rollback-drill.mjs --old <dist N> --new <dist N+1>",
+      "sha": true
+    },
+    {
+      "id": "rollback-rehearsed",
+      "kind": "manual",
+      "title": "Retour arrière répété de bout en bout sur le projet Supabase de TEST + prévisualisation Vercel (Edge Functions comprises)",
+      "sha": false
+    }
+  ]
+}

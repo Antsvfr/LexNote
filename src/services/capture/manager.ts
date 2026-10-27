@@ -1,4 +1,5 @@
 import { PROVIDERS, resolveProvider } from '@/services/transcription';
+import { UNSUPPORTED, browserEnv } from './mic';
 import { loadEngineSettings } from '@/services/transcription/settings';
 import { TranscriptIndex } from '@/services/search/transcriptSearch';
 import { insertSorted, type MarkerReason, type NoteAnchor, type TimelineMarker } from '@/domain/capture';
@@ -10,6 +11,7 @@ import { estimateStorage } from './quota';
 import { ChunkPlayer } from './playback';
 import { requestSyncSoon } from '@/services/sync/hook';
 import { createCaptureStorage, type CaptureStorage } from './storage';
+import { log } from '@/lib/log';
 
 export const FLUSH_ANCHORS_EVENT = 'lexnote:flush-anchors';
 
@@ -83,7 +85,8 @@ class CaptureManager {
       userId: this.userId ?? undefined,
       storage: this.getStorage(),
       getUserMedia: (c) => {
-        if (!md?.getUserMedia) return Promise.reject(new DOMException('API micro indisponible (contexte non sécurisé ?)', 'NotFoundError'));
+        // API absente (navigateur ancien, page http) : ce n'est PAS « aucun micro » — le diagnostic le dira.
+        if (!md?.getUserMedia) return Promise.reject(new DOMException('API micro indisponible', UNSUPPORTED));
         return md.getUserMedia(c);
       },
       MediaRecorderCtor: typeof MediaRecorder !== 'undefined' ? MediaRecorder : undefined,
@@ -93,6 +96,7 @@ class CaptureManager {
       providerFactory: () => resolveProvider(),
       settings: loadEngineSettings,
       chunkMs: loadEngineSettings().chunkMs,
+      micEnv: browserEnv,
       wakeLock: (navigator as Navigator & { wakeLock?: CaptureDeps['wakeLock'] }).wakeLock,
     };
   }
@@ -111,7 +115,7 @@ class CaptureManager {
       c = new CaptureController(sessionId, this.deps());
       this.controllers.set(sessionId, c);
       this.unsubs.set(sessionId, c.subscribe((e) => this.onEvent(sessionId, e)));
-      try { await c.load(); } catch (err) { console.error('[LexNote] chargement de la capture', err); }
+      try { await c.load(); } catch (err) { log.transcription.error('chargement de la capture', err); }
     }
     this.syncView(c);
     await this.player?.dispose();
@@ -194,7 +198,7 @@ class CaptureManager {
     for (const id of new Set(sessionIds)) {
       const c = this.controllers.get(id);
       if (!c || c.isActive) continue;
-      try { await c.load(); this.syncView(c); } catch (e) { console.warn('[LexNote] rafraîchissement capture', e); }
+      try { await c.load(); this.syncView(c); } catch (e) { log.transcription.warn('rafraîchissement capture', e); }
     }
     this.index.clear(); // reconstruit à la prochaine recherche
   }

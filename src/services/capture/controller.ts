@@ -9,6 +9,8 @@ import type { EngineSettings } from '@/services/transcription/settings';
 import { ChunkedRecorder, DEFAULT_BITS_PER_SECOND, DEFAULT_CHUNK_MS, pickMimeType, type RecordedChunk } from './recorder';
 import type { StorageInfo } from './quota';
 import type { CaptureStorage } from './storage/types';
+import { log } from '@/lib/log';
+import { diagnoseMicFailure, openMic, type MicEnv, type MicIssue } from './mic';
 
 export interface CaptureDeps {
   /** Propriétaire des données capturées. */
@@ -27,6 +29,8 @@ export interface CaptureDeps {
   sleepGapMs?: number;
   retryDelaysMs?: number[];
   wakeLock?: { request(type: 'screen'): Promise<{ release(): Promise<void> }> };
+  /** APIs du navigateur consultées pour DIAGNOSTIQUER un échec d'accès au micro (permission, périphériques). */
+  micEnv?: () => MicEnv;
 }
 
 export type CaptureEvent =
@@ -45,6 +49,9 @@ export interface CaptureError {
   kind: InterruptionKind;
   message: string;
   recoverable: boolean;
+  /** Cause vérifiée d'un échec d'accès au micro (absente pour les autres erreurs). */
+  issue?: MicIssue;
+  title?: string;
 }
 
 export interface LoadedCapture {
@@ -97,7 +104,7 @@ export class CaptureController {
 
   /* ---------- abonnement ---------- */
   subscribe(fn: (e: CaptureEvent) => void) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
-  private emit(e: CaptureEvent) { this.listeners.forEach((l) => { try { l(e); } catch (err) { console.error(err); } }); }
+  private emit(e: CaptureEvent) { this.listeners.forEach((l) => { try { l(e); } catch (err) { log.transcription.error('erreur inattendue', err); } }); }
   private setStatus(status: TranscriptionStatus, error: CaptureError | null = null) {
     this.status = status;
     this.error = error;
@@ -146,9 +153,9 @@ export class CaptureController {
     this.setStatus('REQUESTING_PERMISSION');
     let stream: MediaStream;
     try {
-      stream = await this.deps.getUserMedia({ audio: { channelCount: 1 } });
+      stream = await openMic(this.deps.getUserMedia);
     } catch (err) {
-      this.setStatus('ERROR', this.classifyMediaError(err));
+      this.setStatus('ERROR', await this.micError(err));
       return;
     }
     if (this.disposed) { stream.getTracks().forEach((t) => t.stop()); return; }
@@ -157,7 +164,7 @@ export class CaptureController {
     try {
       await this.beginRun();
     } catch (err) {
-      console.error('[LexNote] démarrage de la capture', err);
+      log.transcription.error('démarrage de la capture', err);
       this.releaseHardware();
       this.setStatus('ERROR', { kind: 'unknown', message: `Démarrage impossible : ${(err as Error).message}`, recoverable: true });
     }
@@ -219,13 +226,19 @@ export class CaptureController {
         MediaRecorderCtor: deps.MediaRecorderCtor!, mimeType: mime!, bitsPerSecond: a.bitsPerSecond, chunkMs: a.chunkMs, now: deps.now,
       }, {
         onChunk: (c) => {
-          const p = this.handleChunk(c, run.id).catch((e) => console.error('[LexNote] segment audio', e));
+          const p = this.handleChunk(c, run.id).catch((e) => log.transcription.error('segment audio', e));
           this.inflight.add(p);
           void p.finally(() => this.inflight.delete(p));
         },
         onFatal: (m) => void this.fail('recorder', m, true),
       });
       this.recorder.start();
+    }
+    // Aucun enregistrement audio : le flux ouvert n'a servi qu'à obtenir l'autorisation. On le referme (pas de micro tenu
+    // ouvert pour rien) ; la reconnaissance vocale du navigateur ouvre le sien.
+    if (this.audioStopped && this.stream) {
+      this.stream.getTracks().forEach((t) => { try { t.stop(); } catch { /* déjà arrêtée */ } });
+      this.stream = null;
     }
     this.stream?.getAudioTracks().forEach((t) => {
       t.onended = () => void this.fail('device', 'Le microphone a été déconnecté ou retiré.', true);
@@ -240,7 +253,7 @@ export class CaptureController {
   async pause(): Promise<void> {
     if (this.status !== 'RECORDING') return;
     await this.endRun('pause');
-    try { await this.provider?.pause(); } catch (err) { console.warn('[LexNote] pause moteur', err); }
+    try { await this.provider?.pause(); } catch (err) { log.transcription.warn('pause moteur', err); }
     this.releaseHardware();
     await this.flushSegments();
     this.setStatus('PAUSED');
@@ -253,9 +266,9 @@ export class CaptureController {
     this.setStatus('REQUESTING_PERMISSION');
     let stream: MediaStream;
     try {
-      stream = await this.deps.getUserMedia({ audio: { channelCount: 1 } });
+      stream = await openMic(this.deps.getUserMedia);
     } catch (err) {
-      this.setStatus('ERROR', this.classifyMediaError(err));
+      this.setStatus('ERROR', await this.micError(err));
       return;
     }
     this.stream = stream;
@@ -290,7 +303,7 @@ export class CaptureController {
       await this.flushSegments();
       await this.flushAnchors(true);
     } catch (err) {
-      console.error('[LexNote] arrêt de la capture', err);
+      log.transcription.error('arrêt de la capture', err);
     } finally {
       this.provider?.dispose();
       this.provider = null;
@@ -309,7 +322,7 @@ export class CaptureController {
     };
     this.markers = [...this.markers, marker].sort((a, b) => a.atMs - b.atMs);
     this.emit({ type: 'marker', marker });
-    void this.deps.storage.putMarker(marker).catch((e) => console.error('[LexNote] marqueur non enregistré', e));
+    void this.deps.storage.putMarker(marker).catch((e) => log.transcription.error('marqueur non enregistré', e));
     this.emitSummary();
     return marker;
   }
@@ -319,12 +332,12 @@ export class CaptureController {
     const next = { ...m, ...patch };
     this.markers = this.markers.map((x) => (x.id === id ? next : x));
     this.emit({ type: 'marker', marker: next });
-    void this.deps.storage.putMarker(next).catch((e) => console.error(e));
+    void this.deps.storage.putMarker(next).catch((e) => log.transcription.error('erreur inattendue', e));
   }
   removeMarker(id: string) {
     this.markers = this.markers.filter((m) => m.id !== id);
     this.emit({ type: 'markerRemoved', id });
-    void this.deps.storage.deleteMarker(id).catch((e) => console.error(e));
+    void this.deps.storage.deleteMarker(id).catch((e) => log.transcription.error('erreur inattendue', e));
     this.emitSummary();
   }
 
@@ -482,7 +495,7 @@ export class CaptureController {
   private async endRun(reason: 'user' | 'pause' | 'interrupted') {
     const a = this.audio;
     this.stopTimers();
-    try { await this.recorder?.stop(); } catch (err) { console.warn('[LexNote] arrêt recorder', err); }
+    try { await this.recorder?.stop(); } catch (err) { log.transcription.warn('arrêt recorder', err); }
     this.recorder = null;
     await Promise.allSettled([...this.inflight]); // le dernier segment est écrit (et mis en file) avant de poursuivre
     const run = a?.runs.find((r) => r.id === this.runId);
@@ -508,7 +521,7 @@ export class CaptureController {
       this.provider = null;
       await this.flushSegments();
     } catch (err) {
-      console.error('[LexNote] gestion d’interruption', err);
+      log.transcription.error('gestion d’interruption', err);
     } finally {
       this.failing = false;
       this.releaseHardware();
@@ -517,18 +530,13 @@ export class CaptureController {
     }
   }
 
-  private classifyMediaError(err: unknown): CaptureError {
-    const name = (err as DOMException)?.name ?? '';
-    if (name === 'NotAllowedError' || name === 'SecurityError' || name === 'PermissionDeniedError') {
-      return { kind: 'permission', recoverable: false, message: 'Accès au microphone refusé. Autorisez-le dans les réglages du navigateur (icône à gauche de l’adresse), puis réessayez.' };
-    }
-    if (name === 'NotFoundError' || name === 'OverconstrainedError') {
-      return { kind: 'device', recoverable: true, message: 'Aucun microphone détecté. Branchez-en un puis réessayez.' };
-    }
-    if (name === 'NotReadableError' || name === 'AbortError') {
-      return { kind: 'device', recoverable: true, message: 'Le microphone est utilisé par une autre application ou indisponible.' };
-    }
-    return { kind: 'unknown', recoverable: true, message: `Impossible d’accéder au microphone (${name || 'erreur inconnue'}).` };
+  /** Échec d'accès au micro : cause VÉRIFIÉE (permission, périphériques, système) avant tout message. Rien n'est effacé. */
+  private async micError(err: unknown): Promise<CaptureError> {
+    const env = this.deps.micEnv?.() ?? { mediaDevices: { getUserMedia: this.deps.getUserMedia }, isSecureContext: true };
+    const f = await diagnoseMicFailure(err, env);
+    const d = f.diag;
+    log.transcription.warn(`accès micro impossible : ${d.issue} (erreur ${d.error}, permission ${d.permission}, entrées audio ${d.audioInputs ?? '?'}${d.labelled ? '' : ' masquées'}, ${d.secure ? 'https' : 'non sécurisé'}, ${d.browser})`, undefined, `MIC-${d.issue.toUpperCase()}`);
+    return { kind: f.kind, message: f.message, title: f.title, issue: f.issue, recoverable: f.retry };
   }
 
   private async addInterruption(kind: InterruptionKind, message: string, recoverable: boolean, atMs?: number) {
@@ -538,7 +546,7 @@ export class CaptureController {
     if (kind === 'provider' || kind === 'network') this.openProviderInterruption = it;
     this.emit({ type: 'interruption', interruption: it });
     this.emitSummary();
-    await this.deps.storage.putInterruption(it).catch((e) => console.error('[LexNote] interruption non enregistrée', e));
+    await this.deps.storage.putInterruption(it).catch((e) => log.transcription.error('interruption non enregistrée', e));
   }
 
   private resolveProviderInterruption() {
@@ -603,7 +611,7 @@ export class CaptureController {
       await this.deps.storage.putSegments(batch);
     } catch (err) {
       this.segBuf.unshift(...batch); // on réessaiera : rien n'est perdu tant que la page vit
-      console.error('[LexNote] segments non enregistrés', err);
+      log.transcription.error('segments non enregistrés', err);
     }
   }
   private async flushAnchors(refresh: boolean) {
@@ -613,7 +621,7 @@ export class CaptureController {
     }
     if (!this.anchorBuf.length) return;
     const batch = this.anchorBuf.splice(0);
-    try { await this.deps.storage.putAnchors(batch); } catch (err) { this.anchorBuf.unshift(...batch); console.error(err); }
+    try { await this.deps.storage.putAnchors(batch); } catch (err) { this.anchorBuf.unshift(...batch); log.transcription.error('erreur inattendue', err); }
   }
 
   private async saveAudioSession() {
@@ -622,7 +630,7 @@ export class CaptureController {
     try {
       await this.deps.storage.putAudioSession(this.audio);
       this.emit({ type: 'audioSession', audioSession: structuredClone(this.audio) });
-    } catch (err) { console.error('[LexNote] session audio non enregistrée', err); }
+    } catch (err) { log.transcription.error('session audio non enregistrée', err); }
   }
 
   summary(): CaptureSummary {

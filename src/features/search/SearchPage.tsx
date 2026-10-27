@@ -74,7 +74,7 @@ export function SearchPage() {
 
   return (
     <div className="page page--narrow page-enter">
-      <header className="page__head"><div><h1>Recherche</h1><p className="page__sub">Matières, modules, titres de CM, notes et transcriptions.</p></div></header>
+      <header className="page__head"><div><h1>Recherche</h1><p className="page__sub">Matières, modules, titres de séances, notes et transcriptions.</p></div></header>
       <div className="searchbox searchbox--lg" role="search" style={{ position: 'relative', zIndex: 1 }}>
         <Search size={18} aria-hidden />
         <input aria-label="Recherche" placeholder="Ex. vices du consentement, 1128, Poussin…" value={q} autoFocus onChange={(e) => setQ(e.target.value)} data-testid="search-input" />

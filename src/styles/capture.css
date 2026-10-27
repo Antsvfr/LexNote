@@ -62,6 +62,11 @@
 .tpanel__storage .warn { color: var(--danger); }
 .tpanel__banner { margin: 8px 12px 0; padding: 8px 10px; font-size: 12.5px; align-items: flex-start; }
 .tpanel__banner em { color: var(--ink-3); }
+.tpanel__error { gap: 8px; }
+.tpanel__errtext { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.tpanel__errtext strong { font-weight: 600; color: inherit; }
+.tpanel__error .btn { flex-shrink: 0; align-self: center; }
+.tpanel__hint { font-size: 12px; margin: 0; }
 .tpanel__scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 6px 20px; overscroll-behavior: contain; }
 .tpanel__empty { display: grid; justify-items: center; gap: 10px; padding: 32px 20px; text-align: center; color: var(--ink-3); font-size: 13.5px; }
 .tpanel__live {
@@ -121,7 +126,28 @@
 code { font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-sunken); padding: 1px 5px; border-radius: 4px; }
 
 @media (max-width: 1100px) { :root { --panel-w: 320px; } }
-@media (max-width: 860px) { .sidepanel { display: none; } .chips-float { right: 8px; } }
+/* Mobile / petite fenêtre : le panneau (Transcription, Assistant) devient une FEUILLE ancrée en bas, jamais masquée. */
+.sheet-fab, .sheet-backdrop, .sidepanel__close { display: none; }
+@media (max-width: 860px) {
+  .chips-float { right: 8px; }
+  .sidepanel {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; height: min(72dvh, 560px); max-height: 85dvh;
+    border-left: 0; border-top: 1px solid var(--border-hover); border-radius: 18px 18px 0 0; background: var(--bg-raised, rgb(9 18 31 / 0.98));
+    box-shadow: 0 -12px 40px rgb(0 0 0 / 0.45); padding-bottom: env(safe-area-inset-bottom); animation: sheetup var(--t-med) var(--ease) both;
+  }
+  .sidepanel::before { content: ''; align-self: center; width: 40px; height: 4px; margin: 8px 0 0; border-radius: 4px; background: var(--border-hover); flex: none; }
+  .sidepanel__tabs { align-items: center; }
+  .sidepanel__close { display: inline-flex; margin-left: auto; margin-bottom: 4px; }
+  .sheet-backdrop { display: block; position: fixed; inset: 0; z-index: 55; background: rgb(0 0 0 / 0.4); border: 0; }
+  .sheet-fab {
+    display: inline-flex; align-items: center; gap: 8px; position: fixed; right: 14px; bottom: calc(14px + env(safe-area-inset-bottom)); z-index: 50;
+    min-height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--border-hover); background: var(--bg-raised, #0b1626); color: var(--ink);
+    box-shadow: 0 6px 24px rgb(0 0 0 / 0.4); font-weight: 600;
+  }
+  .sheet-fab__dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent-red); animation: recpulse 1.4s ease-in-out infinite; }
+}
+@keyframes sheetup { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .sidepanel, .sheet-fab__dot { animation: none !important; } }
 
 .tmore { display: grid; place-items: center; padding: 8px; }
 

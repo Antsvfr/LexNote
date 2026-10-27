@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { FakeMediaRecorder, FakeProvider, makeRig } from './testing';
+import { FakeMediaRecorder, FakeProvider, FakeStream, makeRig } from './testing';
 import { MemoryCaptureStorage } from './storage/memory';
 import { CaptureController } from './controller';
 
@@ -25,21 +25,83 @@ describe('permission micro', () => {
     expect(FakeMediaRecorder.instances).toHaveLength(1);
   });
 
-  it('permission refusée → ERROR explicite, rien n’est enregistré', async () => {
+  it('permission refusée → ERROR explicite (« bloqué »), réessai proposé, rien n’est enregistré', async () => {
     const r = await makeRig(vi, { getUserMediaError: 'NotAllowedError' });
     await r.controller.start();
     expect(r.controller.status).toBe('ERROR');
-    expect(r.controller.error?.kind).toBe('permission');
-    expect(r.controller.error?.recoverable).toBe(false);
-    expect(r.controller.error?.message).toMatch(/refusé/);
+    expect(r.controller.error).toMatchObject({ kind: 'permission', issue: 'denied', recoverable: true, title: 'L’accès au microphone est bloqué' });
+    expect(r.controller.error?.message).not.toMatch(/Aucun microphone/);
     expect(FakeMediaRecorder.instances).toHaveLength(0);
     expect(await r.storage.getAudioSession('cm1')).toBeUndefined();
   });
 
-  it('microphone introuvable → ERROR récupérable', async () => {
+  it('NotFoundError sans vérification possible → « inaccessible », jamais « aucun microphone »', async () => {
     const r = await makeRig(vi, { getUserMediaError: 'NotFoundError' });
     await r.controller.start();
-    expect(r.controller.error).toMatchObject({ kind: 'device', recoverable: true });
+    expect(r.controller.error).toMatchObject({ kind: 'device', recoverable: true, issue: 'unavailable' });
+    expect(r.controller.error?.title).not.toMatch(/Aucun/);
+  });
+
+  it('RÉGRESSION Mac : micro intégré présent, navigateur pas encore autorisé → cause système expliquée, pas « Aucun microphone détecté »', async () => {
+    const r = await makeRig(vi, {
+      getUserMediaError: 'NotFoundError',
+      micEnv: () => ({
+        mediaDevices: { getUserMedia: vi.fn(), enumerateDevices: async () => [] },
+        permissions: { query: async () => ({ state: 'prompt' }) },
+        isSecureContext: true, userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/141.0.0.0 Safari/537.36',
+      }),
+    });
+    await r.controller.start();
+    expect(r.controller.error?.issue).toBe('system-blocked');
+    expect(`${r.controller.error?.title} ${r.controller.error?.message}`).not.toMatch(/Aucun microphone/);
+    expect(r.controller.error?.message).toMatch(/Réglages Système/);
+  });
+
+  it('NotReadableError → momentanément indisponible, puis « Réessayer » démarre réellement', async () => {
+    const r = await makeRig(vi, { getUserMediaError: 'NotReadableError' });
+    await r.controller.start();
+    expect(r.controller.error).toMatchObject({ issue: 'busy', recoverable: true });
+    r.getUserMedia.mockImplementation(async () => { const s = new FakeStream(); r.streams.push(s); return s as unknown as MediaStream; });
+    await r.controller.start();
+    expect(r.controller.status).toBe('RECORDING');
+    expect(r.controller.error).toBeNull();
+  });
+
+  it('OverconstrainedError : second essai avec { audio: true }, la capture démarre', async () => {
+    const r = await makeRig(vi);
+    r.getUserMedia.mockImplementationOnce(async () => { throw new DOMException('x', 'OverconstrainedError'); });
+    await r.controller.start();
+    expect(r.getUserMedia).toHaveBeenCalledTimes(2);
+    expect(r.getUserMedia.mock.calls[1]).toEqual([{ audio: true }]);
+    expect(r.controller.status).toBe('RECORDING');
+  });
+
+  it('sans enregistrement audio (reconnaissance live seule) : le flux de vérification est refermé, pas de micro tenu ouvert', async () => {
+    const r = await makeRig(vi, { settings: { keepAudio: false } });
+    await r.controller.start();
+    expect(r.controller.status).toBe('RECORDING');
+    expect(r.streams[0]!.tracks.every((t) => t.readyState === 'ended')).toBe(true);
+    expect(FakeMediaRecorder.instances).toHaveLength(0);
+  });
+
+  it('avec enregistrement audio : le flux reste ouvert pendant la capture, puis est refermé à l’arrêt', async () => {
+    const r = await makeRig(vi, { settings: { keepAudio: true } });
+    await r.controller.start();
+    expect(r.streams[0]!.tracks[0]!.readyState).toBe('live');
+    await r.controller.stop();
+    expect(r.streams[0]!.tracks[0]!.readyState).toBe('ended');
+  });
+
+  it('échec du micro à la reprise : transcription déjà obtenue et chronologie conservées', async () => {
+    const r = await makeRig(vi);
+    await r.controller.start();
+    r.provider!.say('Premier passage du professeur', 0, 1000);
+    await r.controller.pause();
+    r.getUserMedia.mockImplementation(async () => { throw new DOMException('x', 'NotReadableError'); });
+    await r.controller.resume();
+    expect(r.controller.status).toBe('ERROR');
+    expect((await r.storage.listSegments('cm1')).map((x) => x.text)).toEqual(['Premier passage du professeur']);
+    expect((await r.storage.getAudioSession('cm1'))?.runs).toHaveLength(1);
   });
 });
 

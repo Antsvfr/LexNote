@@ -9,6 +9,8 @@ import { ReviewPage } from '@/features/review/ReviewPage';
 import { ArtifactPage } from '@/features/study/ArtifactPage';
 import { AuthorizeRevem } from '@/features/integration/AuthorizeRevem';
 import { ConnectRevemEntry } from '@/features/integration/ConnectRevemEntry';
+import { LaunchRevemEntry } from '@/features/integration/LaunchRevemEntry';
+import { OpenRevemCourse } from '@/features/integration/OpenRevemCourse';
 import { CoursePage } from '@/features/course/CoursePage';
 import { SubjectDialog } from '@/features/library/SubjectDialog';
 import { AppShell } from '@/components/AppShell';
@@ -25,7 +27,8 @@ import { SearchPage } from '@/features/search/SearchPage';
 import { SettingsPage } from '@/features/settings/SettingsPage';
 import { CommandPalette } from '@/features/palette/CommandPalette';
 import { applyTheme, useUI } from '@/store/ui';
-import { usePwaUpdate } from '@/lib/pwa';
+import { SystemStatusPage } from '@/features/settings/SystemStatusPage';
+import { usePwaUpdate, useUnloadGuard } from '@/lib/pwa';
 
 // L'éditeur (TipTap/ProseMirror) est le plus gros morceau : chargé à la demande.
 const EditorPage = lazy(() => import('@/features/editor/EditorPage').then((m) => ({ default: m.EditorPage })));
@@ -34,6 +37,7 @@ const RecapPage = lazy(() => import('@/features/recap/RecapPage').then((m) => ({
 export function App() {
   const theme = useUI((s) => s.theme);
   usePwaUpdate();
+  useUnloadGuard();
 
   // Suit le thème système quand la préférence est "Système".
   useEffect(() => {
@@ -55,6 +59,7 @@ export function App() {
             <Route path="forgot-password" element={<ForgotPasswordPage />} />
             <Route path="reset-password" element={<ResetPasswordPage />} />
             <Route path="integrations/revem/connect" element={<ConnectRevemEntry />} />
+            <Route path="integrations/revem/launch" element={<LaunchRevemEntry />} />
             <Route element={<RequireAuth />}>
             <Route path="onboarding" element={<OnboardingPage />} />
             <Route element={<AppShell />}>
@@ -67,12 +72,14 @@ export function App() {
               <Route path="supports/:artifactId" element={<ArtifactPage />} />
               <Route path="search" element={<SearchPage />} />
               <Route path="settings" element={<SettingsPage />} />
+              <Route path="settings/system-status" element={<SystemStatusPage />} />
               <Route path="integrations/revem/authorize" element={<AuthorizeRevem />} />
               <Route path="session/:sessionId/recap" element={<RecapPage />} />
               <Route path="session/:sessionId/course" element={<CoursePage />} />
               <Route path="session/:sessionId/review" element={<ReviewPage />} />
               <Route path="*" element={<Dashboard />} />
             </Route>
+            <Route path="integrations/revem/open" element={<OpenRevemCourse />} />
             <Route path="session/:sessionId" element={<EditorPage />} />
             </Route>
           </Routes>

@@ -21,7 +21,7 @@ export const STATUS_LABELS: Record<TranscriptionStatus, string> = {
   INACTIVE: 'Inactive',
   REQUESTING_PERMISSION: 'Autorisation du micro…',
   STARTING: 'Démarrage…',
-  RECORDING: 'Enregistrement',
+  RECORDING: 'En cours',
   PAUSED: 'En pause',
   PROCESSING: 'Finalisation…',
   ERROR: 'Interrompue',

@@ -159,6 +159,28 @@ describe('WebSpeechProvider', () => {
     expect(errors[1]).toMatchObject({ kind: 'permission', recoverable: false });
   });
 
+  it('audio-capture : récupérable (pas « aucun micro »), le navigateur relance ; service-not-allowed : fatal avec explication Safari', async () => {
+    const { c, errors } = ctx();
+    const p = new WebSpeechProvider(); await p.initialize(c); await p.start();
+    FakeSR.last.onerror?.({ error: 'audio-capture' });
+    expect(errors[0]).toMatchObject({ kind: 'provider', recoverable: true });
+    expect(errors[0]!.message).toMatch(/momentanément indisponible/);
+    vi.setSystemTime(Date.now() + 10_000);
+    FakeSR.last.onend?.(); await vi.advanceTimersByTimeAsync(400);
+    expect(FakeSR.count).toBe(2); // nouvel essai
+    FakeSR.last.onerror?.({ error: 'service-not-allowed' });
+    expect(errors[1]).toMatchObject({ recoverable: false });
+    expect(errors[1]!.message).toMatch(/Dictée/);
+  });
+
+  it('arrêt volontaire : onend ne relance pas', async () => {
+    const { c, errors } = ctx();
+    const p = new WebSpeechProvider(); await p.initialize(c); await p.start();
+    const stopped = p.stop(); await vi.advanceTimersByTimeAsync(400); await stopped;
+    expect(FakeSR.count).toBe(1);
+    expect(errors).toHaveLength(0);
+  });
+
   it('pause / reprise / arrêt', async () => {
     const { c } = ctx();
     const p = new WebSpeechProvider(); await p.initialize(c); await p.start();

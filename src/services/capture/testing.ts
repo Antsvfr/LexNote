@@ -81,7 +81,7 @@ export function okStorageInfo(): StorageInfo {
 
 export async function makeRig(vi: typeof import('vitest').vi, opts: {
   provider?: FakeProvider | null; settings?: Partial<EngineSettings>; storage?: MemoryCaptureStorage;
-  getUserMediaError?: string; chunkMs?: number; sessionId?: string;
+  getUserMediaError?: string; chunkMs?: number; sessionId?: string; micEnv?: CaptureDeps['micEnv'];
 } = {}): Promise<Rig> {
   FakeMediaRecorder.instances = [];
   const storage = opts.storage ?? new MemoryCaptureStorage(true);
@@ -98,7 +98,7 @@ export async function makeRig(vi: typeof import('vitest').vi, opts: {
     isTypeSupported: FakeMediaRecorder.isTypeSupported,
     now: () => Date.now(), estimate: async () => info.current,
     providerFactory: () => provider, settings: () => ({ ...DEFAULT_ENGINE_SETTINGS, ...opts.settings }),
-    chunkMs: opts.chunkMs ?? 30_000, retryDelaysMs: [10, 20],
+    chunkMs: opts.chunkMs ?? 30_000, retryDelaysMs: [10, 20], micEnv: opts.micEnv,
   };
   const controller = new CaptureController(opts.sessionId ?? 'cm1', deps);
   await controller.load();

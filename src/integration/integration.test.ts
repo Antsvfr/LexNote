@@ -6,7 +6,7 @@ import { generateDraft, toArtifact } from '@/services/study/engine';
 import type { CourseSession } from '@/domain/types';
 import {
   INTEGRATION_VERSION, buildLexNoteLink, courseProgressEventSchema, envelopeSchema, expectPayload, externalCourseEventSchema, findSecrets, integrationError,
-  integrationIdentitySchema, isSupportedVersion, isTrustedLink, makeEnvelope, normalizeErrorCode, parseEnvelope, progressEventId, toArtifactReference, toSessionReference,
+  integrationIdentitySchema, isSupportedVersion, isTrustedLink, makeEnvelope, normalizeErrorCode, parseEnvelope, progressEventId, toArtifactReference, toSessionReference, isContractArtifact,
   type ExternalCourseEvent, type IntegrationIdentity,
 } from './index';
 
@@ -145,6 +145,16 @@ describe('références LexNote → REV-EM (minimisation)', () => {
     expect(ref.itemCount).toBe((art.content as { cards: unknown[] }).cards.length);
     const json = JSON.stringify(ref);
     expect(json).not.toContain('user-uuid-secret'); expect(json).not.toContain('manœuvres'); expect(json).not.toMatch(/"content"|"sources"|"provenance"/);
+    expect(parseEnvelope(JSON.parse(JSON.stringify(makeEnvelope({ from: 'lexnote', to: 'revem', linkId: 'l', payload: ref, now: NOW }))), NOW).ok).toBe(true);
+  });  it('compatibilité v1 : un document dérivé de la transcription n’est jamais exposé ; un type de séance récent devient OTHER', async () => {
+    const course = await courseOf(richMaterial());
+    const art = toArtifact(generateDraft(course, { type: 'FLASHCARDS', settings: { count: 5 } }), { userId: 'u', subjectId: 'sub-1' });
+    const summary = { ...art, type: 'SUMMARY' as const, content: { language: 'fr', blocks: [{ id: 'b', kind: 'paragraph' as const, text: 'résumé privé' }] } };
+    expect(isContractArtifact(art)).toBe(true);
+    expect(isContractArtifact(summary)).toBe(false);
+    expect(() => toArtifactReference(summary, { origin: ORIGIN, stale: false })).toThrow(/non prévu/);
+    const ref = toSessionReference({ ...session(), type: 'PROJECT' }, { origin: ORIGIN, subject: { id: 'sub-1', name: 'Gestion de projet' }, hasNotes: true, hasTranscript: true, sourceCount: 1, latestCourse: null, artifactCount: 0 });
+    expect(ref.sessionType).toBe('OTHER');
     expect(parseEnvelope(JSON.parse(JSON.stringify(makeEnvelope({ from: 'lexnote', to: 'revem', linkId: 'l', payload: ref, now: NOW }))), NOW).ok).toBe(true);
   });
 });

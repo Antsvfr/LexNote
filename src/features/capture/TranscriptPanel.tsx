@@ -1,5 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, Mic, Star, TriangleAlert } from 'lucide-react';
+import { normalize } from '@/lib/text';
+import { TranscriptTools, SelectionBar, type SelectionInfo } from './TranscriptTools';
 import {
   STATUS_LABELS, formatBytes, formatHMS, wallClock, type TimelineMarker, type TranscriptSegment,
 } from '@/domain/capture';
@@ -8,20 +10,33 @@ import { useCapture } from '@/store/capture';
 import { MiniPlayer } from './MiniPlayer';
 import { useStartCapture } from './RecControls';
 import { useRecordedMs } from './useRecording';
+import { useMicPermission } from './useMicPermission';
 
 /** Fenêtre d'affichage : seuls les derniers passages sont rendus ; les précédents se chargent par paliers. */
 const PAGE = 300;
 
 type Item = { kind: 'seg'; seg: TranscriptSegment } | { kind: 'mark'; marker: TimelineMarker };
 
-const Row = memo(function Row({ seg, originAt, selected, onPick }: { seg: TranscriptSegment; originAt: number; selected: boolean; onPick: (s: TranscriptSegment) => void }) {
+/** Surligne les occurrences de la recherche (comparaison sans accents ni casse, texte affiché intact). */
+function Highlighted({ text, query }: { text: string; query: string }) {
+  if (!query) return <>{text}</>;
+  const folded = normalize(text); const q = normalize(query);
+  // `normalize` conserve la longueur pour les lettres accentuées usuelles : on s'aligne dessus, sinon on n'affiche pas de surlignage.
+  if (folded.length !== text.length) return <>{text}</>;
+  const out: React.ReactNode[] = []; let i = 0; let k = folded.indexOf(q);
+  while (k >= 0 && q) { out.push(text.slice(i, k), <mark key={k}>{text.slice(k, k + q.length)}</mark>); i = k + q.length; k = folded.indexOf(q, i); }
+  out.push(text.slice(i));
+  return <>{out}</>;
+}
+
+const Row = memo(function Row({ seg, originAt, selected, query, onPick }: { seg: TranscriptSegment; originAt: number; selected: boolean; query: string; onPick: (s: TranscriptSegment) => void }) {
   return (
     <li
       className={`tseg${selected ? ' is-selected' : ''}${seg.confidence !== undefined && seg.confidence < 0.6 ? ' is-low' : ''}`}
-      data-seg={seg.id} data-testid="tseg" onClick={() => onPick(seg)}
+      data-seg={seg.id} data-start={seg.startMs} data-end={seg.endMs} data-testid="tseg" onClick={() => onPick(seg)}
     >
-      <time title={`${formatHMS(seg.startMs)} depuis le début du CM`}>{wallClock(originAt, seg.startMs)}</time>
-      <p>{seg.text}</p>
+      <time title={`${formatHMS(seg.startMs)} depuis le début de la séance`}>{wallClock(originAt, seg.startMs)}</time>
+      <p><Highlighted text={seg.text} query={query} /></p>
     </li>
   );
 });
@@ -42,7 +57,11 @@ const MarkRow = memo(function MarkRow({ marker, onPick }: { marker: TimelineMark
  * - suit le direct tant que l'utilisateur est en bas ; s'il remonte, il n'est JAMAIS ramené de force ;
  * - `content-visibility: auto` + lignes mémoïsées : des milliers de segments sans ralentir l'éditeur.
  */
-export function TranscriptPanel({ sessionId, variant = 'live' }: { sessionId: string; variant?: 'live' | 'review' }) {
+export function TranscriptPanel({ sessionId, variant = 'live', sessionTitle, onSelectionAction }: {
+  sessionId: string; variant?: 'live' | 'review'; sessionTitle?: string;
+  /** Relecture : action demandée sur le passage sélectionné (résumer, traduire, expliquer, flashcard). */
+  onSelectionAction?: (actionId: string, sel: SelectionInfo) => void;
+}) {
   const segments = useCapture((s) => s.segments);
   const markers = useCapture((s) => s.markers);
   const status = useCapture((s) => s.status);
@@ -121,6 +140,34 @@ export function TranscriptPanel({ sessionId, variant = 'live' }: { sessionId: st
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusMs, loaded, segments.length > 0]);
 
+  /** Aller à un segment, même hors de la fenêtre affichée (recherche, horodatage). */
+  const goTo = useCallback((segId: string) => {
+    const idx = items.findIndex((it) => it.kind === 'seg' && it.seg.id === segId);
+    if (idx >= 0 && items.length - idx > shown) setShown(items.length - idx + 20);
+    setSelected(segId); following.current = false; setAtBottom(false);
+    requestAnimationFrame(() => scroller.current?.querySelector(`[data-seg="${segId}"]`)?.scrollIntoView({ block: 'center' }));
+  }, [items, shown]);
+  const [query, setQuery] = useState('');
+  const [selection, setSelection] = useState<SelectionInfo | null>(null);
+
+  // Sélection d'un passage (souris ou tactile) : bornes = segments de début et de fin de la sélection.
+  useEffect(() => {
+    if (variant !== 'review' || !onSelectionAction) return;
+    const onSel = () => {
+      const sel = window.getSelection(); const root = scroller.current;
+      if (!sel || sel.isCollapsed || !root || !sel.anchorNode || !sel.focusNode || !root.contains(sel.anchorNode) || !root.contains(sel.focusNode)) { setSelection(null); return; }
+      // Segments touchés par la sélection (quel que soit le nœud de départ/fin : texte, ligne, liste).
+      const range = sel.getRangeAt(0);
+      const hits = [...root.querySelectorAll<HTMLElement>('[data-seg]')].filter((el) => range.intersectsNode(el));
+      const text = sel.toString().trim();
+      if (!hits.length || text.length < 2) { setSelection(null); return; }
+      const starts = hits.map((h) => Number(h.dataset.start)); const ends = hits.map((h) => Number(h.dataset.end));
+      setSelection({ text, range: { startMs: Math.min(...starts), endMs: Math.max(...ends) }, words: text.match(/[\p{L}\p{N}]+/gu)?.length ?? 0 });
+    };
+    document.addEventListener('selectionchange', onSel);
+    return () => document.removeEventListener('selectionchange', onSel);
+  }, [variant, onSelectionAction]);
+
   const hasAudio = chunks.some((c) => c.status === 'stored');
   const pick = useCallback((seg: TranscriptSegment) => {
     setSelected(seg.id);
@@ -132,6 +179,9 @@ export function TranscriptPanel({ sessionId, variant = 'live' }: { sessionId: st
   const unresolved = [...interruptions].reverse().find((i) => i.resolvedAtMs === undefined && ['provider', 'network', 'storage'].includes(i.kind));
   const live = status === 'RECORDING';
   const canStart = !['REQUESTING_PERMISSION', 'STARTING', 'RECORDING', 'PROCESSING'].includes(status);
+  // Un seul état visible à la fois : jamais « Interrompue » pour une transcription qui n'a jamais démarré.
+  const statusLabel = status === 'ERROR' ? (audio ? 'Interrompue' : 'Non démarrée') : status === 'INACTIVE' && !audio ? 'Non activée' : STATUS_LABELS[status];
+  const micPermission = useMicPermission(variant === 'live' && !audio);
 
   return (
     <section className="tpanel" aria-label="Transcription" data-testid="transcript-panel">
@@ -142,7 +192,7 @@ export function TranscriptPanel({ sessionId, variant = 'live' }: { sessionId: st
           ) : <span className="rec__dot" aria-hidden />}
           <strong className="tpanel__title">Transcription</strong>
           <span className="muted">·</span>
-          <span data-testid="capture-status">{STATUS_LABELS[status]}</span>
+          <span data-testid="capture-status">{statusLabel}</span>
           {providerLabel && <span className="muted">· {providerLabel}</span>}
           {!providerLabel && <span className="muted">· audio seul</span>}
         </div>
@@ -157,9 +207,13 @@ export function TranscriptPanel({ sessionId, variant = 'live' }: { sessionId: st
       </header>
 
       {error && (
-        <div className="banner banner--warn tpanel__banner" role="alert" data-testid="capture-error">
-          <TriangleAlert size={15} aria-hidden /> <span>{error.message} <em>Vos notes ne sont pas affectées.</em></span>
-          {error.recoverable && <button className="btn btn--sm" onClick={request}>Reprendre la transcription</button>}
+        <div className="banner banner--warn tpanel__banner tpanel__error" role="alert" data-testid="capture-error" data-issue={error.issue ?? error.kind}>
+          <TriangleAlert size={15} aria-hidden />
+          <div className="tpanel__errtext">
+            {error.title && <strong>{error.title}</strong>}
+            <span>{error.message} <em>Vos notes{audio ? ' et la transcription déjà obtenue' : ''} ne sont pas affectées.</em></span>
+          </div>
+          {(error.recoverable || error.issue === 'denied') && <button className="btn btn--sm" onClick={request}>Réessayer</button>}
         </div>
       )}
       {!error && unresolved && (
@@ -173,6 +227,10 @@ export function TranscriptPanel({ sessionId, variant = 'live' }: { sessionId: st
           <button className="btn btn--sm" onClick={() => void captureManager.retryFailed(sessionId)}>Réessayer</button></div>
       )}
 
+      {variant === 'review' && segments.length > 0 && (
+        <TranscriptTools segments={segments} originAt={audio?.originAt ?? 0} sessionTitle={sessionTitle ?? 'Séance'} query={query} onQuery={setQuery} onGoTo={goTo}
+          onSeek={(ms) => { const t = segments.find((x) => x.endMs >= ms) ?? segments[segments.length - 1]!; goTo(t.id); if (hasAudio) setPlay((p) => ({ ms: t.startMs, nonce: p.nonce + 1 })); }} />
+      )}
       <div className="tpanel__scroll" ref={scroller} onScroll={onScroll} data-testid="transcript-scroll">
         {items.length === 0 && !interim ? (
           <div className="tpanel__empty">
@@ -180,8 +238,12 @@ export function TranscriptPanel({ sessionId, variant = 'live' }: { sessionId: st
             {status === 'RECORDING'
               ? <p>En écoute… la transcription apparaît ici au fil du cours.</p>
               : <>
-                  <p>{loaded ? 'Aucune transcription pour ce CM.' : 'Chargement…'}</p>
-                  {variant === 'live' && canStart && <button className="btn btn--sm" onClick={request}><Mic /> {audio ? 'Reprendre la transcription' : 'Activer la transcription'}</button>}
+                  <p>{!loaded ? 'Chargement…' : variant === 'live' && !audio ? 'La transcription n’est pas encore activée.' : 'Aucune transcription pour cette séance.'}</p>
+                  {/* En erreur, l'action est dans le bandeau (« Réessayer ») : pas de second bouton contradictoire. */}
+                  {variant === 'live' && canStart && !error && <>
+                    {!audio && micPermission === 'prompt' && <p className="muted tpanel__hint" data-testid="mic-hint">Votre navigateur vous demandera l’accès au microphone.</p>}
+                    <button className="btn btn--sm" onClick={request}><Mic /> {audio ? 'Reprendre la transcription' : micPermission === 'prompt' ? 'Autoriser le microphone' : 'Activer la transcription'}</button>
+                  </>}
                 </>}
           </div>
         ) : (
@@ -194,7 +256,7 @@ export function TranscriptPanel({ sessionId, variant = 'live' }: { sessionId: st
               }}>Afficher les {Math.min(PAGE, hidden)} passages précédents ({hidden})</button></li>
             )}
             {windowed.map((it) => it.kind === 'seg'
-              ? <Row key={it.seg.id} seg={it.seg} originAt={audio?.originAt ?? 0} selected={selected === it.seg.id} onPick={pick} />
+              ? <Row key={it.seg.id} seg={it.seg} originAt={audio?.originAt ?? 0} selected={selected === it.seg.id} query={query} onPick={pick} />
               : <MarkRow key={it.marker.id} marker={it.marker} onPick={pickMs} />)}
             {interim && <li className="tseg tseg--interim" aria-live="off"><time>…</time><p>{interim}</p></li>}
           </ol>
@@ -206,6 +268,7 @@ export function TranscriptPanel({ sessionId, variant = 'live' }: { sessionId: st
           <ArrowDown size={14} /> Revenir au direct
         </button>
       )}
+      {selection && onSelectionAction && <SelectionBar selection={selection} onAction={(id) => { onSelectionAction(id, selection); window.getSelection()?.removeAllRanges(); setSelection(null); }} onClose={() => { window.getSelection()?.removeAllRanges(); setSelection(null); }} />}
       <MiniPlayer sessionId={sessionId} startAtMs={play.ms} nonce={play.nonce} chunkCount={chunks.length} />
       {dialog}
     </section>
