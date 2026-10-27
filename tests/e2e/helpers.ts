@@ -119,6 +119,7 @@ export const FAKE_SPEECH_INIT = `
     navigator.mediaDevices.getUserMedia = async (c) => {
       window.__gum++;
       if (window.__denyMic) throw new DOMException('refus', 'NotAllowedError');
+      if (window.__micError) throw new DOMException('simulé', window.__micError);
       const s = await realGum(c); s.getTracks().forEach((t) => window.__tracks.push(t)); return s;
     };
     class FakeSR {

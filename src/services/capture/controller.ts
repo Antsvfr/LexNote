@@ -10,6 +10,7 @@ import { ChunkedRecorder, DEFAULT_BITS_PER_SECOND, DEFAULT_CHUNK_MS, pickMimeTyp
 import type { StorageInfo } from './quota';
 import type { CaptureStorage } from './storage/types';
 import { log } from '@/lib/log';
+import { diagnoseMicFailure, openMic, type MicEnv, type MicIssue } from './mic';
 
 export interface CaptureDeps {
   /** Propriétaire des données capturées. */
@@ -28,6 +29,8 @@ export interface CaptureDeps {
   sleepGapMs?: number;
   retryDelaysMs?: number[];
   wakeLock?: { request(type: 'screen'): Promise<{ release(): Promise<void> }> };
+  /** APIs du navigateur consultées pour DIAGNOSTIQUER un échec d'accès au micro (permission, périphériques). */
+  micEnv?: () => MicEnv;
 }
 
 export type CaptureEvent =
@@ -46,6 +49,9 @@ export interface CaptureError {
   kind: InterruptionKind;
   message: string;
   recoverable: boolean;
+  /** Cause vérifiée d'un échec d'accès au micro (absente pour les autres erreurs). */
+  issue?: MicIssue;
+  title?: string;
 }
 
 export interface LoadedCapture {
@@ -147,9 +153,9 @@ export class CaptureController {
     this.setStatus('REQUESTING_PERMISSION');
     let stream: MediaStream;
     try {
-      stream = await this.deps.getUserMedia({ audio: { channelCount: 1 } });
+      stream = await openMic(this.deps.getUserMedia);
     } catch (err) {
-      this.setStatus('ERROR', this.classifyMediaError(err));
+      this.setStatus('ERROR', await this.micError(err));
       return;
     }
     if (this.disposed) { stream.getTracks().forEach((t) => t.stop()); return; }
@@ -228,6 +234,12 @@ export class CaptureController {
       });
       this.recorder.start();
     }
+    // Aucun enregistrement audio : le flux ouvert n'a servi qu'à obtenir l'autorisation. On le referme (pas de micro tenu
+    // ouvert pour rien) ; la reconnaissance vocale du navigateur ouvre le sien.
+    if (this.audioStopped && this.stream) {
+      this.stream.getTracks().forEach((t) => { try { t.stop(); } catch { /* déjà arrêtée */ } });
+      this.stream = null;
+    }
     this.stream?.getAudioTracks().forEach((t) => {
       t.onended = () => void this.fail('device', 'Le microphone a été déconnecté ou retiré.', true);
     });
@@ -254,9 +266,9 @@ export class CaptureController {
     this.setStatus('REQUESTING_PERMISSION');
     let stream: MediaStream;
     try {
-      stream = await this.deps.getUserMedia({ audio: { channelCount: 1 } });
+      stream = await openMic(this.deps.getUserMedia);
     } catch (err) {
-      this.setStatus('ERROR', this.classifyMediaError(err));
+      this.setStatus('ERROR', await this.micError(err));
       return;
     }
     this.stream = stream;
@@ -518,18 +530,13 @@ export class CaptureController {
     }
   }
 
-  private classifyMediaError(err: unknown): CaptureError {
-    const name = (err as DOMException)?.name ?? '';
-    if (name === 'NotAllowedError' || name === 'SecurityError' || name === 'PermissionDeniedError') {
-      return { kind: 'permission', recoverable: false, message: 'Accès au microphone refusé. Autorisez-le dans les réglages du navigateur (icône à gauche de l’adresse), puis réessayez.' };
-    }
-    if (name === 'NotFoundError' || name === 'OverconstrainedError') {
-      return { kind: 'device', recoverable: true, message: 'Aucun microphone détecté. Branchez-en un puis réessayez.' };
-    }
-    if (name === 'NotReadableError' || name === 'AbortError') {
-      return { kind: 'device', recoverable: true, message: 'Le microphone est utilisé par une autre application ou indisponible.' };
-    }
-    return { kind: 'unknown', recoverable: true, message: `Impossible d’accéder au microphone (${name || 'erreur inconnue'}).` };
+  /** Échec d'accès au micro : cause VÉRIFIÉE (permission, périphériques, système) avant tout message. Rien n'est effacé. */
+  private async micError(err: unknown): Promise<CaptureError> {
+    const env = this.deps.micEnv?.() ?? { mediaDevices: { getUserMedia: this.deps.getUserMedia }, isSecureContext: true };
+    const f = await diagnoseMicFailure(err, env);
+    const d = f.diag;
+    log.transcription.warn(`accès micro impossible : ${d.issue} (erreur ${d.error}, permission ${d.permission}, entrées audio ${d.audioInputs ?? '?'}${d.labelled ? '' : ' masquées'}, ${d.secure ? 'https' : 'non sécurisé'}, ${d.browser})`, undefined, `MIC-${d.issue.toUpperCase()}`);
+    return { kind: f.kind, message: f.message, title: f.title, issue: f.issue, recoverable: f.retry };
   }
 
   private async addInterruption(kind: InterruptionKind, message: string, recoverable: boolean, atMs?: number) {

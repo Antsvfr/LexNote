@@ -10,6 +10,7 @@ import { useCapture } from '@/store/capture';
 import { MiniPlayer } from './MiniPlayer';
 import { useStartCapture } from './RecControls';
 import { useRecordedMs } from './useRecording';
+import { useMicPermission } from './useMicPermission';
 
 /** Fenêtre d'affichage : seuls les derniers passages sont rendus ; les précédents se chargent par paliers. */
 const PAGE = 300;
@@ -178,6 +179,9 @@ export function TranscriptPanel({ sessionId, variant = 'live', sessionTitle, onS
   const unresolved = [...interruptions].reverse().find((i) => i.resolvedAtMs === undefined && ['provider', 'network', 'storage'].includes(i.kind));
   const live = status === 'RECORDING';
   const canStart = !['REQUESTING_PERMISSION', 'STARTING', 'RECORDING', 'PROCESSING'].includes(status);
+  // Un seul état visible à la fois : jamais « Interrompue » pour une transcription qui n'a jamais démarré.
+  const statusLabel = status === 'ERROR' ? (audio ? 'Interrompue' : 'Non démarrée') : status === 'INACTIVE' && !audio ? 'Non activée' : STATUS_LABELS[status];
+  const micPermission = useMicPermission(variant === 'live' && !audio);
 
   return (
     <section className="tpanel" aria-label="Transcription" data-testid="transcript-panel">
@@ -188,7 +192,7 @@ export function TranscriptPanel({ sessionId, variant = 'live', sessionTitle, onS
           ) : <span className="rec__dot" aria-hidden />}
           <strong className="tpanel__title">Transcription</strong>
           <span className="muted">·</span>
-          <span data-testid="capture-status">{STATUS_LABELS[status]}</span>
+          <span data-testid="capture-status">{statusLabel}</span>
           {providerLabel && <span className="muted">· {providerLabel}</span>}
           {!providerLabel && <span className="muted">· audio seul</span>}
         </div>
@@ -203,9 +207,13 @@ export function TranscriptPanel({ sessionId, variant = 'live', sessionTitle, onS
       </header>
 
       {error && (
-        <div className="banner banner--warn tpanel__banner" role="alert" data-testid="capture-error">
-          <TriangleAlert size={15} aria-hidden /> <span>{error.message} <em>Vos notes ne sont pas affectées.</em></span>
-          {error.recoverable && <button className="btn btn--sm" onClick={request}>Reprendre la transcription</button>}
+        <div className="banner banner--warn tpanel__banner tpanel__error" role="alert" data-testid="capture-error" data-issue={error.issue ?? error.kind}>
+          <TriangleAlert size={15} aria-hidden />
+          <div className="tpanel__errtext">
+            {error.title && <strong>{error.title}</strong>}
+            <span>{error.message} <em>Vos notes{audio ? ' et la transcription déjà obtenue' : ''} ne sont pas affectées.</em></span>
+          </div>
+          {(error.recoverable || error.issue === 'denied') && <button className="btn btn--sm" onClick={request}>Réessayer</button>}
         </div>
       )}
       {!error && unresolved && (
@@ -230,8 +238,12 @@ export function TranscriptPanel({ sessionId, variant = 'live', sessionTitle, onS
             {status === 'RECORDING'
               ? <p>En écoute… la transcription apparaît ici au fil du cours.</p>
               : <>
-                  <p>{loaded ? 'Aucune transcription pour cette séance.' : 'Chargement…'}</p>
-                  {variant === 'live' && canStart && <button className="btn btn--sm" onClick={request}><Mic /> {audio ? 'Reprendre la transcription' : 'Activer la transcription'}</button>}
+                  <p>{!loaded ? 'Chargement…' : variant === 'live' && !audio ? 'La transcription n’est pas encore activée.' : 'Aucune transcription pour cette séance.'}</p>
+                  {/* En erreur, l'action est dans le bandeau (« Réessayer ») : pas de second bouton contradictoire. */}
+                  {variant === 'live' && canStart && !error && <>
+                    {!audio && micPermission === 'prompt' && <p className="muted tpanel__hint" data-testid="mic-hint">Votre navigateur vous demandera l’accès au microphone.</p>}
+                    <button className="btn btn--sm" onClick={request}><Mic /> {audio ? 'Reprendre la transcription' : micPermission === 'prompt' ? 'Autoriser le microphone' : 'Activer la transcription'}</button>
+                  </>}
                 </>}
           </div>
         ) : (

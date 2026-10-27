@@ -1,4 +1,5 @@
 import { PROVIDERS, resolveProvider } from '@/services/transcription';
+import { UNSUPPORTED, browserEnv } from './mic';
 import { loadEngineSettings } from '@/services/transcription/settings';
 import { TranscriptIndex } from '@/services/search/transcriptSearch';
 import { insertSorted, type MarkerReason, type NoteAnchor, type TimelineMarker } from '@/domain/capture';
@@ -84,7 +85,8 @@ class CaptureManager {
       userId: this.userId ?? undefined,
       storage: this.getStorage(),
       getUserMedia: (c) => {
-        if (!md?.getUserMedia) return Promise.reject(new DOMException('API micro indisponible (contexte non sécurisé ?)', 'NotFoundError'));
+        // API absente (navigateur ancien, page http) : ce n'est PAS « aucun micro » — le diagnostic le dira.
+        if (!md?.getUserMedia) return Promise.reject(new DOMException('API micro indisponible', UNSUPPORTED));
         return md.getUserMedia(c);
       },
       MediaRecorderCtor: typeof MediaRecorder !== 'undefined' ? MediaRecorder : undefined,
@@ -94,6 +96,7 @@ class CaptureManager {
       providerFactory: () => resolveProvider(),
       settings: loadEngineSettings,
       chunkMs: loadEngineSettings().chunkMs,
+      micEnv: browserEnv,
       wakeLock: (navigator as Navigator & { wakeLock?: CaptureDeps['wakeLock'] }).wakeLock,
     };
   }

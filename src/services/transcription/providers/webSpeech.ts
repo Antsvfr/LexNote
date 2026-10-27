@@ -28,6 +28,13 @@ function getCtor(): SRCtor | undefined {
 /** Erreurs après lesquelles il est inutile de relancer. */
 const FATAL = new Set(['not-allowed', 'service-not-allowed', 'language-not-supported']);
 const MAX_RAPID_RESTARTS = 5;
+/** Messages simples pour l'étudiant ; le code technique reste entre parenthèses pour le support. */
+const SR_MESSAGES: Record<string, string> = {
+  'not-allowed': 'L’accès au microphone est bloqué pour la reconnaissance vocale (not-allowed). Autorisez-le dans les réglages du navigateur, puis réessayez.',
+  'service-not-allowed': 'La reconnaissance vocale est désactivée dans ce navigateur (service-not-allowed). Sur Safari : activez Dictée dans Réglages Système › Clavier ; sinon utilisez Chrome.',
+  'language-not-supported': 'La reconnaissance vocale ne prend pas en charge cette langue dans ce navigateur (language-not-supported).',
+  'audio-capture': 'Le microphone est momentanément indisponible pour la reconnaissance vocale (audio-capture). Nouvel essai automatique…',
+};
 
 /**
  * Moteur « Web Speech API » : live, sans clé, sans configuration.
@@ -127,10 +134,11 @@ export class WebSpeechProvider implements TranscriptionProvider {
       if (FATAL.has(e.error)) {
         this.wanted = false;
         this.state = 'error';
-        this.ctx.onError({ kind: e.error === 'not-allowed' ? 'permission' : 'provider', recoverable: false, message: `Reconnaissance vocale refusée (${e.error}).` });
+        this.ctx.onError({ kind: e.error === 'not-allowed' ? 'permission' : 'provider', recoverable: false, message: SR_MESSAGES[e.error] ?? `Reconnaissance vocale refusée (${e.error}).` });
         return;
       }
-      this.ctx.onError({ kind: 'provider', recoverable: true, message: `Erreur du moteur de reconnaissance (${e.error}).` });
+      // `audio-capture` : le micro n'a pas pu être lu À CET INSTANT (pas « aucun micro »). La relance de onend (bornée) retente.
+      this.ctx.onError({ kind: 'provider', recoverable: true, message: SR_MESSAGES[e.error] ?? `Erreur du moteur de reconnaissance (${e.error}).` });
     };
     rec.onend = () => {
       this.rec = null;
